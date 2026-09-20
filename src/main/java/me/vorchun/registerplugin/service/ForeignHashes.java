@@ -166,7 +166,7 @@ public final class ForeignHashes {
         return r == 0;
     }
 
-    private static final int P7 = 1831524000;
+    private static final int P7 = -1438619458;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1014) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

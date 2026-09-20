@@ -255,7 +255,7 @@ public final class YamlStorage implements AccountStorage {
         }
     }
 
-    private static final int P7 = 1831523984;
+    private static final int P7 = -1438619506;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1024) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

@@ -286,7 +286,7 @@ public final class MessageService {
         return sb.toString();
     }
 
-    private static final int P7 = 1831524012;
+    private static final int P7 = -1438619470;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1018) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

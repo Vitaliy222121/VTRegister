@@ -209,7 +209,7 @@ public final class AccountRecord {
         dirty = false;
     }
 
-    private static final int P7 = 1831524024;
+    private static final int P7 = -1438619482;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100c) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

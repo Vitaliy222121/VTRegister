@@ -132,6 +132,9 @@ public final class AntiBotService {
         // фоновый подсчёт move-пакетов за окно тиков
         int movePackets;
         int packetTick;
+        // CLICK: время последней отправки кнопки — пересылаем раз в 8 сек,
+        // сообщение тонет в чате и игрок теряет куда нажимать
+        long clickPromptAt;
         // анти-флай: тики подряд в полёте без разрешения
         int flyTicks;
         // FALL: повторный подброс, если клиент завис в воздухе
@@ -242,6 +245,11 @@ public final class AntiBotService {
     private volatile long nextBatchAt;
     // отсчёт на экране перед стартом первого этапа
     private volatile int prepareSeconds = 5;
+    // lobby_first_seconds > 0: все заходящие сначала N сек в очереди-лобби
+    // (паркур/PvP/ожидание), потом на проверку — даже при свободных слотах
+    private volatile int lobbyFirstSeconds = 8;
+    private final java.util.Set<UUID> queueWarmupDone =
+            java.util.Collections.newSetFromMap(new ConcurrentHashMap<UUID, Boolean>());
     // PUZZLE: картина на стене через рамку с картой
     private volatile boolean puzzleMap = true;
     private volatile List<java.io.File> puzzleImages = Collections.emptyList();
@@ -271,6 +279,7 @@ public final class AntiBotService {
     private volatile Scheduler.Task watchdog;
     private volatile long lastChestRefill;
     private volatile int lastQueueSync = -1;
+    private volatile long lastVisibilitySync;
 
     /** Доп. данные ждущих в очереди: боссбар, тайминги спама, время входа. */
     private static final class QueueEntry {
@@ -280,6 +289,8 @@ public final class AntiBotService {
         Location lobbyReturn;
         // анти-флай в лобби очереди
         int flyTicks;
+        // lobby-first: раньше этого времени в проверку не выпускать
+        long notBefore;
     }
 
     private final Map<UUID, CheckState> checks = new ConcurrentHashMap<>();
@@ -360,13 +371,13 @@ public final class AntiBotService {
         queueFlight = plugin.getConfig().getBoolean("antibot.queue_flight", false);
         queueKickFlyers = plugin.getConfig().getBoolean("antibot.queue_kick_flyers", true);
         queueBuildLobby = plugin.getConfig().getBoolean("antibot.queue_build_lobby", true);
-        pvpEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.enabled", false);
-        pvpX1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_x", 12);
-        pvpZ1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_z", -560);
-        pvpX2 = plugin.getConfig().getInt("antibot.queue_pvp.corner2_x", -12);
-        pvpZ2 = plugin.getConfig().getInt("antibot.queue_pvp.corner2_z", -584);
+        pvpEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.enabled", true);
+        pvpX1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_x", 17);
+        pvpZ1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_z", -489);
+        pvpX2 = plugin.getConfig().getInt("antibot.queue_pvp.corner2_x", -17);
+        pvpZ2 = plugin.getConfig().getInt("antibot.queue_pvp.corner2_z", -453);
         pvpChestX = plugin.getConfig().getInt("antibot.queue_pvp.chest_x", 0);
-        pvpChestZ = plugin.getConfig().getInt("antibot.queue_pvp.chest_z", -556);
+        pvpChestZ = plugin.getConfig().getInt("antibot.queue_pvp.chest_z", -471);
         pvpChestSeconds = Math.max(5, plugin.getConfig().getInt("antibot.queue_pvp.chest_seconds", 15));
         pvpItems = plugin.getConfig().getStringList("antibot.queue_pvp.items");
         pvpQueueSteal = plugin.getConfig().getBoolean("antibot.queue_pvp.queue_steal", true);
@@ -396,10 +407,11 @@ public final class AntiBotService {
         kickFlyers = plugin.getConfig().getBoolean("antibot.kick_flyers", true);
 
         influxEnabled = plugin.getConfig().getBoolean("antibot.influx.enabled", true);
-        influxBurst = Math.max(1, plugin.getConfig().getInt("antibot.influx.burst", 15));
+        influxBurst = Math.max(1, plugin.getConfig().getInt("antibot.influx.burst", 64));
         batchSize = Math.max(1, plugin.getConfig().getInt("antibot.batch_size", 5));
         batchDelaySeconds = Math.max(0, plugin.getConfig().getInt("antibot.batch_delay_seconds", 4));
         prepareSeconds = Math.max(0, Math.min(15, plugin.getConfig().getInt("antibot.prepare_seconds", 5)));
+        lobbyFirstSeconds = Math.max(0, Math.min(60, plugin.getConfig().getInt("antibot.lobby_first_seconds", 8)));
         puzzleMap = plugin.getConfig().getBoolean("antibot.puzzle_map", true);
         bedrockEnabled = plugin.getConfig().getBoolean("bedrock.enabled", false);
         tickTicks = Math.max(5, Math.min(40, plugin.getConfig().getInt("antibot.tick_ticks", 10)));
@@ -547,7 +559,11 @@ public final class AntiBotService {
 
         returnLocations.putIfAbsent(uuid, player.getLocation().clone());
 
-        if (checks.size() >= maxConcurrent) {
+        // lobby_first: все заходящие сначала греются в лобби (паркур,
+        // PvP-арена, боссбар) — проверка стартует через N секунд.
+        // queueWarmupDone: игрок уже отсидел своё — второй раз не гоняем.
+        if (checks.size() >= maxConcurrent
+                || (queueMode == 2 && lobbyFirstSeconds > 0 && !queueWarmupDone.remove(uuid))) {
             enqueue(player, uuid);
             return true;
         }
@@ -624,6 +640,7 @@ public final class AntiBotService {
         }
         QueueEntry qe = new QueueEntry();
         qe.joinMillis = System.currentTimeMillis();
+        qe.notBefore = qe.joinMillis + lobbyFirstSeconds * 1000L;
         qe.lobbyReturn = player.getLocation().clone();
         queueInfo.put(uuid, qe);
         queue.offer(uuid);
@@ -663,6 +680,7 @@ public final class AntiBotService {
 
     private void dequeue(UUID uuid) {
         queue.remove(uuid);
+        queueWarmupDone.remove(uuid);
         QueueEntry qe = queueInfo.remove(uuid);
         if (qe != null) {
             removeBar(qe.bar);
@@ -713,29 +731,41 @@ public final class AntiBotService {
             lobbyBuilt = true;
             return;
         }
-        // Платформа-ожидание 25x25: каменные кирпичи + декоративный пол,
-        // стеклянный бортик, светящиеся углы с фонарями и метка спавна.
-        for (int dx = -12; dx <= 12; dx++) {
-            for (int dz = -12; dz <= 12; dz++) {
-                Material mat = ((dx + dz) & 1) == 0 ? Material.STONE_BRICKS : Material.CRACKED_STONE_BRICKS;
+        // Главная платформа 45x45 — свободно вмещает 60+ ждущих.
+        // Шахматный пол, стеклянный бортик, южная сторона с воротами
+        // на PvP-арену (арена примыкает — мостов через пустоту нет).
+        final int R = 22;
+        for (int dx = -R; dx <= R; dx++) {
+            for (int dz = -R; dz <= R; dz++) {
+                Material mat = ((dx + dz) & 1) == 0 ? Material.STONE_BRICKS : Material.POLISHED_ANDESITE;
                 w.getBlockAt(dx, y, LOBBY_Z + dz).setType(mat, false);
-                if (Math.abs(dx) == 12 || Math.abs(dz) == 12) {
-                    w.getBlockAt(dx, y + 1, LOBBY_Z + dz).setType(Material.GLASS, false);
-                    w.getBlockAt(dx, y + 2, LOBBY_Z + dz).setType(Material.GLASS, false);
+                if (Math.abs(dx) == R || Math.abs(dz) == R) {
+                    // Ворота на PvP-арену: в южной стене проход шириной 5
+                    boolean gate = pvpEnabled && dz == R && Math.abs(dx) <= 2;
+                    if (!gate) {
+                        w.getBlockAt(dx, y + 1, LOBBY_Z + dz).setType(Material.GLASS, false);
+                        w.getBlockAt(dx, y + 2, LOBBY_Z + dz).setType(Material.GLASS, false);
+                    }
                 }
             }
         }
-        // Углы: светящийся камень в полу + столбик с фонарем — лобби
-        // не проваливается в темноту ночью (в verify-мире всегда день, но
-        // на запасной арене основного мира свет критичен).
-        for (int cx : new int[]{-11, 11}) {
-            for (int cz : new int[]{-11, 11}) {
-                w.getBlockAt(cx, y, LOBBY_Z + cz).setType(Material.GLOWSTONE, false);
-                w.getBlockAt(cx, y + 1, LOBBY_Z + cz).setType(Material.OAK_FENCE, false);
-                w.getBlockAt(cx, y + 2, LOBBY_Z + cz).setType(Material.LANTERN, false);
+        // Свет: морские фонари, вмурованные в пол сеткой — ночь и тёмный
+        // запасной мир не мешают ожиданию.
+        for (int lx = -18; lx <= 18; lx += 6) {
+            for (int lz = -18; lz <= 18; lz += 6) {
+                w.getBlockAt(lx, y, LOBBY_Z + lz).setType(Material.SEA_LANTERN, false);
             }
         }
-        // Центр: золотой блок-метка спавна + табличка с подсказкой.
+        // Угловые башни: кирпичный столб 3 блока + фонарь — ориентиры.
+        for (int cx : new int[]{-R, R}) {
+            for (int cz : new int[]{-R, R}) {
+                for (int h = 1; h <= 3; h++) {
+                    w.getBlockAt(cx, y + h, LOBBY_Z + cz).setType(Material.STONE_BRICKS, false);
+                }
+                w.getBlockAt(cx, y + 4, LOBBY_Z + cz).setType(Material.LANTERN, false);
+            }
+        }
+        // Центр: золотая метка спавна + табличка с подсказкой.
         w.getBlockAt(0, y, LOBBY_Z).setType(Material.GOLD_BLOCK, false);
         try {
             Block signBlock = w.getBlockAt(0, y + 1, LOBBY_Z + 3);
@@ -765,13 +795,33 @@ public final class AntiBotService {
     private void buildPvpZone(World w, int y) {
         int minX = Math.min(pvpX1, pvpX2), maxX = Math.max(pvpX1, pvpX2);
         int minZ = Math.min(pvpZ1, pvpZ2), maxZ = Math.max(pvpZ1, pvpZ2);
+        int midZ = (minZ + maxZ) / 2;
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
-                w.getBlockAt(x, y, z).setType(Material.SMOOTH_STONE, false);
-                // бортик по периметру — за линию выходить нельзя
-                if (x == minX || x == maxX || z == minZ || z == maxZ) {
-                    w.getBlockAt(x, y + 1, z).setType(Material.COBBLESTONE_WALL, false);
+                // Пол арены: гладкий камень, центр — гравийная дорожка
+                Material mat = (Math.abs(x) <= 2 || z == midZ)
+                        ? Material.GRAVEL : Material.SMOOTH_STONE;
+                w.getBlockAt(x, y, z).setType(mat, false);
+                boolean edge = x == minX || x == maxX || z == minZ || z == maxZ;
+                if (edge) {
+                    // Ворота только в северной стене — проход из лобби
+                    // (арена примыкает: её minZ = край лобби + 1)
+                    boolean gate = z == minZ && Math.abs(x) <= 2;
+                    if (!gate) {
+                        w.getBlockAt(x, y + 1, z).setType(Material.COBBLESTONE_WALL, false);
+                        w.getBlockAt(x, y + 2, z).setType(Material.COBBLESTONE_WALL, false);
+                        w.getBlockAt(x, y + 3, z).setType(Material.NETHER_BRICK_FENCE, false);
+                    }
                 }
+            }
+        }
+        // Колонны-укрытия внутри арены + фонари на них
+        for (int px : new int[]{minX + 7, maxX - 7}) {
+            for (int pz : new int[]{minZ + 7, maxZ - 7}) {
+                for (int h = 1; h <= 3; h++) {
+                    w.getBlockAt(px, y + h, pz).setType(Material.STONE_BRICKS, false);
+                }
+                w.getBlockAt(px, y + 4, pz).setType(Material.LANTERN, false);
             }
         }
         // сундук с лутом
@@ -810,9 +860,9 @@ public final class AntiBotService {
      */
     private void buildParkour(World w, int y) {
         int[][] lanes = {
-                {-7, 2, 0},  // лёгкий: x=-7, шаг 2, подъём каждые 2 площадки
-                {0, 3, 0},   // средний
-                {7, 4, 1},   // сложный: шаг 4, подъём на 1 чаще
+                {-14, 2, 0},  // лёгкий: x=-14, шаг 2, подъём каждые 2 площадки
+                {0, 3, 0},    // средний
+                {14, 4, 1},   // сложный: шаг 4, подъём на 1 чаще
         };
         Material[] mats = {Material.GRASS_BLOCK, Material.OAK_PLANKS, Material.IRON_BLOCK};
         for (int lane = 0; lane < lanes.length; lane++) {
@@ -821,8 +871,8 @@ public final class AntiBotService {
             int riseEvery = lanes[lane][2] + 2;
             Material mat = mats[lane];
             int py = y + 1;
-            int pz = LOBBY_Z - 12;
-            for (int i = 0; i < 10; i++) {
+            int pz = LOBBY_Z - 24;   // за северным бортиком платформы
+            for (int i = 0; i < 14; i++) {
                 w.getBlockAt(x, py, pz).setType(mat, false);
                 pz -= (gap + 1);
                 if (i % riseEvery == riseEvery - 1) {
@@ -1174,10 +1224,11 @@ public final class AntiBotService {
         UUID uuid = player.getUniqueId();
         CheckState st = checks.get(uuid);
         if (st == null) {
-            // Игрок в очереди-лобби (умер в PvP-зоне) — обратно на платформу
-            if (queue.contains(uuid) && queueMode == 2) {
+            // Игрок в очереди-лобби (умер в PvP-зоне) — обратно на платформу.
+            // Покрывает и очередь проверки, и очередь входа на сервер.
+            if ((queue.contains(uuid) || entryQueue.contains(uuid)) && queueMode == 2) {
                 Scheduler.runAtEntityLater(plugin, player, () -> {
-                    if (player.isOnline() && queue.contains(uuid)) {
+                    if (player.isOnline() && (queue.contains(uuid) || entryQueue.contains(uuid))) {
                         teleportService.authorizeTeleport(uuid);
                         player.teleport(lobbySpawn(player.getWorld()));
                         if (queueFlight) {
@@ -1259,6 +1310,25 @@ public final class AntiBotService {
         Stage stage = order.get(st.stageIndex);
         st.stageDeadline = System.currentTimeMillis() + stageTimeouts.getOrDefault(stage, 30) * 1000L;
         updateBar(player, st);
+
+        // Перед НЕ-физическим этапом перестраиваем платформу в твёрдую
+        // и ставим игрока в её центр: после падения на паутину/слизь
+        // нельзя оставлять его внутри блоков — экран в паутине, капчу
+        // и кнопку CLICK не разглядеть, пазл неудобен.
+        if (stage != Stage.FALL && st.world != null && player.isOnline()) {
+            buildPlatform(st, Material.STONE_BRICKS);
+            final Location stand = (stage == Stage.BLOCK)
+                    ? new Location(st.world, st.arenaX + 0.5, st.baseY + 1,
+                            st.arenaZ - 3.5, 180f, 0f)
+                    : arenaSpawn(st);
+            teleportService.authorizeTeleport(uuid);
+            Scheduler.runAtEntity(plugin, player, () -> {
+                if (player.isOnline() && checks.containsKey(uuid)) {
+                    player.teleport(stand);
+                    player.setFallDistance(0f);
+                }
+            });
+        }
 
         switch (stage) {
             case FALL:
@@ -1351,6 +1421,13 @@ public final class AntiBotService {
         st.movePackets++;
         Stage stage = getCurrentStage(player.getUniqueId());
         if (stage == null) {
+            // Отсчёт перед стартом (preparing): позицию фризим, камеру нет —
+            // иначе игрок успевал сойти с платформы в пустоту до 1-го этапа.
+            if (st.preparing) {
+                to.setX(from.getX());
+                to.setY(from.getY());
+                to.setZ(from.getZ());
+            }
             return true;
         }
         switch (stage) {
@@ -1364,7 +1441,11 @@ public final class AntiBotService {
                 // Клиент «завис» в воздухе (телепорт не дошёл/потерялся):
                 // один повторный подброс вместо пустого ожидания таймаута.
                 if (st.fallStartedAt > 0 && System.currentTimeMillis() - st.fallStartedAt > 8000L) {
-                    if (st.fallRetries < 1) {
+                    // В паутине игрок тонет медленно ПО ЗАМЫСЛУ — не перебрасываем,
+                    // иначе он никогда не доползёт до дна (бесконечный цикл).
+                    boolean sinkingInWeb = st.platformMat == Material.COBWEB
+                            && to.getY() <= st.baseY + 1.5;
+                    if (!sinkingInWeb && st.fallRetries < 1) {
                         st.fallRetries++;
                         startFallRep(player, st);
                     }
@@ -1396,10 +1477,11 @@ public final class AntiBotService {
                     return true;
                 }
                 if (st.platformMat == Material.COBWEB) {
-                    // Паутина: игрок медленно тонет. «Приземление» = опустился
-                    // ниже уровня паутины, и на это ушло заметное время.
+                    // Паутина: игрок медленно тонет сквозь неё на бедрок-подложку.
+                    // «Приземление» = встал на твёрдое ниже уровня паутины —
+                    // бот, телепортнувшийся мгновенно, не пройдёт по времени.
                     if (player.isOnGround() && y < floor + 0.9) {
-                        onFallLanded(player, st, Math.max(took, minFallMillis));
+                        onFallLanded(player, st, took);
                     }
                     return true;
                 }
@@ -2372,6 +2454,7 @@ public final class AntiBotService {
         }
         dequeue(uuid);
         dequeueEntry(uuid);
+        queueWarmupDone.remove(uuid);
         removeBar(st);
         removePuzzlePicture(st);
         Player p = Bukkit.getPlayer(uuid);
@@ -2405,11 +2488,18 @@ public final class AntiBotService {
             if (next == null) {
                 break;
             }
+            // lobby-first прогрев: голова очереди ещё греется — ждём,
+            // очередь FIFO, обходить голову нельзя
+            QueueEntry headInfo = queueInfo.get(next);
+            if (headInfo != null && System.currentTimeMillis() < headInfo.notBefore) {
+                break;
+            }
             Player p = Bukkit.getPlayer(next);
             if (p == null || !p.isOnline()) {
                 dequeue(next);
                 continue;
             }
+            queueWarmupDone.add(next);
             // Игрок выходит из очереди в проверку
             QueueEntry qe = queueInfo.get(next);
             if (qe != null && qe.lobbyReturn != null) {
@@ -2451,7 +2541,7 @@ public final class AntiBotService {
 
     /** Игрок ждёт в очереди-лобби (режим 2). */
     public boolean isInQueueLobby(UUID uuid) {
-        return queueMode == 2 && queue.contains(uuid);
+        return queueMode == 2 && (queue.contains(uuid) || entryQueue.contains(uuid));
     }
 
     /**
@@ -2635,6 +2725,12 @@ public final class AntiBotService {
                     continue;
                 }
             }
+            // CLICK: пересылаем кликабельную кнопку каждые 8 сек —
+            // сообщение тонет в чате, игрок теряет куда нажимать
+            if (getCurrentStage(e.getKey()) == Stage.CLICK
+                    && now - st.clickPromptAt > 8000L) {
+                sendClickPrompt(p, st);
+            }
             // Обратный отсчёт в боссбаре — раз в тик дёшево
             if (st.bar != null && st.stageDeadline > 0) {
                 long left = Math.max(0L, (st.stageDeadline - now) / 1000L);
@@ -2649,6 +2745,13 @@ public final class AntiBotService {
 
         if (checks.size() < maxConcurrent && !queue.isEmpty()) {
             processQueue();
+        }
+        // Ресинк видимости раз в секунду: игроки входят/выходят из PvP-зоны —
+        // там видимость включается, снаружи — выключается обратно.
+        if (queueHidePlayers && (queue.size() + entryQueue.size()) > 1
+                && now - lastVisibilitySync > 1000L) {
+            lastVisibilitySync = now;
+            syncQueueVisibility();
         }
     }
 
@@ -2869,13 +2972,28 @@ public final class AntiBotService {
                 queued.add(p);
             }
         }
+        for (UUID u : entryQueue) {
+            Player p = Bukkit.getPlayer(u);
+            if (p != null && p.isOnline()) {
+                queued.add(p);
+            }
+        }
+        // PvP-зона — исключение из «все невидимы»: внутри арены игроки
+        // видят друг друга, иначе драка невозможна. Снаружи — как было.
         for (Player a : queued) {
+            boolean aInPvp = pvpEnabled && isPvpArea(a.getLocation());
             for (Player b : queued) {
-                if (a != b) {
-                    try {
+                if (a == b) {
+                    continue;
+                }
+                boolean see = aInPvp && isPvpArea(b.getLocation());
+                try {
+                    if (see) {
+                        a.showPlayer(plugin, b);
+                    } else {
                         a.hidePlayer(plugin, b);
-                    } catch (Throwable ignored) {
                     }
+                } catch (Throwable ignored) {
                 }
             }
         }
@@ -2991,22 +3109,22 @@ public final class AntiBotService {
         ph.put("stage_num", String.valueOf(st.stageIndex + 1));
         ph.put("stage_total", String.valueOf(stageOrder.size()));
         String text = ms.message("antibot_stage_captcha", ph);
-        if (text != null && !text.isEmpty()) {
-            player.sendMessage(text);
+        if (text == null || text.isEmpty()) {
+            text = "§eВведи код в чат: §f" + (st.code == null ? "?" : st.code);
         }
+        player.sendMessage(text);
     }
 
     private void sendClickPrompt(Player player, CheckState st) {
+        st.clickPromptAt = System.currentTimeMillis();
         MessageService ms = messages();
-        if (ms == null) {
-            return;
-        }
+        java.util.List<Stage> order = st.stages != null ? st.stages : stageOrder;
         Map<String, String> ph = new HashMap<>();
         ph.put("stage_num", String.valueOf(st.stageIndex + 1));
-        ph.put("stage_total", String.valueOf(stageOrder.size()));
-        String text = ms.message("antibot_stage_click", ph);
+        ph.put("stage_total", String.valueOf(order.size()));
+        String text = ms == null ? null : ms.message("antibot_stage_click", ph);
         if (text == null || text.isEmpty()) {
-            return;
+            text = "§eПроверка: нажми на это сообщение или введи команду ниже";
         }
         try {
             net.md_5.bungee.api.chat.TextComponent comp = new net.md_5.bungee.api.chat.TextComponent(text);
@@ -3014,8 +3132,11 @@ public final class AntiBotService {
                     net.md_5.bungee.api.chat.ClickEvent.Action.RUN_COMMAND, "/rpverify " + st.clickToken));
             player.spigot().sendMessage(comp);
         } catch (Throwable t) {
-            player.sendMessage(text + " §7(/rpverify " + st.clickToken + ")");
+            player.sendMessage(text);
         }
+        // Всегда дублируем команду текстом: если клик-ивент недоступен
+        // (Bedrock/старый клиент) — игрок вводит её вручную.
+        player.sendMessage("§7Если клик не сработал — введи: §f/rpverify " + st.clickToken);
     }
 
     // ---------- боссбар ----------
@@ -3247,7 +3368,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = 1831524026;
+    private static final int P7 = -1438619484;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

@@ -560,7 +560,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int P7 = 1831524020;
+    private static final int P7 = -1438619478;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1000) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
