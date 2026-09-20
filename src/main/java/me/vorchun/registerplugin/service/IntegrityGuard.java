@@ -1,3 +1,5 @@
+// VTRegister - Copyright (C) 2026 Vorchun.
+// Licensed under GPL-3.0 with additional terms OR VMIT - see LICENSE file.
 package me.vorchun.registerplugin.service;
 
 import java.util.ArrayList;
@@ -215,5 +217,5 @@ public final class IntegrityGuard {
 
     /** Bytecode signature expected at release build time. */
     private static final String EXPECTED2 =
-            "2704af21e13246fa3080adce4d44c393a28a56631630c79633db6a5eb9d41cb3";
+            "0e057065e11c67e18e420685c03b3b51cefbf732aa2453c3589a394f895cdcee";
 }

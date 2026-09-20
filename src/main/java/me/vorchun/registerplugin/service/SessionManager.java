@@ -1,3 +1,5 @@
+// VTRegister - Copyright (C) 2026 Vorchun.
+// Licensed under GPL-3.0 with additional terms OR VMIT - see LICENSE file.
 package me.vorchun.registerplugin.service;
 
 import me.vorchun.registerplugin.util.IpUtil;

@@ -1,0 +1,14 @@
+VTRegister
+Copyright (c) 2026 Vorchun
+
+Licensed under GPL-3.0 with additional terms OR the Vorchun MIT-style
+License (VMIT) — see the LICENSE file for full texts.
+
+Attribution: when redistributing this software (original or modified),
+keep the author name "Vorchun" and the link to the official page.
+Modified versions must be marked as modified and must not be released
+under the "VTRegister" name.
+
+This software contains security features protecting end users
+(integrity check, password log-guard, anti-bot). Public builds that
+remove or disable them must be visibly marked as insecure builds.
