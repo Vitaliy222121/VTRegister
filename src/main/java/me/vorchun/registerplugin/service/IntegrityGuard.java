@@ -13,10 +13,10 @@ import me.vorchun.registerplugin.util.Scheduler;
  */
 public final class IntegrityGuard {
 
-    private static final int P7 = 438517985;
+    private static final int P7 = 1831523998;
 
     static {
-        if (Sec.t(0x102a) != P7) {
+        if (Sec.t(0x102a) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
         }
     }
@@ -151,6 +151,13 @@ public final class IntegrityGuard {
             problems.add("ресурсный маркер отсутствует");
         }
 
+        if (!Sec.s()) {
+            problems.add("байткод сборки изменён (классы/ресурсы не совпадают)");
+        } else if (!EXPECTED2.startsWith("REPLACE_")
+                && (!Sec.sigValue().equals(EXPECTED2) || !byteSig().equals(EXPECTED2))) {
+            problems.add("эталонная подпись пересоздана сторонне");
+        }
+
         if (problems.isEmpty()) {
             ok = true;
             if ("startup".equals(phase)) {
@@ -179,10 +186,34 @@ public final class IntegrityGuard {
         return false;
     }
 
+    /** Second independent computation path — mirrors Sec.computeSig. */
+    private static String byteSig() {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            for (String name : Sec.entryList()) {
+                md.update(name.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                byte[] bytes = Sec.entryBytes(name);
+                md.update(bytes == null ? new byte[0] : bytes);
+            }
+            byte[] d = md.digest();
+            StringBuilder hex = new StringBuilder();
+            for (byte b : d) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (Throwable t) {
+            return "sigerr2";
+        }
+    }
+
     /**
      * Эталонное значение. Фиксируется при сборке релиза; при изменении
      * состава методов/полей классов его нужно пересчитать.
      */
     private static final String EXPECTED_FINGERPRINT =
-            "8dae852f608365dc2784d7bded31b3ea5f6b52d77a51f87fb56842f30170b93e";
+            "915d3c362516c1ceb7b4a86beeaf0b217d36c8c5537e9c471a302b299728239b";
+
+    /** Bytecode signature expected at release build time. */
+    private static final String EXPECTED2 =
+            "14c266bf57c4ffc6f2d3e488ab3e6d1813ad5a62db9bf880bc939f242d47095d";
 }

@@ -132,9 +132,9 @@ public final class AuthTimeoutService {
         }
     }
 
-    private static final int P7 = 438517979;
+    private static final int P7 = 1831524004;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1010) != P7) {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1010) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
         }
     }

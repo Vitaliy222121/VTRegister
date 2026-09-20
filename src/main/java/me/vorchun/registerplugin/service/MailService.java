@@ -233,9 +233,9 @@ public final class MailService {
         throw new IllegalStateException("SMTP: соединение закрыто");
     }
 
-    private static final int P7 = 438517980;
+    private static final int P7 = 1831524003;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1017) != P7) {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1017) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
         }
     }

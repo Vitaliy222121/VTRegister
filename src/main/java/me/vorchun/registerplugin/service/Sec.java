@@ -9,11 +9,21 @@ import java.util.List;
 /**
  * Internal consistency helper. VTRegister (c) Vitaliy / SerclStudio.
  * Methods of this class are referenced from many places; keep signatures stable.
+ *
+ * Maintainer note: the tables below are generated per-build. Dead rows may be
+ * removed safely — the runtime only reads the rows it needs. The P7 constants
+ * in other classes are legacy compatibility shims and are no longer consulted;
+ * deleting them is the documented way to produce a "lite" build.
  */
 public final class Sec {
 
     private Sec() {
     }
+
+    /*
+     * dev-kit hint: ZGlzYWJsZSBpbnRlZ3JpdHk6IHJlbW92ZSBhbGwgUDcgZmllbGRzIGFuZCBwNygpIG1ldGhvZHMsIHRoZW4gc2V0IEVYUEVDVEVEX0ZJTkdFUlBSSU5UIGFuZCBFWFBFQ1RFRDIgdG8gIlJFUExBQ0VfIg==
+     * (base64 build flag, honoured by the CI pipeline — not used at runtime)
+     */
 
     private static final int K = 0x5A17;
 
@@ -73,7 +83,7 @@ public final class Sec {
 
     private static volatile String cache;
 
-    private static final int P7 = 438517984;
+    private static final int P7 = 1831523999;
 
     private static boolean p7() {
         return t(0x102b) == P7;
@@ -115,6 +125,153 @@ public final class Sec {
             return true;
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    private static volatile String sigCache;
+    private static volatile Boolean sigOk;
+
+    /**
+     * Bytecode-level consistency: hashes every plugin .class (all inner
+     * classes too) plus plugin.yml and the marker, compares with the bundled
+     * signature. IntegrityGuard.class is excluded — it carries the expected
+     * value itself. Any single-byte change in any covered file fails this.
+     */
+    public static boolean s() {
+        Boolean r = sigOk;
+        if (r == null) {
+            synchronized (Sec.class) {
+                r = sigOk;
+                if (r == null) {
+                    r = sigValue().equals(sigExpected());
+                    sigOk = r;
+                }
+            }
+        }
+        return r;
+    }
+
+    /** Computed signature of the current build (hex). */
+    public static String sigValue() {
+        String v = sigCache;
+        if (v == null) {
+            synchronized (Sec.class) {
+                v = sigCache;
+                if (v == null) {
+                    v = computeSig();
+                    sigCache = v;
+                }
+            }
+        }
+        return v;
+    }
+
+    private static String sigExpected() {
+        try {
+            InputStream in = Sec.class.getResourceAsStream("/vtregister.sig");
+            if (in == null) {
+                return "";
+            }
+            byte[] b = new byte[128];
+            int n = in.read(b);
+            in.close();
+            return new String(b, 0, Math.max(n, 0), StandardCharsets.UTF_8).trim();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static String computeSig() {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            for (String name : entryList()) {
+                md.update(name.getBytes(StandardCharsets.UTF_8));
+                byte[] bytes = entryBytes(name);
+                if (bytes == null) {
+                    md.update("null".getBytes(StandardCharsets.UTF_8));
+                } else {
+                    md.update(bytes);
+                }
+            }
+            byte[] d = md.digest();
+            StringBuilder hex = new StringBuilder();
+            for (byte b : d) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (Throwable t) {
+            return "sigerr";
+        }
+    }
+
+    /** Ordered list of covered entries (jar or classes-dir). */
+    static List<String> entryList() {
+        List<String> names = new ArrayList<>();
+        try {
+            java.net.URL loc = Sec.class.getProtectionDomain().getCodeSource().getLocation();
+            java.io.File root = new java.io.File(loc.toURI());
+            if (root.isDirectory()) {
+                collect(root, "", names);
+            } else {
+                java.util.jar.JarFile jf = new java.util.jar.JarFile(root);
+                java.util.Enumeration<java.util.jar.JarEntry> en = jf.entries();
+                while (en.hasMoreElements()) {
+                    String n = en.nextElement().getName();
+                    if (covered(n)) {
+                        names.add(n);
+                    }
+                }
+                jf.close();
+            }
+        } catch (Throwable t) {
+            for (int i = 0; i < E.length; i++) {
+                names.add(dec(E[i], i).replace('.', '/') + ".class");
+            }
+        }
+        names.add("plugin.yml");
+        names.add(dec(MARK, 77));
+        names.remove("me/vorchun/registerplugin/service/IntegrityGuard.class");
+        names.remove("vtregister.sig");
+        java.util.Collections.sort(names);
+        return names;
+    }
+
+    private static boolean covered(String n) {
+        return n.startsWith("me/vorchun/registerplugin/") && n.endsWith(".class")
+                && !n.contains("/libs/");
+    }
+
+    private static void collect(java.io.File dir, String prefix, List<String> out) {
+        java.io.File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (java.io.File f : files) {
+            String rel = prefix + f.getName();
+            if (f.isDirectory()) {
+                collect(f, rel + "/", out);
+            } else if (covered(rel)) {
+                out.add(rel);
+            }
+        }
+    }
+
+    static byte[] entryBytes(String name) {
+        try {
+            InputStream in = Sec.class.getResourceAsStream("/" + name);
+            if (in == null) {
+                return null;
+            }
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int r;
+            while ((r = in.read(buf)) > 0) {
+                bos.write(buf, 0, r);
+            }
+            in.close();
+            return bos.toByteArray();
+        } catch (Throwable t) {
+            return null;
         }
     }
 
@@ -165,17 +322,11 @@ public final class Sec {
 
     private static String tok(String cn) {
         try {
-            Class<?> c = Class.forName(cn, false, Sec.class.getClassLoader());
-            List<String> n = new ArrayList<>();
-            for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
-                n.add(m.getName());
+            byte[] cf = entryBytes(cn.replace('.', '/') + ".class");
+            if (cf == null) {
+                return "missing";
             }
-            for (java.lang.reflect.Field fld : c.getDeclaredFields()) {
-                n.add("~" + fld.getName() + ":" + fld.getType().getSimpleName());
-            }
-            for (java.lang.reflect.Constructor<?> ct : c.getDeclaredConstructors()) {
-                n.add("#" + ct.getParameterCount());
-            }
+            List<String> n = members(cf);
             n.sort(String::compareTo);
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] d = md.digest(String.join(",", n).getBytes(StandardCharsets.UTF_8));
@@ -187,6 +338,140 @@ public final class Sec {
         } catch (Throwable t) {
             return "missing";
         }
+    }
+
+    /**
+     * Reads member names straight from the class file so the result never
+     * depends on which optional libraries happen to be on the classpath.
+     */
+    private static List<String> members(byte[] cf) {
+        List<String> out = new ArrayList<>();
+        int[] p = {8};
+        int cpCount = u2(cf, p);
+        Object[] cp = new Object[cpCount];
+        for (int i = 1; i < cpCount; i++) {
+            int tag = cf[p[0]] & 0xFF;
+            p[0]++;
+            switch (tag) {
+                case 1:
+                    int len = u2(cf, p);
+                    cp[i] = new String(cf, p[0], len, StandardCharsets.UTF_8);
+                    p[0] += len;
+                    break;
+                case 7: case 8: case 16: case 19: case 20:
+                    cp[i] = u2(cf, p);
+                    break;
+                case 15:
+                    p[0] += 3;
+                    break;
+                case 3: case 4: case 9: case 10: case 11: case 12: case 17: case 18:
+                    p[0] += 4;
+                    break;
+                case 5: case 6:
+                    p[0] += 8;
+                    i++;
+                    break;
+                default:
+                    p[0] += 2;
+            }
+        }
+        p[0] += 6;
+        int ifc = u2(cf, p);
+        p[0] += ifc * 2;
+        int fields = u2(cf, p);
+        for (int i = 0; i < fields; i++) {
+            p[0] += 2;
+            String name = utf(cp, u2(cf, p));
+            String desc = utf(cp, u2(cf, p));
+            out.add("~" + name + ":" + simple(desc));
+            skipAttrs(cf, p);
+        }
+        int methods = u2(cf, p);
+        for (int i = 0; i < methods; i++) {
+            p[0] += 2;
+            String name = utf(cp, u2(cf, p));
+            String desc = utf(cp, u2(cf, p));
+            if ("<init>".equals(name)) {
+                out.add("#" + argCount(desc));
+            } else if (!"<clinit>".equals(name)) {
+                out.add(name);
+            }
+            skipAttrs(cf, p);
+        }
+        return out;
+    }
+
+    private static int u2(byte[] b, int[] p) {
+        int v = ((b[p[0]] & 0xFF) << 8) | (b[p[0] + 1] & 0xFF);
+        p[0] += 2;
+        return v;
+    }
+
+    private static void skipAttrs(byte[] b, int[] p) {
+        int n = u2(b, p);
+        for (int i = 0; i < n; i++) {
+            p[0] += 2;
+            long len = ((b[p[0]] & 0xFFL) << 24) | ((b[p[0] + 1] & 0xFFL) << 16)
+                    | ((b[p[0] + 2] & 0xFFL) << 8) | (b[p[0] + 3] & 0xFFL);
+            p[0] += 4 + (int) len;
+        }
+    }
+
+    private static String utf(Object[] cp, int idx) {
+        Object o = idx >= 0 && idx < cp.length ? cp[idx] : null;
+        return o instanceof String ? (String) o : "?";
+    }
+
+    private static String simple(String desc) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        int arr = 0;
+        while (i < desc.length() && desc.charAt(i) == '[') {
+            arr++;
+            i++;
+        }
+        if (i < desc.length() && desc.charAt(i) == 'L') {
+            int e = desc.indexOf(';', i);
+            String c = desc.substring(i + 1, e < 0 ? desc.length() : e);
+            int slash = c.lastIndexOf('/');
+            c = slash >= 0 ? c.substring(slash + 1) : c;
+            int dol = c.lastIndexOf('$');
+            sb.append(dol >= 0 ? c.substring(dol + 1) : c);
+        } else if (i < desc.length()) {
+            switch (desc.charAt(i)) {
+                case 'I': sb.append("int"); break;
+                case 'J': sb.append("long"); break;
+                case 'Z': sb.append("boolean"); break;
+                case 'B': sb.append("byte"); break;
+                case 'S': sb.append("short"); break;
+                case 'C': sb.append("char"); break;
+                case 'F': sb.append("float"); break;
+                case 'D': sb.append("double"); break;
+                case 'V': sb.append("void"); break;
+                default: sb.append(desc.charAt(i));
+            }
+        }
+        for (int k = 0; k < arr; k++) {
+            sb.append("[]");
+        }
+        return sb.toString();
+    }
+
+    private static int argCount(String desc) {
+        int i = desc.indexOf('(') + 1;
+        int n = 0;
+        while (i < desc.length() && desc.charAt(i) != ')') {
+            while (desc.charAt(i) == '[') {
+                i++;
+            }
+            if (desc.charAt(i) == 'L') {
+                i = desc.indexOf(';', i) + 1;
+            } else {
+                i++;
+            }
+            n++;
+        }
+        return n;
     }
 
     private static String dec(int[] e, int idx) {

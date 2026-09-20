@@ -131,9 +131,9 @@ public final class SpawnService {
         return map;
     }
 
-    private static final int P7 = 438517973;
+    private static final int P7 = 1831524010;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x101e) != P7) {
+        if (me.vorchun.registerplugin.service.Sec.t(0x101e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
         }
     }

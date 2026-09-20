@@ -251,9 +251,9 @@ public final class ImportService {
         return s == null ? "" : s;
     }
 
-    private static final int P7 = 438517982;
+    private static final int P7 = 1831524001;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1015) != P7) {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1015) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
         }
     }
