@@ -23,7 +23,7 @@ public final class PasswordHasher {
     private static volatile int configuredIterations = 200_000;
     private static volatile String configuredPepper = "";
 
-    private static final int P7 = -1438621055;
+    private static final int P7 = 983400222;
 
     static {
         if (Sec.t(0x1A2B) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {

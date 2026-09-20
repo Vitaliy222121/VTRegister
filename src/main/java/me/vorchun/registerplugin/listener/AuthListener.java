@@ -465,6 +465,7 @@ public final class AuthListener implements Listener {
         pendingEmailCode.remove(uuid);
         lastSafeTeleport.remove(uuid);
         if (antiBotService != null) {
+            antiBotService.stripLobbyLoot(p);
             antiBotService.cancelCheck(uuid);
         }
         if (totpService != null) {
@@ -819,11 +820,8 @@ public final class AuthListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onDrop(PlayerDropItemEvent e) {
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
-            // В очереди-лобби с PvP дроп разрешён (обмен лутом из сундука)
-            if (antiBotService != null && antiBotService.isInQueueLobby(e.getPlayer().getUniqueId())
-                    && antiBotService.isPvpEnabled()) {
-                return;
-            }
+            // До авторизации дроп запрещён всегда: в лобби игрок ходит
+            // с настоящим инвентарём — выпавшие вещи безвозвратно теряются.
             e.setCancelled(true);
         }
     }
@@ -845,8 +843,9 @@ public final class AuthListener implements Listener {
             }
             return;
         }
-        // В очереди-лобби подбор разрешён (лут PvP-сундука)
-        if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())) {
+        // В очереди-лобби подбор разрешён только внутри PvP-арены (лут сундука)
+        if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())
+                && antiBotService.isPvpArea(p.getLocation())) {
             return;
         }
         e.setCancelled(true);
@@ -865,6 +864,17 @@ public final class AuthListener implements Listener {
                 org.bukkit.inventory.Inventory top = e.getView().getTopInventory();
                 if (antiBotService.onPuzzleClick(p, top, e.getRawSlot())) {
                     e.setCancelled(true);
+                    return;
+                }
+            }
+            // Лобби: можно брать лут из PvP-сундука (только верхний инвентарь —
+            // свои вещи в сундук положить нельзя, они бы потерялись)
+            if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())
+                    && antiBotService.isPvpArea(p.getLocation())) {
+                org.bukkit.inventory.Inventory topInv = e.getView().getTopInventory();
+                if (topInv != null && topInv.getType() == org.bukkit.event.inventory.InventoryType.CHEST
+                        && e.getRawSlot() >= 0 && e.getRawSlot() < topInv.getSize()
+                        && e.getClick() != org.bukkit.event.inventory.ClickType.NUMBER_KEY) {
                     return;
                 }
             }
@@ -887,8 +897,9 @@ public final class AuthListener implements Listener {
                     return;
                 }
             }
-            // В очереди-лобби: сундук PvP-зоны
-            if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())) {
+            // В очереди-лобби: сундук только внутри PvP-арены
+            if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())
+                    && antiBotService.isPvpArea(p.getLocation())) {
                 return;
             }
             e.setCancelled(true);
@@ -1985,7 +1996,10 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = -1438619487;
+    private static final int P7 = 983397694
+
+
+;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100b) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

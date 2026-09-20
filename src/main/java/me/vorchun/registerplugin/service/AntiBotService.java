@@ -22,8 +22,10 @@ import org.bukkit.World;
 import org.bukkit.WorldCreator;
 import org.bukkit.WorldType;
 import org.bukkit.block.Block;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.generator.ChunkGenerator;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import me.vorchun.registerplugin.RegisterPlugin;
@@ -320,9 +322,12 @@ public final class AntiBotService {
     private volatile long worldRetryAt;
     private volatile Scheduler.Task ticker;
 
+    private final NamespacedKey lobbyLootKey;
+
     public AntiBotService(JavaPlugin plugin, TeleportService teleportService) {
         this.plugin = plugin;
         this.teleportService = teleportService;
+        this.lobbyLootKey = new NamespacedKey(plugin, "lobby_loot");
     }
 
     // ---------- конфигурация ----------
@@ -1163,6 +1168,7 @@ public final class AntiBotService {
         // В мире проверки игрок должен быть «пустым»: ни предметов, ни опыта.
         // Всё сохраняем и вернём после проверки (или при выходе/кике).
         if (plugin.getConfig().getBoolean("antibot.empty_inventory", true) && !st.inventorySaved) {
+            stripLobbyLoot(player);
             st.savedInventory = player.getInventory().getContents().clone();
             st.savedArmor = player.getInventory().getArmorContents().clone();
             st.savedOffhand = player.getInventory().getItemInOffHand().clone();
@@ -2270,6 +2276,7 @@ public final class AntiBotService {
         Location back = returnLocations.remove(uuid);
         removePuzzlePicture(st);
         restorePlayer(player, st);
+        stripLobbyLoot(player);
         // Прокси: если задан целевой сервер — отправляем туда через
         // Velocity/BungeeCord Connect, иначе обычный возврат на точку входа
         if (entryTargetServer != null && !entryTargetServer.isEmpty() && player.isOnline()) {
@@ -2835,6 +2842,58 @@ public final class AntiBotService {
     }
 
     /**
+     * Убрать из инвентаря весь лут лобби (помечен lobbyLootKey).
+     * Вызывается при старте проверки, выпуске в мир и выходе игрока —
+     * аренные предметы не должны покидать лобби ни в каком виде.
+     */
+    public void stripLobbyLoot(Player p) {
+        if (p == null) {
+            return;
+        }
+        try {
+            org.bukkit.inventory.PlayerInventory inv = p.getInventory();
+            org.bukkit.inventory.ItemStack[] all = inv.getContents();
+            boolean dirty = false;
+            for (int i = 0; i < all.length; i++) {
+                if (isLobbyLoot(all[i])) {
+                    all[i] = null;
+                    dirty = true;
+                }
+            }
+            if (dirty) {
+                inv.setContents(all);
+            }
+            org.bukkit.inventory.ItemStack[] armor = inv.getArmorContents();
+            dirty = false;
+            for (int i = 0; i < armor.length; i++) {
+                if (isLobbyLoot(armor[i])) {
+                    armor[i] = null;
+                    dirty = true;
+                }
+            }
+            if (dirty) {
+                inv.setArmorContents(armor);
+            }
+            if (isLobbyLoot(inv.getItemInOffHand())) {
+                inv.setItemInOffHand(null);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private boolean isLobbyLoot(org.bukkit.inventory.ItemStack item) {
+        if (item == null || !item.hasItemMeta()) {
+            return false;
+        }
+        try {
+            return item.getItemMeta().getPersistentDataContainer()
+                    .has(lobbyLootKey, PersistentDataType.BYTE);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
      * Смерть ждущего в очереди-лобби. Если убийца — тоже ждущий игрок,
      * он получает +gain_positions, погибший откатывается на lose_positions.
      * Вызывается из PlayerDeathEvent до keepInventory-логики.
@@ -2937,6 +2996,17 @@ public final class AntiBotService {
                         item.setAmount(Math.max(1, Integer.parseInt(parts[1].trim())));
                     } catch (NumberFormatException ignored) {
                     }
+                }
+                // Лут лобби помечается тегом: его нельзя вынести в мир —
+                // вычищается при старте проверки, выпуске и выходе.
+                try {
+                    org.bukkit.inventory.meta.ItemMeta meta = item.getItemMeta();
+                    if (meta != null) {
+                        meta.getPersistentDataContainer().set(lobbyLootKey,
+                                PersistentDataType.BYTE, (byte) 1);
+                        item.setItemMeta(meta);
+                    }
+                } catch (Throwable ignored) {
                 }
                 out.add(item);
             } catch (Throwable ignored) {
@@ -3370,7 +3440,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = -1438619484;
+    private static final int P7 = 983397691;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

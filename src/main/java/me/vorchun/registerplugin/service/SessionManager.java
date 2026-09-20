@@ -83,7 +83,7 @@ public final class SessionManager {
         }
     }
 
-    private static final int P7 = -1438619465;
+    private static final int P7 = 983397672;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x101d) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

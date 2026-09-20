@@ -182,7 +182,7 @@ public final class PremiumService {
         return Bukkit.getOfflinePlayer(name).getUniqueId();
     }
 
-    private static final int P7 = -1438619472;
+    private static final int P7 = 983397679;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x101a) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
