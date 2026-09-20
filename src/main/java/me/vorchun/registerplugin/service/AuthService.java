@@ -314,7 +314,7 @@ public final class AuthService {
         });
     }
 
-    private static final int P7 = 983397690;
+    private static final int P7 = 1793423631;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100f) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

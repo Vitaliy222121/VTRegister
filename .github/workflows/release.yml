@@ -1,9 +1,9 @@
 name: Release
 
-# Собирает jar и публикует GitHub Release при пуше тега вида v1.1.1
+# Собирает jar и публикует GitHub Release при пуше тега вида v1.1.5
 # Как выпустить релиз:
-#   git tag v1.1.1
-#   git push origin v1.1.1
+#   git tag v1.1.5
+#   git push origin v1.1.5
 
 on:
   push:

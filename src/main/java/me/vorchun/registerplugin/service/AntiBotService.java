@@ -145,6 +145,7 @@ public final class AntiBotService {
         int fallRetries;
         // подготовка к проверке: игрок уже на арене, идёт отсчёт до старта
         boolean preparing;
+        boolean preparingInLobby;
         long prepareUntil;
         int lastPrepareSec = -1;
         // PUZZLE: рамка с картиной на стене арены
@@ -256,6 +257,13 @@ public final class AntiBotService {
             java.util.Collections.newSetFromMap(new ConcurrentHashMap<UUID, Boolean>());
     // PUZZLE: картина на стене через рамку с картой
     private volatile boolean puzzleMap = true;
+    private volatile boolean puzzleAutoPass = true;
+    private volatile boolean puzzleUnclosable = true;
+    private volatile int speedButtonSeconds = 30;
+    private volatile int speedButtonLevel = 2;
+    private volatile boolean speedButtonEnabled = true;
+    private volatile Location speedButtonLoc;
+    private volatile org.bukkit.entity.ArmorStand speedHologram;
     private volatile List<java.io.File> puzzleImages = Collections.emptyList();
     // Bedrock-совместимость (Geyser/Floodgate): по умолчанию выключена
     private volatile boolean bedrockEnabled = false;
@@ -379,12 +387,12 @@ public final class AntiBotService {
         queueKickFlyers = plugin.getConfig().getBoolean("antibot.queue_kick_flyers", true);
         queueBuildLobby = plugin.getConfig().getBoolean("antibot.queue_build_lobby", true);
         pvpEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.enabled", true);
-        pvpX1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_x", 17);
-        pvpZ1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_z", -489);
-        pvpX2 = plugin.getConfig().getInt("antibot.queue_pvp.corner2_x", -17);
-        pvpZ2 = plugin.getConfig().getInt("antibot.queue_pvp.corner2_z", -453);
+        pvpX1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_x", 21);
+        pvpZ1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_z", -484);
+        pvpX2 = plugin.getConfig().getInt("antibot.queue_pvp.corner2_x", -21);
+        pvpZ2 = plugin.getConfig().getInt("antibot.queue_pvp.corner2_z", -442);
         pvpChestX = plugin.getConfig().getInt("antibot.queue_pvp.chest_x", 0);
-        pvpChestZ = plugin.getConfig().getInt("antibot.queue_pvp.chest_z", -471);
+        pvpChestZ = plugin.getConfig().getInt("antibot.queue_pvp.chest_z", -463);
         pvpChestSeconds = Math.max(5, plugin.getConfig().getInt("antibot.queue_pvp.chest_seconds", 15));
         pvpItems = plugin.getConfig().getStringList("antibot.queue_pvp.items");
         pvpQueueSteal = plugin.getConfig().getBoolean("antibot.queue_pvp.queue_steal", true);
@@ -420,6 +428,15 @@ public final class AntiBotService {
         prepareSeconds = Math.max(0, Math.min(15, plugin.getConfig().getInt("antibot.prepare_seconds", 5)));
         lobbyFirstSeconds = Math.max(0, Math.min(60, plugin.getConfig().getInt("antibot.lobby_first_seconds", 8)));
         puzzleMap = plugin.getConfig().getBoolean("antibot.puzzle_map", true);
+        // GUI-пазл: авто-проход когда всё лишнее убрано (слово-старт —
+        // только если auto_pass выключен); unclosable — окно нельзя закрыть.
+        puzzleAutoPass = plugin.getConfig().getBoolean("antibot.puzzle_auto_pass", true);
+        puzzleUnclosable = plugin.getConfig().getBoolean("antibot.puzzle_unclosable", true);
+        speedButtonEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.speed_button.enabled", true);
+        speedButtonSeconds = Math.max(5, Math.min(300,
+                plugin.getConfig().getInt("antibot.queue_pvp.speed_button.seconds", 30)));
+        speedButtonLevel = Math.max(1, Math.min(5,
+                plugin.getConfig().getInt("antibot.queue_pvp.speed_button.level", 2)));
         bedrockEnabled = plugin.getConfig().getBoolean("bedrock.enabled", false);
         tickTicks = Math.max(5, Math.min(40, plugin.getConfig().getInt("antibot.tick_ticks", 10)));
         joltIntervalTicks = Math.max(2, Math.min(40, plugin.getConfig().getInt("antibot.jolt_interval_ticks", 8)));
@@ -599,6 +616,24 @@ public final class AntiBotService {
                 return;
             }
             prepareArena(st);
+            World lw = verifyWorld != null ? verifyWorld : fallbackWorld;
+            boolean lobbyWait = queueMode == 2 && lw != null && prepareSeconds > 0;
+            if (lobbyWait) {
+                ensureLobby(lw);
+            }
+            if (lobbyWait && lobbyBuilt) {
+                // Готовимся В ЛОББИ: игрок ждёт отсчёт на платформе очереди
+                // (паркур/PvP), инвентарь пока его собственный. По окончании
+                // отсчёта тикер телепортирует его на арену и запустит этапы.
+                teleportService.authorizeTeleport(uuid);
+                player.teleport(lobbySpawn(lw));
+                feedForLobby(player);
+                st.preparing = true;
+                st.preparingInLobby = true;
+                st.prepareUntil = System.currentTimeMillis() + prepareSeconds * 1000L;
+                st.lastPrepareSec = -1;
+                return;
+            }
             preparePlayer(player, st);
             teleportService.authorizeTeleport(uuid);
             player.teleport(arenaSpawn(st));
@@ -675,6 +710,7 @@ public final class AntiBotService {
             Scheduler.runAtEntity(plugin, player, () -> {
                 if (player.isOnline() && queue.contains(uuid)) {
                     player.teleport(lobbySpawn(fw));
+                    feedForLobby(player);
                     if (queueFlight) {
                         player.setAllowFlight(true);
                         player.setFlying(true);
@@ -738,10 +774,10 @@ public final class AntiBotService {
             lobbyBuilt = true;
             return;
         }
-        // Главная платформа 45x45 — свободно вмещает 60+ ждущих.
+        // Главная платформа 55x55 — свободно вмещает 60+ ждущих.
         // Шахматный пол, стеклянный бортик, южная сторона с воротами
         // на PvP-арену (арена примыкает — мостов через пустоту нет).
-        final int R = 22;
+        final int R = 27;
         for (int dx = -R; dx <= R; dx++) {
             for (int dz = -R; dz <= R; dz++) {
                 Material mat = ((dx + dz) & 1) == 0 ? Material.STONE_BRICKS : Material.POLISHED_ANDESITE;
@@ -758,8 +794,8 @@ public final class AntiBotService {
         }
         // Свет: морские фонари, вмурованные в пол сеткой — ночь и тёмный
         // запасной мир не мешают ожиданию.
-        for (int lx = -18; lx <= 18; lx += 6) {
-            for (int lz = -18; lz <= 18; lz += 6) {
+        for (int lx = -24; lx <= 24; lx += 6) {
+            for (int lz = -24; lz <= 24; lz += 6) {
                 w.getBlockAt(lx, y, LOBBY_Z + lz).setType(Material.SEA_LANTERN, false);
             }
         }
@@ -835,6 +871,42 @@ public final class AntiBotService {
         w.getBlockAt(pvpChestX, y, pvpChestZ).setType(Material.SMOOTH_STONE, false);
         w.getBlockAt(pvpChestX, y + 1, pvpChestZ).setType(Material.CHEST, false);
         refillPvpChest();
+        // Кнопка скорости в 4 блоках от сундука: постамент + кнопка + голограмма.
+        // Ждущий нажимает и получает Speed уровня N на speedButtonSeconds сек.
+        if (speedButtonEnabled) {
+            int bx = pvpChestX + 4;
+            int bz = pvpChestZ;
+            w.getBlockAt(bx, y, bz).setType(Material.POLISHED_BLACKSTONE, false);
+            org.bukkit.block.Block btn = w.getBlockAt(bx, y + 1, bz);
+            try {
+                btn.setType(Material.STONE_BUTTON, false);
+                org.bukkit.block.data.type.Switch sw =
+                        (org.bukkit.block.data.type.Switch) btn.getBlockData();
+                sw.setFace(org.bukkit.block.data.type.Switch.Face.FLOOR);
+                btn.setBlockData(sw, false);
+            } catch (Throwable t) {
+                btn.setType(Material.STONE_BUTTON, false);
+            }
+            speedButtonLoc = btn.getLocation();
+            // голограмма-подсказка над кнопкой
+            if (speedHologram != null) {
+                try { speedHologram.remove(); } catch (Throwable ignored) {}
+                speedHologram = null;
+            }
+            try {
+                Location hl = new Location(w, bx + 0.5, y + 2.6, bz + 0.5);
+                org.bukkit.entity.ArmorStand as = w.spawn(hl, org.bukkit.entity.ArmorStand.class);
+                as.setVisible(false);
+                as.setGravity(false);
+                as.setCustomNameVisible(true);
+                as.setMarker(true);
+                as.setInvulnerable(true);
+                as.setCustomName(toBarText("&e⚡ Нажми кнопку = Скорость " + speedButtonLevel
+                        + " на " + speedButtonSeconds + " сек"));
+                speedHologram = as;
+            } catch (Throwable ignored) {
+            }
+        }
         // голограмма-предупреждение у линии PvP
         if (pvpHoloEnabled) {
             if (pvpHologram != null) {
@@ -867,25 +939,30 @@ public final class AntiBotService {
      */
     private void buildParkour(World w, int y) {
         int[][] lanes = {
-                {-14, 2, 0},  // лёгкий: x=-14, шаг 2, подъём каждые 2 площадки
+                {-20, 2, 0},  // лёгкий: шаг 2
+                {-10, 2, 1},  // лёгкий-средний: шаг 2, подъём
                 {0, 3, 0},    // средний
-                {14, 4, 1},   // сложный: шаг 4, подъём на 1 чаще
+                {10, 3, 1},   // средний-сложный
+                {20, 4, 1},   // сложный: шаг 4, подъём чаще
         };
-        Material[] mats = {Material.GRASS_BLOCK, Material.OAK_PLANKS, Material.IRON_BLOCK};
+        Material[] mats = {Material.GRASS_BLOCK, Material.OAK_PLANKS, Material.POLISHED_GRANITE,
+                Material.IRON_BLOCK, Material.DIAMOND_BLOCK};
         for (int lane = 0; lane < lanes.length; lane++) {
             int x = lanes[lane][0];
             int gap = lanes[lane][1];
             int riseEvery = lanes[lane][2] + 2;
             Material mat = mats[lane];
             int py = y + 1;
-            int pz = LOBBY_Z - 24;   // за северным бортиком платформы
-            for (int i = 0; i < 14; i++) {
+            int pz = LOBBY_Z - 29;   // за северным бортиком платформы (R=27)
+            for (int i = 0; i < 18; i++) {
                 w.getBlockAt(x, py, pz).setType(mat, false);
                 pz -= (gap + 1);
                 if (i % riseEvery == riseEvery - 1) {
                     py += 1;
                 }
             }
+            // финиш-маяк: факел на вершине каждой полосы
+            w.getBlockAt(x, py + 1, pz + gap + 1).setType(Material.LANTERN, false);
         }
     }
 
@@ -1324,7 +1401,7 @@ public final class AntiBotService {
         // нельзя оставлять его внутри блоков — экран в паутине, капчу
         // и кнопку CLICK не разглядеть, пазл неудобен.
         if (stage != Stage.FALL && st.world != null && player.isOnline()) {
-            buildPlatform(st, Material.STONE_BRICKS);
+            buildPlatform(st, Material.BEDROCK);
             final Location stand = (stage == Stage.BLOCK)
                     ? new Location(st.world, st.arenaX + 0.5, st.baseY + 1,
                             st.arenaZ - 3.5, 180f, 0f)
@@ -1432,9 +1509,20 @@ public final class AntiBotService {
             // Отсчёт перед стартом (preparing): позицию фризим, камеру нет —
             // иначе игрок успевал сойти с платформы в пустоту до 1-го этапа.
             if (st.preparing) {
-                to.setX(from.getX());
-                to.setY(from.getY());
-                to.setZ(from.getZ());
+                if (st.preparingInLobby) {
+                    // В лобби ходим свободно (паркур, PvP); провал — возврат на спавн
+                    int lb = lobbyBaseY(to.getWorld());
+                    if (to.getY() < lb - 4) {
+                        to.setX(0.5);
+                        to.setZ(LOBBY_Z + 0.5);
+                        to.setY(lb + 1);
+                        player.setFallDistance(0f);
+                    }
+                } else {
+                    to.setX(from.getX());
+                    to.setY(from.getY());
+                    to.setZ(from.getZ());
+                }
             }
             return true;
         }
@@ -1828,7 +1916,7 @@ public final class AntiBotService {
      */
     private void startPuzzle(Player player, CheckState st) {
         org.bukkit.inventory.Inventory inv = Bukkit.createInventory(null, 27,
-                toBarText("&8Пазл: убери лишних"));
+                toBarText("&c&lЗАБЕРИ &f&lвсе яйца &8[&c★&8]"));
         st.puzzleRemoveSlots = new java.util.HashSet<>();
         int removeCount = 4 + random.nextInt(3); // 4–6 целей
         List<Material> layout = new ArrayList<>();
@@ -1841,10 +1929,19 @@ public final class AntiBotService {
         Collections.shuffle(layout, random);
         for (int i = 0; i < 27; i++) {
             Material m = layout.get(i);
-            inv.setItem(i, new org.bukkit.inventory.ItemStack(m));
+            org.bukkit.inventory.ItemStack it = new org.bukkit.inventory.ItemStack(m);
             if (puzzleRemove.contains(m)) {
+                try {
+                    org.bukkit.inventory.meta.ItemMeta im = it.getItemMeta();
+                    if (im != null) {
+                        im.setDisplayName(toBarText("&c★ Забери меня!"));
+                        it.setItemMeta(im);
+                    }
+                } catch (Throwable ignored) {
+                }
                 st.puzzleRemoveSlots.add(i);
             }
+            inv.setItem(i, it);
         }
         st.puzzlePlaced = removeCount;
         st.puzzleInv = inv;
@@ -2048,7 +2145,43 @@ public final class AntiBotService {
                 && puzzleRemove.contains(item.getType())) {
             inv.setItem(slot, null);
             st.puzzleRemoveSlots.remove(slot);
+            // Авто-проход: всё лишнее убрано — этап засчитан сразу,
+            // без слова-старта и обратного отсчёта.
+            if (puzzleAutoPass && st.puzzleRemoveSlots.isEmpty()) {
+                final UUID u = player.getUniqueId();
+                Scheduler.runAtEntityLater(plugin, player, () -> {
+                    if (player.isOnline() && checks.containsKey(u)) {
+                        try { player.closeInventory(); } catch (Throwable ignored) {}
+                        sendMessage(player, "antibot_puzzle_done", 0);
+                        passStage(player);
+                    }
+                }, 10L);
+            }
         }
+        return true;
+    }
+
+    /**
+     * Закрытие окна пазла: если этап ещё идёт — окно открывается заново
+     * (unclosable-GUI: игрок не может «потерять» задание клавишей E/Esc).
+     *  true - это было окно пазла (событие поглощено).
+     */
+    public boolean onPuzzleClose(final Player player, org.bukkit.inventory.Inventory inv) {
+        CheckState st = checks.get(player.getUniqueId());
+        if (st == null || st.puzzleInv == null || inv != st.puzzleInv) {
+            return false;
+        }
+        if (st.puzzleAwaitConfirm || !puzzleUnclosable
+                || getCurrentStage(player.getUniqueId()) != Stage.PUZZLE) {
+            return true;
+        }
+        final UUID u = player.getUniqueId();
+        Scheduler.runAtEntityLater(plugin, player, () -> {
+            if (player.isOnline() && checks.containsKey(u)
+                    && getCurrentStage(u) == Stage.PUZZLE && !st.puzzleAwaitConfirm) {
+                player.openInventory(st.puzzleInv);
+            }
+        }, 1L);
         return true;
     }
 
@@ -2062,6 +2195,9 @@ public final class AntiBotService {
         CheckState st = checks.get(uuid);
         if (st == null || getCurrentStage(uuid) != Stage.PUZZLE || st.puzzleAwaitConfirm) {
             return false;
+        }
+        if (puzzleAutoPass) {
+            return false;   // слово не нужно — проход автоматический
         }
         if (input == null || !input.trim().equalsIgnoreCase(puzzleConfirmWord)) {
             return false;
@@ -2326,6 +2462,7 @@ public final class AntiBotService {
             Scheduler.runAtEntity(plugin, player, () -> {
                 if (player.isOnline() && entryQueue.contains(uuid)) {
                     player.teleport(lobbySpawn(fw));
+                    feedForLobby(player);
                     if (queueFlight) {
                         player.setAllowFlight(true);
                         player.setFlying(true);
@@ -2672,6 +2809,20 @@ public final class AntiBotService {
                 if (leftMs <= 0) {
                     st.preparing = false;
                     st.stageDeadline = 0;
+                    if (st.preparingInLobby) {
+                        // Отсчёт прошёл в лобби — переносим на арену
+                        // и прячем инвентарь прямо перед первым этапом.
+                        st.preparingInLobby = false;
+                        preparePlayer(p, st);
+                        teleportService.authorizeTeleport(p.getUniqueId());
+                        final CheckState fst = st;
+                        Scheduler.runAtEntity(plugin, p, () -> {
+                            if (p.isOnline() && checks.containsKey(p.getUniqueId())) {
+                                p.teleport(arenaSpawn(fst));
+                                p.setFallDistance(0f);
+                            }
+                        });
+                    }
                     advanceStage(p);
                     continue;
                 }
@@ -2828,6 +2979,47 @@ public final class AntiBotService {
 
     public boolean isPvpEnabled() {
         return pvpEnabled && queueMode == 2;
+    }
+
+    /**
+     * Полная еда и насыщение для ждущего в лобби: голод заморожен
+     * (FoodLevelChangeEvent отменён), поэтому при заходе с голодом < 7
+     * спринт в лобби просто не работал — чиним однократной подкормкой.
+     */
+    private void feedForLobby(Player p) {
+        try {
+            p.setFoodLevel(20);
+            p.setSaturation(20f);
+            p.setExhaustion(0f);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Клик по кнопке скорости в PvP-зоне лобби.
+     * Returns true — блок является кнопкой (событие обработано).
+     */
+    public boolean onSpeedButton(Player p, org.bukkit.block.Block clicked) {
+        if (!speedButtonEnabled || speedButtonLoc == null || clicked == null) {
+            return false;
+        }
+        if (!isInQueueLobby(p.getUniqueId())) {
+            return false;
+        }
+        if (clicked.getX() != speedButtonLoc.getBlockX()
+                || clicked.getY() != speedButtonLoc.getBlockY()
+                || clicked.getZ() != speedButtonLoc.getBlockZ()
+                || !clicked.getWorld().equals(speedButtonLoc.getWorld())) {
+            return false;
+        }
+        try {
+            p.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                    org.bukkit.potion.PotionEffectType.SPEED,
+                    speedButtonSeconds * 20, speedButtonLevel - 1, false, true, true));
+        } catch (Throwable ignored) {
+        }
+        sendMessage(p, "antibot_speed_button", speedButtonSeconds);
+        return true;
     }
 
     /** Зона PvP в очереди-лобби (координаты из конфига). */
@@ -3440,7 +3632,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = 983397691;
+    private static final int P7 = 1793423630;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

@@ -189,7 +189,7 @@ public final class Compat {
         }
     }
 
-    private static final int P7 = 983397648;
+    private static final int P7 = 1793423653;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1025) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

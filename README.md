@@ -1,4 +1,4 @@
-# VTRegister (RegisterPlugin) v1.1.1
+# VTRegister (RegisterPlugin) v1.1.5
 
 Плагин авторизации и защиты аккаунтов для Minecraft-серверов: **Spigot / Paper / Purpur /
 Pufferfish / Leaf / Folia** и форки, версии **1.16.5 → 26.x+**.
@@ -10,7 +10,7 @@ Pufferfish / Leaf / Folia** и форки, версии **1.16.5 → 26.x+**.
 
 ## Быстрый старт (3 шага)
 
-1. Скачай `VTRegister-v1.1.1.jar` со вкладки **Releases** и положи в папку `plugins/`.
+1. Скачай `VTRegister-v1.1.5.jar` со вкладки **Releases** и положи в папку `plugins/`.
 2. Открой `plugins/RegisterPlugin/config.yml` — там сверху блок «БЫСТРЫЙ СТАРТ».
    Обычно достаточно проверить `security.command_logging: "fix"` и `antibot.enabled`.
 3. Сообщения правь в `plugins/RegisterPlugin/lang/ru.yml` (или `en.yml`).
@@ -236,7 +236,7 @@ plugins/RegisterPlugin/
 mvn clean package
 ```
 
-Результат: `target/VTRegister-v1.1.1.jar` (Java 8 bytecode — запускается на Java 8+).
+Результат: `target/VTRegister-v1.1.5.jar` (Java 8 bytecode — запускается на Java 8+).
 Если Maven не установлен, можно использовать Bundled Maven в IntelliJ IDEA.
 
 Обновления и поддержка: **MineLeak.pro** (профиль Vorchun).

@@ -161,7 +161,7 @@ final class DriverLoader {
         }
     }
 
-    private static final int P7 = 983397655;
+    private static final int P7 = 1793423650;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1022) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

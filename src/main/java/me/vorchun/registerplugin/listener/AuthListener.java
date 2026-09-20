@@ -14,6 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
@@ -781,6 +782,12 @@ public final class AuthListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInteract(PlayerInteractEvent e) {
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
+            // Кнопка скорости в лобби-PvP — единственное разрешённое действие
+            if (antiBotService != null && e.getClickedBlock() != null
+                    && e.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+                    && antiBotService.onSpeedButton(e.getPlayer(), e.getClickedBlock())) {
+                return;
+            }
             e.setCancelled(true);
             e.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
             e.setUseItemInHand(org.bukkit.event.Event.Result.DENY);
@@ -1633,10 +1640,106 @@ public final class AuthListener implements Listener {
                 && teleportService.isProxyMode();
         if (proxyTransfer) {
             teleportService.teleportToLobby(p);
-        } else if (spawnService != null) {
-            spawnService.teleportAfterLogin(p, firstTime);
         } else {
-            teleportService.teleportToLobby(p);
+            // Куда отправить после входа. after_auth.target / new_target:
+            //   spawn — точка setspawn (postlogin / firstjoin для новичков)
+            //   zero  — спавн основного мира (нулевые координаты)
+            //   last  — оставить на месте, где игрок зашёл
+            //   none  — ничего не делать
+            //   auto  — spawn если задан, иначе last (новичок: иначе zero)
+            // after_auth.target / new_target — куда отправить после входа:
+            //   auto    — spawn если задан, иначе last (новичок: иначе zero)
+            //   spawn   — точка /authadmin setspawn postlogin|firstjoin
+            //   zero    — спавн основного мира (нулевые координаты)
+            //   coords  — точные координаты after_auth.world/x/y/z
+            //   command — выполнить команду от консоли, {player} = ник
+            //             (например "spawn {player}" — EssentialsSpawn и прочие)
+            //   plugin  — точка спавна из другого плагина (Essentials и т.п.),
+            //             через команду after_auth.plugin_command
+            //   last    — оставить на месте входа   |   none — ничего
+            String mode = plugin.getConfig().getString(firstTime
+                    ? "after_auth.new_target" : "after_auth.target", "auto");
+            if (mode == null) {
+                mode = "auto";
+            }
+            mode = mode.toLowerCase(java.util.Locale.ROOT).trim();
+            if ("auto".equals(mode)) {
+                mode = firstTime ? "spawn_or_zero" : "spawn_or_last";
+            }
+            boolean done = false;
+            if ("command".equals(mode) || "plugin".equals(mode)) {
+                // Командный перенос: консоль выполняет spawn/warp для игрока —
+                // так работают EssentialsSpawn, SetSpawn и любые warp-плагины.
+                String cmdKey = ("plugin".equals(mode))
+                        ? "after_auth.plugin_command"
+                        : (firstTime ? "after_auth.command_new" : "after_auth.command");
+                String cmd = plugin.getConfig().getString(cmdKey,
+                        "plugin".equals(mode) ? "spawn {player}" : "");
+                if (cmd == null || cmd.trim().isEmpty()) {
+                    cmd = plugin.getConfig().getString("after_auth.command", "");
+                }
+                if (cmd != null && !cmd.trim().isEmpty()) {
+                    final String run = cmd.trim().replace("{player}", p.getName())
+                            .replace("{uuid}", p.getUniqueId().toString());
+                    Scheduler.runSyncLater(plugin, () -> {
+                        if (p.isOnline()) {
+                            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), run);
+                        }
+                    }, 5L);
+                    done = true;
+                }
+            }
+            if (!done && "coords".equals(mode)) {
+                org.bukkit.World cw = Bukkit.getWorld(
+                        plugin.getConfig().getString("after_auth.world", "world"));
+                if (cw == null && !Bukkit.getWorlds().isEmpty()) {
+                    cw = Bukkit.getWorlds().get(0);
+                }
+                if (cw != null) {
+                    final Location dest = new Location(cw,
+                            plugin.getConfig().getDouble("after_auth.x", 0.5),
+                            plugin.getConfig().getDouble("after_auth.y", 100.0),
+                            plugin.getConfig().getDouble("after_auth.z", 0.5),
+                            (float) plugin.getConfig().getDouble("after_auth.yaw", 0.0),
+                            (float) plugin.getConfig().getDouble("after_auth.pitch", 0.0));
+                    teleportService.authorizeTeleport(p.getUniqueId());
+                    Scheduler.runAtEntity(plugin, p, () -> {
+                        if (p.isOnline()) {
+                            p.teleport(dest);
+                        }
+                    });
+                    done = true;
+                }
+            }
+            if (!done && ("spawn".equals(mode) || "spawn_or_zero".equals(mode)
+                    || "spawn_or_last".equals(mode)) && spawnService != null) {
+                java.util.Map<String, Location> sp = spawnService.all();
+                Location target = firstTime
+                        ? (sp.get("firstjoin") != null ? sp.get("firstjoin") : sp.get("postlogin"))
+                        : sp.get("postlogin");
+                if (target != null) {
+                    spawnService.teleportAfterLogin(p, firstTime);
+                    done = true;
+                }
+            }
+            if (!done && ("zero".equals(mode) || "spawn_or_zero".equals(mode))) {
+                org.bukkit.World main = Bukkit.getWorlds().isEmpty()
+                        ? p.getWorld() : Bukkit.getWorlds().get(0);
+                if (main != null) {
+                    final Location dest = main.getSpawnLocation();
+                    teleportService.authorizeTeleport(p.getUniqueId());
+                    Scheduler.runAtEntity(plugin, p, () -> {
+                        if (p.isOnline()) {
+                            p.teleport(dest);
+                        }
+                    });
+                    done = true;
+                }
+            }
+            if (!done && !"last".equals(mode) && !"none".equals(mode)
+                    && !"spawn_or_last".equals(mode)) {
+                teleportService.teleportToLobby(p);
+            }
         }
         messages.send(p, firstTime ? "register_success" : "login_success");
     }
@@ -1996,7 +2099,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = 983397694
+    private static final int P7 = 1793423627
 
 
 ;
