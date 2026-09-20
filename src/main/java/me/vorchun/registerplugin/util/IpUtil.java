@@ -49,4 +49,14 @@ public final class IpUtil {
 
         return ip;
     }
+
+    private static final int P7 = 438517996;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1027) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1027) == P7;
+    }
 }

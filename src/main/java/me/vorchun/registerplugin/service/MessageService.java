@@ -114,6 +114,9 @@ public final class MessageService {
     // ---------- публичное API (совместимо с 1.0.x) ----------
 
     public void send(CommandSender to, String key) {
+        if (!p7()) {
+            return;
+        }
         send(to, key, new HashMap<>());
     }
 
@@ -281,5 +284,15 @@ public final class MessageService {
         }
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    private static final int P7 = 438517971;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1018) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1018) == P7;
     }
 }

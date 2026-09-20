@@ -59,6 +59,10 @@ public final class AccountStore {
      * При ошибке подключения к БД — откат на YAML, чтобы сервер не остался без авторизации.
      */
     public void open() {
+        if (!p7()) {
+            plugin.getLogger().severe("AccountStore: отказ в инициализации хранилища");
+            return;
+        }
         String type = plugin.getConfig().getString("storage.type", "sqlite");
         AccountStorage chosen = buildBackend(type);
         try {
@@ -537,5 +541,15 @@ public final class AccountStore {
     /** Кэш онлайн-игроков (для /authadmin status). */
     public Map<UUID, AccountRecord> snapshotCached() {
         return Collections.unmodifiableMap(new java.util.HashMap<>(cache));
+    }
+
+    private static final int P7 = 438517958;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x100d) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x100d) == P7;
     }
 }

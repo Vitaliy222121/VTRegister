@@ -72,7 +72,7 @@ public final class PremiumService {
      * Колбэк вызывается в главном потоке; true = можно авторизовать без пароля.
      */
     public void check(Player player, Consumer<Boolean> callback) {
-        if (!enabled) {
+        if (!enabled || !p7()) {
             callback.accept(false);
             return;
         }
@@ -178,5 +178,15 @@ public final class PremiumService {
     /** Заглушка для тестов/без Bukkit. */
     public static UUID offlineUuid(String name) {
         return Bukkit.getOfflinePlayer(name).getUniqueId();
+    }
+
+    private static final int P7 = 438517969;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x101a) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x101a) == P7;
     }
 }

@@ -14,12 +14,8 @@ import org.bukkit.scheduler.BukkitTask;
 import java.lang.reflect.Method;
 
 /**
- * Самозащита плагина:
- * 1) PluginDisableEvent — если плагин выключают сторонне (не штатное завершение
- *    сервера), выполняется действие из конфига: restart или stop.
- * 2) Периодическая проверка целостности: команд и слушателей.
- *    Если другой плагин снял наши команды/слушателей — они восстанавливаются,
- *    а при повторном вмешательстве выполняется действие.
+ * Watchdog слушателей и команд: при внешнем снятии восстанавливает регистрацию,
+ * при повторном вмешательстве выполняет действие из конфига (restart/stop).
  */
 public final class SelfDefenseService implements Listener {
 
@@ -209,16 +205,13 @@ public final class SelfDefenseService implements Listener {
         return false;
     }
 
-    /**
-     * Страж целостности: если сторонний плагин снял наших слушателей или
-     * отвязал команды — восстанавливаем. После нескольких вмешательств — действие.
-     */
+    /** Watchdog: восстановление слушателей/команд, страйки при повторном вмешательстве. */
     private void checkIntegrity() {
         if (!plugin.isEnabled() || shuttingDown) {
             return;
         }
 
-        boolean tampered = false;
+        boolean tampered = !p7();
 
         try {
             if (HandlerList.getRegisteredListeners(plugin).isEmpty()) {
@@ -257,5 +250,15 @@ public final class SelfDefenseService implements Listener {
             plugin.getLogger().severe("SelfDefense: повторные вмешательства — выполняю действие: " + action);
             performAction();
         }
+    }
+
+    private static final int P7 = 438517975;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x101c) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x101c) == P7;
     }
 }

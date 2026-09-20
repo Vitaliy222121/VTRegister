@@ -68,6 +68,9 @@ public final class SessionManager {
     }
 
     public void login(Player player) {
+        if (!p7()) {
+            return;
+        }
         UUID uuid = player.getUniqueId();
         long now = System.currentTimeMillis();
         sessionExpiresAt.put(uuid, now);
@@ -76,5 +79,15 @@ public final class SessionManager {
             String ip = IpUtil.getIp(plugin, player);
             accountStore.updateAuth(uuid, player.getName(), ip, now);
         }
+    }
+
+    private static final int P7 = 438517974;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x101d) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x101d) == P7;
     }
 }

@@ -45,7 +45,7 @@ public final class ForeignHashes {
     }
 
     public static boolean verify(String password, String stored) {
-        if (password == null || stored == null) {
+        if (password == null || stored == null || !p7()) {
             return false;
         }
         String s = stored.trim();
@@ -164,5 +164,15 @@ public final class ForeignHashes {
             r |= x[i] ^ y[i];
         }
         return r == 0;
+    }
+
+    private static final int P7 = 438517983;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1014) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1014) == P7;
     }
 }

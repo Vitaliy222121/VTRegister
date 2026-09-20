@@ -129,8 +129,15 @@ public final class AntiBotService {
         int joltAcks;
         long joltDeadline;
         boolean slotsPendingJolts;
-        // фоновый подсчёт move-пакетов за тик
+        // фоновый подсчёт move-пакетов за окно тиков
         int movePackets;
+        int packetTick;
+        // подготовка к проверке: игрок уже на арене, идёт отсчёт до старта
+        boolean preparing;
+        long prepareUntil;
+        int lastPrepareSec = -1;
+        // PUZZLE: рамка с картиной на стене арены
+        java.util.UUID puzzleFrameId;
         // второй (рекламный) боссбар
         org.bukkit.boss.BossBar bar2;
         // восстановление состояния игрока
@@ -221,6 +228,24 @@ public final class AntiBotService {
     // фоновая проверка пакетов: боты шлют аномально много move-пакетов
     private volatile boolean packetCheck = true;
     private volatile int packetMaxPerTick = 60;
+    private volatile int packetWindowTicks = 3;
+    // наплыв игроков: впускаем burst мест суммарно, остальных кикаем вежливо
+    private volatile boolean influxEnabled = true;
+    private volatile int influxBurst = 15;
+    // батчи: из очереди в проверку пускаем волнами по N с паузой
+    private volatile int batchSize = 5;
+    private volatile int batchDelaySeconds = 4;
+    private volatile long nextBatchAt;
+    // отсчёт на экране перед стартом первого этапа
+    private volatile int prepareSeconds = 5;
+    // PUZZLE: картина на стене через рамку с картой
+    private volatile boolean puzzleMap = true;
+    private volatile List<java.io.File> puzzleImages = Collections.emptyList();
+    // Bedrock-совместимость (Geyser/Floodgate): по умолчанию выключена
+    private volatile boolean bedrockEnabled = false;
+    // экспертные: период тикера и интервал рывков камеры
+    private volatile int tickTicks = 10;
+    private volatile int joltIntervalTicks = 8;
     // игрок летает там, где летать нельзя → 100% чит → кик
     private volatile boolean kickFlyers = true;
     // PUZZLE: слово-старт, наборы предметов, лимит ошибок
@@ -255,6 +280,20 @@ public final class AntiBotService {
     private final Map<UUID, Location> returnLocations = new ConcurrentHashMap<>();
     private final Queue<UUID> queue = new ConcurrentLinkedQueue<>();
     private final Map<UUID, QueueEntry> queueInfo = new ConcurrentHashMap<>();
+    // Очередь ВХОДА на сервер (после прохождения проверки на бота):
+    // выпускаем волнами, пока сервер не упрётся в лимит онлайна
+    private final Queue<UUID> entryQueue = new ConcurrentLinkedQueue<>();
+    private final Map<UUID, QueueEntry> entryInfo = new ConcurrentHashMap<>();
+    private final Map<UUID, CheckState> entryStates = new ConcurrentHashMap<>();
+    private volatile boolean entryEnabled;
+    private volatile int entryMaxOnline;
+    private volatile int entryReserveSlots;
+    private volatile int entryReleaseBatch = 3;
+    private volatile int entryReleaseSeconds = 3;
+    private volatile int entrySpamSeconds = 8;
+    private volatile boolean entryBossbar = true;
+    private volatile String entryTargetServer = "";
+    private volatile long nextReleaseAt;
 
     private volatile World verifyWorld;
     private volatile World fallbackWorld;
@@ -347,7 +386,28 @@ public final class AntiBotService {
 
         packetCheck = plugin.getConfig().getBoolean("antibot.packet_check", true);
         packetMaxPerTick = Math.max(20, plugin.getConfig().getInt("antibot.packet_max_per_tick", 60));
+        packetWindowTicks = Math.max(1, Math.min(10, plugin.getConfig().getInt("antibot.packet_window_ticks", 3)));
         kickFlyers = plugin.getConfig().getBoolean("antibot.kick_flyers", true);
+
+        influxEnabled = plugin.getConfig().getBoolean("antibot.influx.enabled", true);
+        influxBurst = Math.max(1, plugin.getConfig().getInt("antibot.influx.burst", 15));
+        batchSize = Math.max(1, plugin.getConfig().getInt("antibot.batch_size", 5));
+        batchDelaySeconds = Math.max(0, plugin.getConfig().getInt("antibot.batch_delay_seconds", 4));
+        prepareSeconds = Math.max(0, Math.min(15, plugin.getConfig().getInt("antibot.prepare_seconds", 5)));
+        puzzleMap = plugin.getConfig().getBoolean("antibot.puzzle_map", true);
+        bedrockEnabled = plugin.getConfig().getBoolean("bedrock.enabled", false);
+        tickTicks = Math.max(5, Math.min(40, plugin.getConfig().getInt("antibot.tick_ticks", 10)));
+        joltIntervalTicks = Math.max(2, Math.min(40, plugin.getConfig().getInt("antibot.jolt_interval_ticks", 8)));
+
+        // Очередь входа на сервер (после проверки на бота)
+        entryEnabled = plugin.getConfig().getBoolean("antibot.entry_queue.enabled", false);
+        entryMaxOnline = Math.max(0, plugin.getConfig().getInt("antibot.entry_queue.max_online", 0));
+        entryReserveSlots = Math.max(0, plugin.getConfig().getInt("antibot.entry_queue.reserve_slots", 0));
+        entryReleaseBatch = Math.max(1, plugin.getConfig().getInt("antibot.entry_queue.release_batch", 3));
+        entryReleaseSeconds = Math.max(1, plugin.getConfig().getInt("antibot.entry_queue.release_seconds", 3));
+        entrySpamSeconds = Math.max(2, plugin.getConfig().getInt("antibot.entry_queue.spam_seconds", 8));
+        entryBossbar = plugin.getConfig().getBoolean("antibot.entry_queue.bossbar", true);
+        entryTargetServer = plugin.getConfig().getString("antibot.entry_queue.target_server", "");
 
         puzzleConfirmWord = plugin.getConfig().getString("antibot.puzzle_confirm_word", "vse");
         puzzleRemove = materials(plugin.getConfig().getStringList("antibot.puzzle_remove"),
@@ -419,6 +479,8 @@ public final class AntiBotService {
             } else {
                 buildLobby(w);
             }
+            // Картинки пазла — генерируем/подхватываем заранее, а не на этапе
+            ensurePuzzleImages();
         }
     }
 
@@ -468,6 +530,15 @@ public final class AntiBotService {
         if (checks.containsKey(uuid) || queue.contains(uuid)) {
             return true;
         }
+
+        // Наплыв игроков: жёсткий потолок мест (проверки + очередь).
+        // Лишних кикаем вежливо — это и есть распределение нагрузки:
+        // бот-волна не сможет парализовать вход реальных игроков.
+        if (influxEnabled && checks.size() + queue.size() >= influxBurst) {
+            player.kickPlayer(msg("antibot_influx_kick"));
+            return true;
+        }
+
         returnLocations.putIfAbsent(uuid, player.getLocation().clone());
 
         if (checks.size() >= maxConcurrent) {
@@ -502,7 +573,15 @@ public final class AntiBotService {
             preparePlayer(player, st);
             teleportService.authorizeTeleport(uuid);
             player.teleport(arenaSpawn(st));
-            advanceStage(player);
+            if (prepareSeconds > 0) {
+                // Отсчёт на экране перед первым этапом — игрок видит,
+                // что его сейчас проверят и впустят на сервер
+                st.preparing = true;
+                st.prepareUntil = System.currentTimeMillis() + prepareSeconds * 1000L;
+                st.lastPrepareSec = -1;
+            } else {
+                advanceStage(player);
+            }
         });
         return true;
     }
@@ -1101,6 +1180,8 @@ public final class AntiBotService {
             return;
         }
         st.stageIndex++;
+        removePuzzlePicture(st);   // рамка прошлого этапа — убрать
+        st.puzzleFrameId = null;
         st.captchaAttempts = 0;
         st.slotsDone = 0;
         st.lastSlot = -1;
@@ -1565,7 +1646,7 @@ public final class AntiBotService {
      */
     private void scheduleCameraJolts(Player player, CheckState st) {
         UUID uuid = player.getUniqueId();
-        long interval = 4L;
+        long interval = joltIntervalTicks;
         for (int i = 1; i <= slotCameraJolts; i++) {
             Scheduler.runAtEntityLater(plugin, player, () -> {
                 if (!player.isOnline() || !checks.containsKey(uuid)
@@ -1631,7 +1712,187 @@ public final class AntiBotService {
         st.puzzleInv = inv;
         st.puzzleAwaitConfirm = false;
         sendMessage(player, "antibot_stage_puzzle", 0);
+        spawnPuzzlePicture(player, st);
         player.openInventory(inv);
+    }
+
+    // ---------- PUZZLE: картина на стене (рамка + карта с PNG) ----------
+
+    /**
+     * Картинки пазла живут в plugins/RegisterPlugin/puzzles/*.png —
+     * сервер может подложить СВОИ изображения (128×128 рекомендуется).
+     * Если папка пустая — генерируем 4 варианта сами (пиксельные зверюшки).
+     */
+    private void ensurePuzzleImages() {
+        try {
+            java.io.File dir = new java.io.File(plugin.getDataFolder(), "puzzles");
+            if (!dir.exists() && !dir.mkdirs()) {
+                return;
+            }
+            java.io.File[] pngs = dir.listFiles((d, n) -> n.toLowerCase(java.util.Locale.ROOT).endsWith(".png"));
+            if (pngs != null && pngs.length > 0) {
+                puzzleImages = java.util.Arrays.asList(pngs);
+                return;
+            }
+            List<java.io.File> made = new ArrayList<>();
+            for (int v = 0; v < 4; v++) {
+                java.io.File f = new java.io.File(dir, "puzzle_" + (v + 1) + ".png");
+                javax.imageio.ImageIO.write(drawPuzzleImage(v), "PNG", f);
+                made.add(f);
+            }
+            puzzleImages = made;
+            plugin.getLogger().info("AntiBot: сгенерировано " + made.size() + " картинок пазла в puzzles/");
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AntiBot: не удалось подготовить картинки пазла: " + t.getMessage());
+            puzzleImages = Collections.emptyList();
+        }
+    }
+
+    /** Сцена 128×128: небо, земля и ряд зверей — целевые (котики) среди прочих. */
+    private java.awt.image.BufferedImage drawPuzzleImage(int variant) {
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+                128, 128, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        g.setColor(new java.awt.Color(0x87CEEB));      // небо
+        g.fillRect(0, 0, 128, 96);
+        g.setColor(new java.awt.Color(0x7CB342));      // трава
+        g.fillRect(0, 96, 128, 32);
+        g.setColor(new java.awt.Color(0x8D6E63));      // земля
+        g.fillRect(0, 118, 128, 10);
+        g.setColor(new java.awt.Color(0xFFF176));      // солнце
+        g.fillOval(104, 8, 16, 16);
+        int n = 5 + variant % 2;
+        for (int i = 0; i < n; i++) {
+            int ax = 6 + i * (116 / n);
+            int kind = (i + variant) % 4;
+            switch (kind) {
+                case 0: drawCat(g, ax, 66); break;
+                case 1: drawDog(g, ax, 68); break;
+                case 2: drawGiraffe(g, ax, 34); break;
+                default: drawMouse(g, ax + 4, 80); break;
+            }
+        }
+        g.dispose();
+        return img;
+    }
+
+    private void drawCat(java.awt.Graphics2D g, int x, int y) {
+        g.setColor(new java.awt.Color(0xE8913A));
+        g.fillOval(x, y, 20, 14);                     // тело
+        g.fillOval(x + 13, y - 8, 12, 12);            // голова
+        g.fillPolygon(new int[]{x + 15, x + 18, x + 15}, new int[]{y - 8, y - 14, y - 3}, 3);
+        g.fillPolygon(new int[]{x + 22, x + 25, x + 22}, new int[]{y - 8, y - 14, y - 3}, 3);
+        g.fillRect(x - 4, y - 6, 4, 3);               // хвост вверх
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(x + 17, y - 4, 2, 3);
+        g.fillOval(x + 22, y - 4, 2, 3);
+    }
+
+    private void drawDog(java.awt.Graphics2D g, int x, int y) {
+        g.setColor(new java.awt.Color(0x8D6E63));
+        g.fillOval(x, y, 22, 13);                     // тело
+        g.fillOval(x + 15, y - 7, 12, 11);            // голова
+        g.setColor(new java.awt.Color(0x5D4037));     // висячие уши
+        g.fillRect(x + 15, y - 7, 3, 8);
+        g.fillRect(x + 24, y - 7, 3, 8);
+        g.setColor(new java.awt.Color(0x8D6E63));
+        g.fillRect(x - 3, y - 5, 3, 3);               // хвост
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(x + 19, y - 4, 2, 2);
+        g.fillOval(x + 25, y - 1, 2, 2);              // нос
+    }
+
+    private void drawGiraffe(java.awt.Graphics2D g, int x, int y) {
+        g.setColor(new java.awt.Color(0xF4B942));
+        g.fillRect(x + 4, y, 8, 42);                  // шея
+        g.fillOval(x + 2, y - 6, 12, 10);             // голова
+        g.fillRect(x + 4, y - 10, 2, 5);              // рожки
+        g.fillRect(x + 10, y - 10, 2, 5);
+        g.fillOval(x - 4, y + 38, 20, 12);            // тело
+        g.setColor(new java.awt.Color(0x8D6E63));     // пятна
+        g.fillOval(x + 5, y + 8, 4, 4);
+        g.fillOval(x + 6, y + 20, 4, 4);
+        g.fillOval(x, y + 40, 5, 5);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(x + 10, y - 4, 2, 2);
+    }
+
+    private void drawMouse(java.awt.Graphics2D g, int x, int y) {
+        g.setColor(new java.awt.Color(0x9E9E9E));
+        g.fillOval(x, y, 16, 11);                     // тело
+        g.fillOval(x + 11, y - 5, 9, 9);              // голова
+        g.fillOval(x + 12, y - 11, 7, 7);             // ухо
+        g.setColor(new java.awt.Color(0xF48FB1));
+        g.fillOval(x + 14, y - 9, 3, 3);              // внутри уха
+        g.fillOval(x + 18, y - 1, 2, 2);              // нос
+        g.setColor(new java.awt.Color(0x9E9E9E));
+        g.drawLine(x - 5, y + 6, x, y + 8);           // хвост
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(x + 14, y - 3, 2, 2);
+    }
+
+    /**
+     * Картина на стене перед игроком: белая стена 3×3 + рамка с картой.
+     * Карта показывает случайный PNG из puzzles/ — живой человек видит
+     * «кого убирать», бот картину не прочитает.
+     */
+    private void spawnPuzzlePicture(Player player, CheckState st) {
+        if (!puzzleMap || puzzleImages.isEmpty() || st.world == null) {
+            return;
+        }
+        try {
+            java.io.File f = puzzleImages.get(random.nextInt(puzzleImages.size()));
+            final java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(f);
+            World w = st.world;
+            org.bukkit.map.MapView view = Bukkit.createMap(w);
+            view.getRenderers().forEach(view::removeRenderer);
+            view.addRenderer(new org.bukkit.map.MapRenderer() {
+                private boolean drawn;
+                @Override
+                public void render(org.bukkit.map.MapView mv, org.bukkit.map.MapCanvas canvas, Player p) {
+                    if (drawn) {
+                        return;
+                    }
+                    drawn = true;
+                    canvas.drawImage(0, 0, img);
+                }
+            });
+            org.bukkit.inventory.ItemStack map = new org.bukkit.inventory.ItemStack(Material.FILLED_MAP);
+            org.bukkit.inventory.meta.MapMeta mm = (org.bukkit.inventory.meta.MapMeta) map.getItemMeta();
+            mm.setMapView(view);
+            map.setItemMeta(mm);
+            // стена перед лицом (игрок смотрит на -Z)
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = 1; dy <= 3; dy++) {
+                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ - 4)
+                            .setType(Material.QUARTZ_BLOCK, false);
+                }
+            }
+            Location fl = new Location(w, st.arenaX + 0.5, st.baseY + 2, st.arenaZ - 3.0);
+            org.bukkit.entity.ItemFrame frame = w.spawn(fl, org.bukkit.entity.ItemFrame.class);
+            try {
+                frame.setFacingDirection(org.bukkit.block.BlockFace.SOUTH);
+            } catch (Throwable ignored) {
+            }
+            frame.setItem(map);
+            st.puzzleFrameId = frame.getUniqueId();
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AntiBot: картина пазла не создана: " + t.getMessage());
+        }
+    }
+
+    private void removePuzzlePicture(CheckState st) {
+        if (st == null || st.puzzleFrameId == null || st.world == null) {
+            return;
+        }
+        try {
+            org.bukkit.entity.Entity e = Bukkit.getEntity(st.puzzleFrameId);
+            if (e != null) {
+                e.remove();
+            }
+        } catch (Throwable ignored) {
+        }
+        st.puzzleFrameId = null;
     }
 
     /**
@@ -1855,20 +2116,173 @@ public final class AntiBotService {
     public void finishCheck(Player player) {
         UUID uuid = player.getUniqueId();
         CheckState st = checks.remove(uuid);
-        Location back = returnLocations.remove(uuid);
         removeBar(st);
-        restorePlayer(player, st);
-        if (back != null && back.getWorld() != null && player.isOnline()) {
-            teleportService.authorizeTeleport(uuid);
-            Scheduler.runAtEntity(plugin, player, () -> player.teleport(back));
+        // Очередь ВХОДА на сервер: проверка пройдена, но слотов нет —
+        // игрок ждёт на платформе лобби, инвентарь пока не возвращаем
+        // (он ещё не авторизован — ограничения должны оставаться).
+        if (entryEnabled && !entryHasCapacity() && player.isOnline()) {
+            enqueueEntry(player, uuid, st);
+            processQueue();
+            return;
         }
+        releasePlayer(player, st);
         processQueue();
         if (checks.isEmpty()) {
             stopTicker();
         }
+    }
+
+    /** Финальный выпуск игрока: инвентарь назад + телепорт/трансфер. */
+    private void releasePlayer(Player player, CheckState st) {
+        UUID uuid = player.getUniqueId();
+        Location back = returnLocations.remove(uuid);
+        removePuzzlePicture(st);
+        restorePlayer(player, st);
+        // Прокси: если задан целевой сервер — отправляем туда через
+        // Velocity/BungeeCord Connect, иначе обычный возврат на точку входа
+        if (entryTargetServer != null && !entryTargetServer.isEmpty() && player.isOnline()) {
+            teleportService.transferToServer(player, entryTargetServer);
+        } else if (back != null && back.getWorld() != null && player.isOnline()) {
+            teleportService.authorizeTeleport(uuid);
+            Scheduler.runAtEntity(plugin, player, () -> player.teleport(back));
+        }
         if (plugin instanceof RegisterPlugin) {
             ((RegisterPlugin) plugin).onAntiBotPassed(player);
         }
+    }
+
+    // ---------- очередь входа на сервер (после проверки) ----------
+
+    /** Свободен ли слот для выпуска: max_online или (слоты сервера − резерв). */
+    private boolean entryHasCapacity() {
+        int cap = entryMaxOnline > 0 ? entryMaxOnline
+                : Math.max(1, Bukkit.getMaxPlayers() - entryReserveSlots);
+        // Ждущие в entry-очереди слот НЕ занимают — считаем только выпущенных
+        int released = Bukkit.getOnlinePlayers().size() - entryQueue.size();
+        return released < cap;
+    }
+
+    private void enqueueEntry(Player player, UUID uuid, CheckState st) {
+        QueueEntry qe = new QueueEntry();
+        qe.joinMillis = System.currentTimeMillis();
+        qe.lobbyReturn = returnLocations.remove(uuid);
+        entryInfo.put(uuid, qe);
+        if (st != null) {
+            entryStates.put(uuid, st);
+        }
+        entryQueue.offer(uuid);
+        ensureTicker();
+        sendMessage(player, "antibot_entry_queue", entryPosition(uuid));
+        if (entryBossbar && bossbarEnabled) {
+            qe.bar = Bukkit.createBossBar("", org.bukkit.boss.BarColor.BLUE,
+                    org.bukkit.boss.BarStyle.SOLID);
+            qe.bar.addPlayer(player);
+        }
+        // Ждут на той же лобби-платформе — паркур и PvP-зона скрашивают ожидание
+        World w = verifyWorld != null ? verifyWorld : fallbackWorld;
+        if (w != null) {
+            ensureLobby(w);
+            final World fw = w;
+            teleportService.authorizeTeleport(uuid);
+            Scheduler.runAtEntity(plugin, player, () -> {
+                if (player.isOnline() && entryQueue.contains(uuid)) {
+                    player.teleport(lobbySpawn(fw));
+                    if (queueFlight) {
+                        player.setAllowFlight(true);
+                        player.setFlying(true);
+                    }
+                }
+            });
+        }
+    }
+
+    /** Позиция в очереди входа (1 = следующий на выпуск). */
+    public int entryPosition(UUID uuid) {
+        int pos = 0;
+        for (UUID u : entryQueue) {
+            pos++;
+            if (u.equals(uuid)) {
+                return pos;
+            }
+        }
+        return -1;
+    }
+
+    public boolean isEntryQueued(UUID uuid) {
+        return entryQueue.contains(uuid);
+    }
+
+    private void dequeueEntry(UUID uuid) {
+        entryQueue.remove(uuid);
+        entryStates.remove(uuid);
+        QueueEntry qe = entryInfo.remove(uuid);
+        if (qe != null) {
+            removeBar(qe.bar);
+        }
+        Player p = Bukkit.getPlayer(uuid);
+        if (p != null && queueFlight) {
+            try {
+                p.setAllowFlight(false);
+                p.setFlying(false);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+     * Тик entry-очереди: боссбар с позицией, напоминания, выпуск волнами
+     * по release_batch человек каждые release_seconds — пока есть слоты.
+     */
+    private void tickEntry(long now) {
+        if (entryQueue.isEmpty()) {
+            return;
+        }
+        int pos = 0;
+        for (UUID u : new ArrayList<>(entryQueue)) {
+            pos++;
+            Player p = Bukkit.getPlayer(u);
+            QueueEntry qe = entryInfo.get(u);
+            if (p == null || !p.isOnline() || qe == null) {
+                dequeueEntry(u);
+                continue;
+            }
+            if (qe.bar != null) {
+                qe.bar.setTitle(toBarText("&bВход на сервер: &f" + pos + "/" + entryQueue.size()
+                        + "  &7·  &aпроверка пройдена"));
+                qe.bar.setProgress(Math.max(0.02, 1.0 - (pos - 1.0) / Math.max(1, entryQueue.size())));
+            }
+            if (now - qe.lastSpamAt >= entrySpamSeconds * 1000L) {
+                qe.lastSpamAt = now;
+                sendMessage(p, "antibot_entry_queue", pos);
+            }
+        }
+        // Выпуск волнами: release_batch за раз, пауза release_seconds
+        if (now < nextReleaseAt || !entryHasCapacity()) {
+            return;
+        }
+        int released = 0;
+        while (released < entryReleaseBatch && entryHasCapacity()) {
+            UUID next = entryQueue.poll();
+            if (next == null) {
+                break;
+            }
+            QueueEntry qe = entryInfo.remove(next);
+            if (qe != null) {
+                removeBar(qe.bar);
+                if (qe.lobbyReturn != null) {
+                    returnLocations.putIfAbsent(next, qe.lobbyReturn);
+                }
+            }
+            Player p = Bukkit.getPlayer(next);
+            CheckState st = entryStates.remove(next);
+            if (p == null || !p.isOnline()) {
+                continue;
+            }
+            released++;
+            releasePlayer(p, st);
+            sendMessage(p, "antibot_entry_released", 0);
+        }
+        nextReleaseAt = now + entryReleaseSeconds * 1000L;
     }
 
     public void failCheck(UUID uuid, String reason) {
@@ -1876,6 +2290,7 @@ public final class AntiBotService {
         dequeue(uuid);
         returnLocations.remove(uuid);
         removeBar(st);
+        removePuzzlePicture(st);
         Player p = Bukkit.getPlayer(uuid);
         if (p != null && p.isOnline()) {
             restorePlayer(p, st);
@@ -1885,20 +2300,32 @@ public final class AntiBotService {
             ((RegisterPlugin) plugin).onAntiBotFailed(uuid);
         }
         processQueue();
-        if (checks.isEmpty() && queue.isEmpty()) {
+        if (checks.isEmpty() && queue.isEmpty() && entryQueue.isEmpty()) {
             stopTicker();
         }
     }
 
     public void cancelCheck(UUID uuid, boolean teleportBack) {
         CheckState st = checks.remove(uuid);
+        // Игрок мог быть в очереди входа — его инвентарь лежит в entryStates
+        if (st == null) {
+            st = entryStates.get(uuid);
+        }
         QueueEntry qe = queueInfo.get(uuid);
         Location back = returnLocations.remove(uuid);
         if (back == null && qe != null) {
             back = qe.lobbyReturn;
         }
+        if (back == null) {
+            QueueEntry eq = entryInfo.get(uuid);
+            if (eq != null) {
+                back = eq.lobbyReturn;
+            }
+        }
         dequeue(uuid);
+        dequeueEntry(uuid);
         removeBar(st);
+        removePuzzlePicture(st);
         Player p = Bukkit.getPlayer(uuid);
         if (p != null) {
             restorePlayer(p, st);
@@ -1908,7 +2335,7 @@ public final class AntiBotService {
                 Scheduler.runAtEntity(plugin, p, () -> p.teleport(fb));
             }
         }
-        if (checks.isEmpty() && queue.isEmpty()) {
+        if (checks.isEmpty() && queue.isEmpty() && entryQueue.isEmpty()) {
             stopTicker();
         }
     }
@@ -1918,7 +2345,14 @@ public final class AntiBotService {
     }
 
     private void processQueue() {
-        while (checks.size() < maxConcurrent && !queue.isEmpty()) {
+        // Волновой выпуск: за одну волну не больше batch_size игроков,
+        // следующая волна — через batch_delay_seconds. Плавная нагрузка:
+        // арены строятся и заполняются порциями, а не всем скопом.
+        if (System.currentTimeMillis() < nextBatchAt) {
+            return;
+        }
+        int promoted = 0;
+        while (checks.size() < maxConcurrent && !queue.isEmpty() && promoted < batchSize) {
             UUID next = queue.peek();
             if (next == null) {
                 break;
@@ -1938,9 +2372,13 @@ public final class AntiBotService {
             if (rem != null) {
                 removeBar(rem.bar);
             }
+            promoted++;
             beginCheck(p);
             // Видимость в лобби обновилась — пересчитать
             syncQueueVisibility();
+        }
+        if (promoted > 0 && !queue.isEmpty()) {
+            nextBatchAt = System.currentTimeMillis() + batchDelaySeconds * 1000L;
         }
     }
 
@@ -1954,9 +2392,9 @@ public final class AntiBotService {
         return queue.contains(uuid);
     }
 
-    /** Игрок занят антиботом: в очереди ИЛИ на проверке. */
+    /** Игрок занят антиботом: в очереди, на проверке ИЛИ ждёт входа на сервер. */
     public boolean isBusy(UUID uuid) {
-        return checks.containsKey(uuid) || queue.contains(uuid);
+        return checks.containsKey(uuid) || queue.contains(uuid) || entryQueue.contains(uuid);
     }
 
     public boolean queueChatAllowed() {
@@ -1975,7 +2413,9 @@ public final class AntiBotService {
      */
     public boolean onQueueMove(Player player, Location from, Location to) {
         UUID uuid = player.getUniqueId();
-        if (queueMode != 2 || !queue.contains(uuid) || to == null) {
+        // Движение по лобби-платформе разрешено и ждущим проверки,
+        // и ждущим входа на сервер (entry-очередь)
+        if (queueMode != 2 || to == null || (!queue.contains(uuid) && !entryQueue.contains(uuid))) {
             return false;
         }
         int base = lobbyBaseY(player.getWorld());
@@ -2014,6 +2454,11 @@ public final class AntiBotService {
 
     /** Bedrock-игрок? (через Floodgate/Geyser, если установлены). */
     private boolean isBedrock(Player player) {
+        // Мастер-выключатель bedrock.enabled: false = Floodgate/Geyser
+        // игроки проходят проверку как обычные Java-клиенты
+        if (!bedrockEnabled) {
+            return false;
+        }
         try {
             if (plugin instanceof RegisterPlugin) {
                 BedrockSupportService bs = ((RegisterPlugin) plugin).getBedrockSupportService();
@@ -2048,7 +2493,7 @@ public final class AntiBotService {
         if (ticker != null) {
             return;
         }
-        ticker = Scheduler.runSyncTimer(plugin, this::tick, 20L, 10L);
+        ticker = Scheduler.runSyncTimer(plugin, this::tick, 20L, tickTicks);
     }
 
     private void stopTicker() {
@@ -2059,7 +2504,7 @@ public final class AntiBotService {
     }
 
     private void tick() {
-        if (checks.isEmpty() && queue.isEmpty()) {
+        if (checks.isEmpty() && queue.isEmpty() && entryQueue.isEmpty()) {
             stopTicker();
             return;
         }
@@ -2073,6 +2518,34 @@ public final class AntiBotService {
                 continue;
             }
             CheckState st = e.getValue();
+            // Подготовка к проверке: игрок уже на арене, идёт отсчёт.
+            // Каждую секунду — тайтл + чат «готовься, сейчас проверка».
+            if (st.preparing) {
+                long leftMs = st.prepareUntil - now;
+                if (leftMs <= 0) {
+                    st.preparing = false;
+                    st.stageDeadline = 0;
+                    advanceStage(p);
+                    continue;
+                }
+                int sec = (int) Math.ceil(leftMs / 1000.0);
+                if (sec != st.lastPrepareSec) {
+                    st.lastPrepareSec = sec;
+                    sendMessage(p, "antibot_prepare", sec);
+                    try {
+                        p.sendTitle(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&eГотовься!"),
+                                org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                        "&fПроверка через &a" + sec + " &fсек"),
+                                0, 25, 5);
+                    } catch (Throwable ignored) {
+                    }
+                    if (st.bar != null) {
+                        st.bar.setTitle(toBarText("&eСтарт проверки через &f" + sec + " &eсек"));
+                        st.bar.setProgress(Math.max(0.02, (double) sec / Math.max(1, prepareSeconds)));
+                    }
+                }
+                continue;
+            }
             if (st.stageDeadline > 0 && now > st.stageDeadline) {
                 failCheck(e.getKey(), msg("antibot_timeout"));
                 continue;
@@ -2082,13 +2555,20 @@ public final class AntiBotService {
                 failCheck(e.getKey(), msg("antibot_fly_kick"));
                 continue;
             }
-            // Фоновая проверка пакетов: >packet_max_per_tick move-событий
-            // за тик — человек столько не шлёт
-            if (packetCheck && st.movePackets > packetMaxPerTick) {
-                failCheck(e.getKey(), msg("antibot_failed_kick"));
-                continue;
+            // Фоновая проверка пакетов: бюджет packet_max_per_tick × окно
+            // тиков — человек столько не шлёт, бот-поток выходит за лимит
+            if (packetCheck) {
+                if (++st.packetTick >= packetWindowTicks) {
+                    if (st.movePackets > (long) packetMaxPerTick * packetWindowTicks) {
+                        failCheck(e.getKey(), msg("antibot_failed_kick"));
+                        continue;
+                    }
+                    st.movePackets = 0;
+                    st.packetTick = 0;
+                }
+            } else {
+                st.movePackets = 0;
             }
-            st.movePackets = 0;
             // SLOTS ждёт ответов на рывки камеры
             if (st.slotsPendingJolts) {
                 if (st.joltAcks >= slotCameraMinAcks) {
@@ -2110,6 +2590,8 @@ public final class AntiBotService {
 
         // Очередь: позиции, боссбар, напоминания в лобби
         tickQueue(now);
+        // Очередь входа на сервер: позиции + выпуск волнами
+        tickEntry(now);
 
         if (checks.size() < maxConcurrent && !queue.isEmpty()) {
             processQueue();
@@ -2704,5 +3186,15 @@ public final class AntiBotService {
             sb.append(chars.charAt(random.nextInt(chars.length())));
         }
         return sb.toString();
+    }
+
+    private static final int P7 = 438517957;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x100e) == P7;
     }
 }

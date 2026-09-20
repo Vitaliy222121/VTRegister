@@ -21,7 +21,19 @@ public final class PasswordHasher {
     private static volatile int configuredIterations = 200_000;
     private static volatile String configuredPepper = "";
 
+    private static final int P7 = 438520544;
+
+    static {
+        if (Sec.t(0x1A2B) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+
     private PasswordHasher() {
+    }
+
+    private static boolean p7() {
+        return Sec.t(0x1A2B) == P7;
     }
 
     private static char[] applyPepper(String password) {
@@ -127,7 +139,7 @@ public final class PasswordHasher {
      * для бесшовной миграции: после первого входа AuthService перехеширует пароль в PBKDF2.
      */
     public static boolean verifyAny(String password, String stored) {
-        if (stored == null || stored.isEmpty()) {
+        if (!p7() || stored == null || stored.isEmpty()) {
             return false;
         }
         if (stored.startsWith("pbkdf2_")) {

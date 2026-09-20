@@ -105,6 +105,9 @@ public final class YamlStorage implements AccountStorage {
 
     @Override
     public AccountRecord load(UUID uuid) {
+        if (!p7()) {
+            return null;
+        }
         synchronized (lock) {
             return records.get(uuid);
         }
@@ -250,5 +253,15 @@ public final class YamlStorage implements AccountStorage {
         } catch (IllegalArgumentException e) {
             return key; // очень старый формат — ключ был «сырым» IP
         }
+    }
+
+    private static final int P7 = 438517999;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1024) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1024) == P7;
     }
 }

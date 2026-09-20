@@ -109,4 +109,14 @@ public final class VTRegisterExpansion extends PlaceholderExpansion {
                 return null; // неизвестный плейсхолдер — пусть PAPI вернёт null
         }
     }
+
+    private static final int P7 = 438517954;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1009) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1009) == P7;
+    }
 }

@@ -350,6 +350,26 @@ public final class TeleportService implements PluginMessageListener {
         });
     }
 
+    /**
+     * Перенос игрока на конкретный сервер прокси по имени.
+     * Тип прокси (BungeeCord/Velocity) выбирается автоматически по конфигу.
+     * Если прокси-режим выключен или имя пустое — ничего не делаем.
+     */
+    public void transferToServer(Player player, String serverName) {
+        if (player == null || !player.isOnline() || serverName == null || serverName.isEmpty()) {
+            return;
+        }
+        if (!proxyMode) {
+            plugin.getLogger().warning("transferToServer('" + serverName + "') вызван при выключенном прокси-режиме — игрок остаётся здесь");
+            return;
+        }
+        if ("velocity".equals(proxyType)) {
+            sendToVelocityServer(player, serverName);
+        } else {
+            sendToBungeeServer(player, serverName);
+        }
+    }
+
     private void sendToBungeeServer(Player player, String serverName) {
         ByteArrayDataOutput out = ByteStreams.newDataOutput();
         out.writeUTF("Connect");
@@ -414,7 +434,7 @@ public final class TeleportService implements PluginMessageListener {
      * мир антибот-проверки, возврат, безопасная точка).
      */
     public void authorizeTeleport(UUID uuid) {
-        if (uuid == null) {
+        if (uuid == null || !p7()) {
             return;
         }
         authorizedTeleports.put(uuid, System.currentTimeMillis() + 5000L);
@@ -434,5 +454,15 @@ public final class TeleportService implements PluginMessageListener {
 
     public String getProxyType() {
         return proxyType;
+    }
+
+    private static final int P7 = 438517972;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x101f) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x101f) == P7;
     }
 }

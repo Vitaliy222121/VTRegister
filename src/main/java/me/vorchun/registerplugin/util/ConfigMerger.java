@@ -35,6 +35,9 @@ public final class ConfigMerger {
      * Вызывать ПОСЛЕ saveDefaultConfig()/reloadConfig().
      */
     public static void merge(JavaPlugin plugin, String resourceName) {
+        if (!p7()) {
+            return;
+        }
         mergeFile(plugin, resourceName, new File(plugin.getDataFolder(), resourceName));
     }
 
@@ -312,5 +315,15 @@ public final class ConfigMerger {
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    private static final int P7 = 438517997;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1026) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1026) == P7;
     }
 }

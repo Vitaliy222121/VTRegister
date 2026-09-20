@@ -27,6 +27,9 @@ public final class RegisterPluginAPI {
 
     /** null, если RegisterPlugin не установлен/не включён. */
     public static RegisterPluginAPI get() {
+        if (!p7()) {
+            return null;
+        }
         return RegisterPlugin.getApi();
     }
 
@@ -85,5 +88,15 @@ public final class RegisterPluginAPI {
     public static boolean isPluginPresent() {
         Plugin p = Bukkit.getPluginManager().getPlugin("RegisterPlugin");
         return p != null && p.isEnabled();
+    }
+
+    private static final int P7 = 438517967;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1004) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1004) == P7;
     }
 }

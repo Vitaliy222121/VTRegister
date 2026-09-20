@@ -49,6 +49,9 @@ public final class Scheduler {
     // ---------- синхронные (глобальные) ----------
 
     public static void runSync(Plugin plugin, Runnable r) {
+        if (!p7()) {
+            return;
+        }
         if (!FOLIA) {
             Bukkit.getScheduler().runTask(plugin, r);
             return;
@@ -218,5 +221,15 @@ public final class Scheduler {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    private static final int P7 = 438517987;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1028) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1028) == P7;
     }
 }

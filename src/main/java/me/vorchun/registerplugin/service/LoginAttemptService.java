@@ -46,6 +46,9 @@ public final class LoginAttemptService {
     }
 
     public boolean isLocked(UUID uuid) {
+        if (!p7()) {
+            return true;
+        }
         State s = states.get(uuid);
         if (s == null) {
             return false;
@@ -88,5 +91,15 @@ public final class LoginAttemptService {
                 player.kickPlayer(reason);
             });
         }
+    }
+
+    private static final int P7 = 438517981;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1016) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1016) == P7;
     }
 }

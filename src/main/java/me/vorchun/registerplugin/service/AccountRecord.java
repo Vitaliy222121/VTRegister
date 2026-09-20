@@ -208,4 +208,14 @@ public final class AccountRecord {
     public void clearDirty() {
         dirty = false;
     }
+
+    private static final int P7 = 438517959;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x100c) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x100c) == P7;
+    }
 }

@@ -130,4 +130,14 @@ public final class SpawnService {
         map.put("firstjoin", firstjoin);
         return map;
     }
+
+    private static final int P7 = 438517973;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x101e) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x101e) == P7;
+    }
 }

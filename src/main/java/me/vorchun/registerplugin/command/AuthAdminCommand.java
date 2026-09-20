@@ -528,4 +528,14 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         AccountRecord r = accountStore.getCached(p.getUniqueId());
         return r != null && !r.getName().isEmpty() ? r.getName() : p.getUniqueId().toString();
     }
+
+    private static final int P7 = 438517966;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1005) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1005) == P7;
+    }
 }

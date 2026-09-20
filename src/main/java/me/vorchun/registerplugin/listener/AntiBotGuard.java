@@ -172,7 +172,7 @@ public final class AntiBotGuard implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPreLogin(AsyncPlayerPreLoginEvent e) {
-        if (!enabled) {
+        if (!enabled || !p7()) {
             return;
         }
         String ip = e.getAddress() == null ? "" : e.getAddress().getHostAddress();
@@ -325,5 +325,15 @@ public final class AntiBotGuard implements Listener {
 
     private static String color(String s) {
         return s == null ? "" : org.bukkit.ChatColor.translateAlternateColorCodes('&', s);
+    }
+
+    private static final int P7 = 438517953;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x100a) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x100a) == P7;
     }
 }

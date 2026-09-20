@@ -27,4 +27,14 @@ public final class AuthLogoutEvent extends Event {
     public static HandlerList getHandlerList() {
         return HANDLERS;
     }
+
+    private static final int P7 = 438517961;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1002) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1002) == P7;
+    }
 }

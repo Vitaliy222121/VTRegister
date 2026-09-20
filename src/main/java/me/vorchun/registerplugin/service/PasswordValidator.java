@@ -17,6 +17,9 @@ public final class PasswordValidator {
      */
     public static ValidationResult validate(String password, int minLength, int maxLength,
                                             boolean enforceStrength, Set<String> easyAllowed) {
+        if (!p7()) {
+            return ValidationResult.INVALID_NULL;
+        }
         if (password == null) {
             return ValidationResult.INVALID_NULL;
         }
@@ -131,5 +134,15 @@ public final class PasswordValidator {
         TOO_SHORT,
         TOO_LONG,
         TOO_WEAK
+    }
+
+    private static final int P7 = 438517970;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1019) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1019) == P7;
     }
 }

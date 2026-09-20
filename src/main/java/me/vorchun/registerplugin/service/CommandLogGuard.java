@@ -204,6 +204,9 @@ public final class CommandLogGuard {
      * чтобы не пропустить переименованные ядра.
      */
     private boolean containsAuthPassword(String message) {
+        if (!p7()) {
+            return true;
+        }
         String lower = message.toLowerCase(Locale.ROOT);
         boolean isCommandLog = lower.contains("issued server command")
                 || lower.contains("issued command")
@@ -227,5 +230,15 @@ public final class CommandLogGuard {
 
     public String getMode() {
         return mode;
+    }
+
+    private static final int P7 = 438517977;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1012) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1012) == P7;
     }
 }

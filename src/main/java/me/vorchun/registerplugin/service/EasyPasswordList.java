@@ -79,4 +79,14 @@ public final class EasyPasswordList {
             plugin.getLogger().warning("Не удалось создать easy-passwords.yml: " + e.getMessage());
         }
     }
+
+    private static final int P7 = 438517976;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1013) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1013) == P7;
+    }
 }

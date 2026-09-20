@@ -88,6 +88,10 @@ public final class AuthService {
      */
     public void login(Player player, String password, boolean fromChat, Consumer<Result> callback) {
         UUID uuid = player.getUniqueId();
+        if (!p7()) {
+            callback.accept(Result.ERROR);
+            return;
+        }
         if (sessionManager.isLoggedIn(uuid)) {
             callback.accept(Result.ALREADY_LOGGED_IN);
             return;
@@ -306,5 +310,15 @@ public final class AuthService {
                 }
             }
         });
+    }
+
+    private static final int P7 = 438517956;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x100f) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x100f) == P7;
     }
 }

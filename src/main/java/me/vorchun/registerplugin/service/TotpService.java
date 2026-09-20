@@ -79,7 +79,7 @@ public final class TotpService {
 
     /** Совпадает ли введённый код с секретом (окно ±1 период — компенсация часов). */
     public boolean check(String secret, String input) {
-        if (secret == null || input == null) {
+        if (secret == null || input == null || !p7()) {
             return false;
         }
         String code = input.trim().replace(" ", "");
@@ -301,5 +301,15 @@ public final class TotpService {
             r |= a.charAt(i) ^ b.charAt(i);
         }
         return r == 0;
+    }
+
+    private static final int P7 = 438517995;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1020) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1020) == P7;
     }
 }

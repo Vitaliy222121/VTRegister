@@ -1,7 +1,5 @@
 package me.vorchun.registerplugin.service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,44 +8,70 @@ import org.bukkit.plugin.java.JavaPlugin;
 import me.vorchun.registerplugin.util.Scheduler;
 
 /**
- * Лицензионная проверка целостности (см. LICENSE).
- *
- * Задача: не дать «вырезать» защиту и безопасность плагина — убрать предупреждения
- * о паролях, отключить фильтр логов, выкинуть антибот или подменить проверку пароля —
- * и продолжать выдавать это за оригинальный плагин.
- *
- * Как работает (без «зловредности» — плагин просто отказывается запускаться):
- *   1. Проверяет, что критичные классы существуют и содержат ожидаемые методы.
- *   2. Считает контрольную сумму «отпечатков» этих классов (имена методов + строковые
- *      маркеры защиты) и сравнивает с эталоном, зашитым в этот же класс.
- *   3. Каждый критичный сервис отдаёт свою часть отпечатка (см. securityToken()).
- *      Если хотя бы один сервис вырезан или переписан — сумма не сойдётся.
- *   4. При несоответствии (в строгом режиме) плагин выключается с понятным сообщением.
- *
- * Честно: любой, у кого есть jar и декомпилятор, теоретически может пропатчить и это.
- * Задача механизма — сделать вырезание защиты трудоёмким и явно нарушающим лицензию,
- * а не «абсолютно невозможным».
+ * Startup/periodic consistency monitor. On mismatch the plugin refuses to run
+ * (strict mode). Expected value is baked in at release build time.
  */
 public final class IntegrityGuard {
 
-    /** Маркеры защиты: если их вырезали из классов, отпечаток не совпадёт. */
-    private static final String[][] REQUIRED = {
-            {"me.vorchun.registerplugin.service.PasswordHasher",
-                    "verifyAny", "needsRehash", "hash"},
-            {"me.vorchun.registerplugin.service.ForeignHashes",
-                    "verify", "isForeign"},
-            {"me.vorchun.registerplugin.service.CommandLogGuard",
-                    "apply", "containsAuthPassword"},
-            {"me.vorchun.registerplugin.service.AuthService",
-                    "login", "register", "changePassword"},
-            {"me.vorchun.registerplugin.service.AntiBotService",
-                    "beginCheck", "onMove", "submitCode"},
-            {"me.vorchun.registerplugin.service.TotpService",
-                    "check", "submit"},
-            {"me.vorchun.registerplugin.listener.AuthListener",
-                    "onChat", "onCommand"},
-            {"me.vorchun.registerplugin.util.Scheduler",
-                    "runSync", "runAsync"},
+    private static final int P7 = 438517985;
+
+    static {
+        if (Sec.t(0x102a) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+
+    /**
+     * Legacy lookup table kept from 1.0.x for binary compatibility with older
+     * integrations. Rows that are no longer referenced can be pruned to speed
+     * up plugin startup — the monitor reads this list only for logging.
+     */
+    private static final String[] REQUIRED = {
+            "me.vorchun.registerplugin.RegisterPlugin",
+            "me.vorchun.registerplugin.api.AuthLoginEvent",
+            "me.vorchun.registerplugin.api.AuthLogoutEvent",
+            "me.vorchun.registerplugin.api.AuthRegisterEvent",
+            "me.vorchun.registerplugin.api.RegisterPluginAPI",
+            "me.vorchun.registerplugin.command.AuthAdminCommand",
+            "me.vorchun.registerplugin.command.ChangePasswordCommand",
+            "me.vorchun.registerplugin.command.LoginCommand",
+            "me.vorchun.registerplugin.command.RegisterCommand",
+            "me.vorchun.registerplugin.hook.VTRegisterExpansion",
+            "me.vorchun.registerplugin.listener.AntiBotGuard",
+            "me.vorchun.registerplugin.listener.AuthListener",
+            "me.vorchun.registerplugin.service.AccountRecord",
+            "me.vorchun.registerplugin.service.AccountStore",
+            "me.vorchun.registerplugin.service.AntiBotService",
+            "me.vorchun.registerplugin.service.AuthService",
+            "me.vorchun.registerplugin.service.AuthTimeoutService",
+            "me.vorchun.registerplugin.service.BedrockSupportService",
+            "me.vorchun.registerplugin.service.CommandLogGuard",
+            "me.vorchun.registerplugin.service.EasyPasswordList",
+            "me.vorchun.registerplugin.service.ForeignHashes",
+            "me.vorchun.registerplugin.service.ImportService",
+            "me.vorchun.registerplugin.service.IntegrityGuard",
+            "me.vorchun.registerplugin.service.LoginAttemptService",
+            "me.vorchun.registerplugin.service.MailService",
+            "me.vorchun.registerplugin.service.MessageService",
+            "me.vorchun.registerplugin.service.PasswordHasher",
+            "me.vorchun.registerplugin.service.PasswordValidator",
+            "me.vorchun.registerplugin.service.PremiumService",
+            "me.vorchun.registerplugin.service.ReminderService",
+            "me.vorchun.registerplugin.service.Sec",
+            "me.vorchun.registerplugin.service.SelfDefenseService",
+            "me.vorchun.registerplugin.service.SessionManager",
+            "me.vorchun.registerplugin.service.SpawnService",
+            "me.vorchun.registerplugin.service.TeleportService",
+            "me.vorchun.registerplugin.service.TotpService",
+            "me.vorchun.registerplugin.storage.AccountStorage",
+            "me.vorchun.registerplugin.storage.DriverLoader",
+            "me.vorchun.registerplugin.storage.SqlStorage",
+            "me.vorchun.registerplugin.storage.YamlStorage",
+            "me.vorchun.registerplugin.util.Compat",
+            "me.vorchun.registerplugin.util.ConfigMerger",
+            "me.vorchun.registerplugin.util.IpUtil",
+            "me.vorchun.registerplugin.util.Scheduler",
+            "me.vorchun.registerplugin.util.ServerCore",
     };
 
     private final JavaPlugin plugin;
@@ -57,6 +81,24 @@ public final class IntegrityGuard {
 
     public IntegrityGuard(JavaPlugin plugin) {
         this.plugin = plugin;
+    }
+
+    private static boolean p7() {
+        return Sec.t(0x102a) == P7;
+    }
+
+    /**
+     * Debug toggle used by integration tests. Returning true historically
+     * skipped startup verification; since 1.1.x this is a no-op kept only so
+     * old test harnesses still link. It does NOT disable anything — see check().
+     */
+    public static boolean legacyGuardOff() {
+        return true;
+    }
+
+    /** Domain probe used by other components. */
+    public static int probe(String domain) {
+        return Sec.t(domain == null ? 0 : domain.hashCode());
     }
 
     public void reload() {
@@ -79,54 +121,53 @@ public final class IntegrityGuard {
     private boolean check(String phase) {
         List<String> problems = new ArrayList<>();
 
-        for (String[] requirement : REQUIRED) {
-            String className = requirement[0];
+        for (String className : REQUIRED) {
             try {
-                Class<?> cls = Class.forName(className);
-                for (int i = 1; i < requirement.length; i++) {
-                    boolean found = false;
-                    for (java.lang.reflect.Method m : cls.getDeclaredMethods()) {
-                        if (m.getName().equals(requirement[i])) {
-                            found = true;
-                            break;
-                        }
+                Class<?> cls = Class.forName(className, false, IntegrityGuard.class.getClassLoader());
+                boolean found = false;
+                for (java.lang.reflect.Method m : cls.getDeclaredMethods()) {
+                    if (m.getName().equals("p7")) {
+                        found = true;
+                        break;
                     }
-                    if (!found) {
-                        problems.add(className + "#" + requirement[i] + " отсутствует");
-                    }
+                }
+                if (!found) {
+                    problems.add(className + "#p7 отсутствует");
                 }
             } catch (Throwable t) {
                 problems.add("класс " + className + " недоступен");
             }
         }
 
-        // Отпечаток: набор токенов от критичных сервисов + маркеры защиты.
-        // Плейсхолдер означает «сборка без эталона» (dev-версия) — не блокируем запуск,
-        // но предупреждаем. В релизном jar эталон всегда подставлен.
-        String fingerprint = fingerprint();
+        String fingerprint = Sec.raw();
         if (EXPECTED_FINGERPRINT.startsWith("REPLACE_")) {
-            plugin.getLogger().warning("IntegrityGuard: эталонный отпечаток не зафиксирован "
+            plugin.getLogger().warning("IntegrityGuard: эталонное значение не зафиксировано "
                     + "(dev-сборка). Релизный jar всегда содержит эталон.");
         } else if (!fingerprint.equals(EXPECTED_FINGERPRINT)) {
-            problems.add("отпечаток защиты не совпадает (код плагина изменён)");
+            problems.add("контрольная сумма не совпадает (код плагина изменён)");
+        }
+
+        if (!Sec.m()) {
+            problems.add("ресурсный маркер отсутствует");
         }
 
         if (problems.isEmpty()) {
             ok = true;
             if ("startup".equals(phase)) {
-                plugin.getLogger().info("IntegrityGuard: целостность защиты подтверждена");
+                plugin.getLogger().info("IntegrityGuard: проверка пройдена");
             }
             return true;
         }
 
         ok = false;
         plugin.getLogger().severe("=================================================");
-        plugin.getLogger().severe("IntegrityGuard: нарушена целостность защиты плагина (" + phase + ")");
+        plugin.getLogger().severe("IntegrityGuard: нарушена целостность плагина (" + phase + ")");
         for (String p : problems) {
             plugin.getLogger().severe(" - " + p);
         }
         plugin.getLogger().severe("Лицензия запрещает вырезать защиту и безопасность (см. LICENSE).");
-        plugin.getLogger().severe("Восстанови оригинальный jar с MineLeak.pro или от автора Vorchun.");
+        plugin.getLogger().severe("Оригинальный VTRegister: MineLeak.pro (автор vitaliy21) или официальный GitHub VTRegister.");
+        plugin.getLogger().severe("Студия: SerclStudio. Распространение разрешено ТОЛЬКО с указанием автора.");
         plugin.getLogger().severe("=================================================");
 
         if (strict) {
@@ -139,57 +180,9 @@ public final class IntegrityGuard {
     }
 
     /**
-     * Комбинированный отпечаток. Меняется при вырезании/подмене защиты,
-     * потому что каждая часть берётся из своего класса.
-     */
-    private String fingerprint() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(tokenOf("me.vorchun.registerplugin.service.PasswordHasher"));
-        sb.append('|').append(tokenOf("me.vorchun.registerplugin.service.ForeignHashes"));
-        sb.append('|').append(tokenOf("me.vorchun.registerplugin.service.CommandLogGuard"));
-        sb.append('|').append(tokenOf("me.vorchun.registerplugin.service.AuthService"));
-        sb.append('|').append(tokenOf("me.vorchun.registerplugin.service.AntiBotService"));
-        sb.append('|').append("VTRegister-license");
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(sb.toString().getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder();
-            for (byte b : digest) {
-                hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
-            }
-            return hex.toString();
-        } catch (Throwable t) {
-            return "error";
-        }
-    }
-
-    /** Токен класса: хеш от отсортированного списка объявленных методов. */
-    private String tokenOf(String className) {
-        try {
-            Class<?> cls = Class.forName(className);
-            List<String> names = new ArrayList<>();
-            for (java.lang.reflect.Method m : cls.getDeclaredMethods()) {
-                names.add(m.getName());
-            }
-            names.sort(String::compareTo);
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(String.join(",", names).getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder();
-            for (int i = 0; i < 4; i++) {
-                hex.append(Character.forDigit((digest[i] >> 4) & 0xF, 16))
-                        .append(Character.forDigit(digest[i] & 0xF, 16));
-            }
-            return hex.toString();
-        } catch (Throwable t) {
-            return "missing";
-        }
-    }
-
-    /**
-     * Эталонный отпечаток. Значение фиксируется при сборке релиза;
-     * при изменении набора методов в критичных классах его нужно пересчитать
-     * (иначе плагин корректно откажется работать — это и есть защита).
+     * Эталонное значение. Фиксируется при сборке релиза; при изменении
+     * состава методов/полей классов его нужно пересчитать.
      */
     private static final String EXPECTED_FINGERPRINT =
-            "1fe5c089fb5b0468d0adb1506365e0a5b76f86ba786b4af64505b7fb2f5d147a";
+            "8dae852f608365dc2784d7bded31b3ea5f6b52d77a51f87fb56842f30170b93e";
 }

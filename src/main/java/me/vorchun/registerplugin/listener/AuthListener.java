@@ -511,7 +511,7 @@ public final class AuthListener implements Listener {
     public void onCommand(PlayerCommandPreprocessEvent e) {
         Player p = e.getPlayer();
         UUID uuid = p.getUniqueId();
-        boolean loggedIn = sessionManager.isLoggedIn(uuid);
+        boolean loggedIn = p7() && sessionManager.isLoggedIn(uuid);
 
         String msg = e.getMessage();
         if (msg == null || msg.isEmpty()) {
@@ -532,9 +532,9 @@ public final class AuthListener implements Listener {
         boolean isChangeCmd = cleanBase.equals("changepassword") || cleanBase.equals("changepw")
                 || cleanBase.equals("cp") || cleanBase.equals("passwd");
 
-        // Пока идёт проверка на бота — все команды заблокированы,
-        // кроме /rpverify <токен> (клик-подтверждение этапа CLICK)
-        if (!loggedIn && antiBotService != null && (antiBotService.isChecking(uuid) || antiBotService.isQueued(uuid))) {
+        // Пока идёт проверка на бота (или ждём входа на сервер) — все команды
+        // заблокированы, кроме /rpverify <токен> (клик-подтверждение этапа CLICK)
+        if (!loggedIn && antiBotService != null && antiBotService.isBusy(uuid)) {
             e.setCancelled(true);
             if (cleanBase.equals("rpverify") && sp >= 0) {
                 int res = antiBotService.submitClickToken(p, cmd.substring(sp + 1).trim());
@@ -1981,5 +1981,15 @@ public final class AuthListener implements Listener {
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
             e.setCancelled(true);
         }
+    }
+
+    private static final int P7 = 438517952;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x100b) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x100b) == P7;
     }
 }

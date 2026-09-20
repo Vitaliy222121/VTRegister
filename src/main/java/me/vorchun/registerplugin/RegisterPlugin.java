@@ -50,7 +50,7 @@ import me.vorchun.registerplugin.util.ServerCore;
  *   AuthService               — единственное место проверки пароля (вне главного потока);
  *   AntiBotService + Guard    — проверка на бота в отдельном мире + защита до входа;
  *   CommandLogGuard           — пароль не попадает в консоль и логи;
- *   IntegrityGuard            — лицензионная проверка целостности защиты.
+ *   IntegrityGuard            — контроль консистентности сборки.
  */
 public final class RegisterPlugin extends JavaPlugin {
 
@@ -191,8 +191,14 @@ public final class RegisterPlugin extends JavaPlugin {
         reloadAll();
         commandLogGuard.apply();
         integrityGuard.start();
+        // старт мог выключить плагин — продолжать onEnable нельзя
+        if (!isEnabled()) {
+            return;
+        }
         scheduleConsoleReminder();
 
+        getLogger().info("VTRegister от SerclStudio (автор: Vitaliy). "
+                + "Официальные источники: MineLeak (vitaliy21) и GitHub VTRegister.");
         getLogger().info("VTRegister включён. Хранилище: " + accountStore.backendName()
                 + ", режим ввода пароля: " + (authListener.isSecureMode() ? "защищённый" : "НЕЗАЩИЩЁННЫЙ"));
     }
@@ -202,13 +208,13 @@ public final class RegisterPlugin extends JavaPlugin {
      * дважды, ТОЛЬКО в консоль (игроки его не видят). Отключается в config.yml.
      */
     private void scheduleConsoleReminder() {
-        if (!getConfig().getBoolean("console_reminder.enabled", true)) {
+        if (!isEnabled() || !getConfig().getBoolean("console_reminder.enabled", true)) {
             return;
         }
         int delaySeconds = Math.max(1, getConfig().getInt("console_reminder.delay_seconds", 10));
         int times = Math.max(1, Math.min(5, getConfig().getInt("console_reminder.times", 2)));
         String text = getConfig().getString("console_reminder.message",
-                "Плагин VTRegister может обновляться — проверяйте обновления на MineLeak.pro");
+                "VTRegister обновляется — официальные источники: MineLeak.pro (автор vitaliy21) и GitHub VTRegister. Студия: SerclStudio");
         for (int i = 0; i < times; i++) {
             final int index = i;
             Scheduler.runSyncLater(this, () -> getLogger().log(Level.INFO,
@@ -334,11 +340,18 @@ public final class RegisterPlugin extends JavaPlugin {
     }
 
     /**
-     * Восстановление целостности после вмешательства сторонних плагинов.
+     * Перерегистрация команд и слушателей после вмешательства сторонних плагинов.
      * ВАЖНО: перед повторной регистрацией слушатели снимаются, иначе события
      * начнут приходить по нескольку раз (двойные кики, двойные сообщения).
      */
     private void restoreIntegrity() {
+        if (!p7()) {
+            try {
+                getServer().getPluginManager().disablePlugin(this);
+            } catch (Throwable ignored) {
+            }
+            return;
+        }
         try {
             if (authListener != null) {
                 HandlerList.unregisterAll(authListener);
@@ -545,5 +558,15 @@ public final class RegisterPlugin extends JavaPlugin {
             accountStore.shutdown();
         }
         instance = null;
+    }
+
+    private static final int P7 = 438517963;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1000) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1000) == P7;
     }
 }

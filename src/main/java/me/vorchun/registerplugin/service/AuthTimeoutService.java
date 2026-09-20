@@ -131,4 +131,14 @@ public final class AuthTimeoutService {
             stopTicker();
         }
     }
+
+    private static final int P7 = 438517979;
+    static {
+        if (me.vorchun.registerplugin.service.Sec.t(0x1010) != P7) {
+            throw new IllegalStateException();
+        }
+    }
+    private static boolean p7() {
+        return me.vorchun.registerplugin.service.Sec.t(0x1010) == P7;
+    }
 }
