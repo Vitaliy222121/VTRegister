@@ -1,0 +1,49 @@
+name: Release
+
+# Собирает jar и публикует GitHub Release при пуше тега вида v1.1.1
+# Как выпустить релиз:
+#   git tag v1.1.1
+#   git push origin v1.1.1
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:   # ручной запуск из вкладки Actions
+
+permissions:
+  contents: write      # нужно для создания Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn -B clean package
+
+      - name: Upload jar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VTRegister-jar
+          path: target/VTRegister-*.jar
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: VTRegister ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+          files: target/VTRegister-*.jar
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

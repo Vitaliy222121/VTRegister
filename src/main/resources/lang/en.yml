@@ -1,0 +1,161 @@
+# ============================================================
+#  VTRegister — English messages
+# ============================================================
+#  Colors: &#RRGGBB (HEX), &a &c &l (vanilla codes).
+#  Placeholders: {prefix} {player} {code} {seconds} {stage_num}
+#                {stage_total} {slots} {blocks} {position} {target} {kind}
+#
+#  Priority: config.yml -> messages.<key> overrides these values.
+#  Entries marked "DO NOT REMOVE" have a built-in fallback in code:
+#  the player always sees the security warning even if you delete them.
+# ============================================================
+
+messages:
+  # ---------- auth mode (DO NOT REMOVE) ----------
+  auth_mode_secure: "{prefix}&#A0FFA0Auth mode: PROTECTED &#7F7F7F— password is typed in chat and never logged"
+  auth_mode_insecure: "{prefix}&#FF6666Auth mode: UNPROTECTED &#7F7F7F— password goes through a command and IS visible in console/logs!"
+
+  # ---------- password-in-command warnings (DO NOT REMOVE) ----------
+  insecure_mode_warn: "{prefix}&#FF6666WARNING: protected mode is off — a password in a command is visible in the server console and logs!"
+  insecure_blocked_warn: "{prefix}&#FF5555&lPASSWORD BLOCKED! &#FFFFFFYour message was not sent. &#7F7F7FWhen you type a password as a command argument it lands in the console and logs, and the server owner can read it."
+  insecure_repeat_hint: "{prefix}&#FFFFFFIf you accept this risk — &#FF5555repeat the same command with the same password within {seconds}s. &#A0FFA0Otherwise type the password in chat (safe) or enable protected mode."
+  insecure_confirmed: "{prefix}&#FFFF66Confirmed. Password accepted — remember it is already in the server logs."
+  insecure_password_in_logs: "{prefix}&#FF5555&lWARNING! &#FFFFFFYou typed your password in a command — it is now stored in the server console and logs. &#FF5555The server owner can read it. &#FFFFFFChange it: &#A0FFA0/changepassword &#7F7F7F(or set security.secure_password_input: true)"
+
+  # ---------- join / register ----------
+  join_need_register: "{prefix}&#FFFFFFYou are not registered yet. Type: &#A0FFA0/reg &#7F7F7F(then your password in chat)"
+  join_need_login: "{prefix}&#FFFFFFLogin required: &#A0FFA0/l &#7F7F7F(then your password in chat)"
+  join_auto_login: "{prefix}&#A0FFA0Logged in automatically &#7F7F7F(session active, same IP)"
+  join_bedrock_auto_login: "{prefix}&#A0FFA0Bedrock auto-login done &#7F7F7F(Floodgate trusted)"
+  join_premium_auto_login: "{prefix}&#A0FFA0Premium account verified — no password needed"
+
+  already_logged_in: "{prefix}&#FFFF66You are already logged in."
+  already_registered: "{prefix}&#FF6666You are already registered. Use: &#A0FFA0/l"
+  not_registered: "{prefix}&#FF6666You are not registered. Use: &#A0FFA0/reg"
+
+  register_success: "{prefix}&#A0FFA0Registered successfully. &#FFFFFFHave fun!"
+  login_success: "{prefix}&#A0FFA0Logged in. &#FFFFFFWelcome!"
+  wrong_password: "{prefix}&#FF6666Wrong password. &#7F7F7FCheck your keyboard layout / CapsLock: &#A0FFA0/l"
+  password_too_short: "{prefix}&#FF6666Password is too short."
+  password_too_long: "{prefix}&#FF6666Password is too long."
+  password_invalid: "{prefix}&#FF6666Password contains invalid characters or surrounding spaces."
+  password_too_weak: "{prefix}&#FF6666Password is too weak. Use mixed characters."
+  passwords_dont_match: "{prefix}&#FF6666Passwords do not match. Try again."
+
+  password_in_command_blocked: "{prefix}&#FF6666Do not put your password in a command! &#FFFFFFType only &#A0FFA0/l &#FFFFFFor &#A0FFA0/reg&#FFFFFF, then your password in chat."
+  password_input_timeout: "{prefix}&#FF6666Password input timed out. Try again: &#A0FFA0/l"
+  password_input_cancelled: "{prefix}&#FFFF66Cancelled."
+
+  blocked_command: "{prefix}&#FF6666Log in first. Allowed: &#A0FFA0/l &#FFFFFFand &#A0FFA0/reg"
+
+  enter_password_chat_login: "{prefix}&#FFFFFFStep 1 done. Step 2: type your password in chat. &#7F7F7F(other players will not see it)"
+  enter_password_chat_register: "{prefix}&#FFFFFFStep 1 done. Step 2: invent a password and type it in chat."
+  enter_password_chat_confirm: "{prefix}&#FFFFFFType the password again to confirm."
+  enter_password_chat_old: "{prefix}&#FFFFFFPassword change: type your CURRENT password in chat. &#7F7F7F(cancel: cancel)"
+  enter_password_chat_new: "{prefix}&#FFFFFFNow type your NEW password in chat."
+
+  change_password_success: "{prefix}&#A0FFA0Password changed!"
+  change_password_wrong_old: "{prefix}&#FF6666Current password is wrong. Change cancelled."
+  change_password_usage: "{prefix}&#FFFFFFUse: &#A0FFA0/changepassword &#7F7F7F— then old and new password in chat"
+
+  reminder_register_actionbar: "{prefix}&#FFFFFFRegister: &#A0FFA0/reg &#7F7F7F(password in chat)"
+  reminder_login_actionbar: "{prefix}&#FFFFFFLogin: &#A0FFA0/l &#7F7F7F(password in chat)"
+  reminder_register_chat: "{prefix}&#FFFFFFRegister: &#A0FFA0/reg &#7F7F7F→ then password in chat"
+  reminder_login_chat: "{prefix}&#FFFFFFLogin: &#A0FFA0/l &#7F7F7F→ then password in chat"
+
+  timeout_kick: "{prefix}&#FF6666Auth timeout ({seconds}s). Rejoin: &#A0FFA0/l"
+  too_many_attempts_kick: "{prefix}&#FF6666Too many login attempts. Wait and try again later."
+
+  # ---------- antibot ----------
+  antibot_started: "{prefix}&#FFFF66Please wait, bot verification is running… &#7F7F7Ftakes less than a minute"
+  antibot_bossbar: "&#FFD500Bot verification… &#FFFFFFstage {stage_num}/{stage_total} &#7F7F7F({seconds}s left)"
+  antibot_fall_next: "{prefix}&#A0FFA0Nice! Falls left: &#FFFFFF{blocks}"
+  antibot_stage_fall: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0fall onto the platform ({blocks} times)"
+  antibot_stage_camera: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0rotate your camera any direction — collect a couple of full turns (pauses are OK)"
+  antibot_stage_slots: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0switch your hotbar slot {slots} time(s)"
+  antibot_slots_force: "{prefix}&#FFFF66Now scroll your mouse wheel by ONE slot &#7F7F7F(input check)"
+  antibot_slots_retry: "{prefix}&#FF6666Not detected. Scroll your wheel one more slot."
+  antibot_stage_captcha: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: type the code &#A0FFA0{code}"
+  antibot_stage_click: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0[CLICK HERE] &#7F7F7Fto finish"
+  antibot_stage_block: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0take the tool from the chest, follow the path and break the block"
+  antibot_stage_puzzle: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0remove ONLY the odd ones, then type the word from the task in chat"
+  antibot_puzzle_countdown: "{prefix}&#FFFF66Checking the puzzle… &#FFFFFF{blocks}&#FFFF66…"
+  antibot_puzzle_wrong: "{prefix}&#FF6666Not all odd ones removed! Left: &#FFFFFF{blocks}&#FF6666. Remove only the right ones and type the word again."
+  antibot_stage_math: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: solve and type the answer in chat — &#A0FFA0{expr}"
+  antibot_stage_secret: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total} (test {num}/{total}): type exactly — &#A0FFA0{command}"
+  antibot_block_fall: "{prefix}&#FF6666You fell off the path! Falls left before kick: &#FFFFFF{blocks}"
+  antibot_need_tool: "{prefix}&#FF6666This block only breaks with the special tool from the chest at the path start."
+  antibot_fly_kick: "&cFlight detected where flying is not allowed."
+  antibot_stage_passed: "{prefix}&#A0FFA0Stage passed"
+  antibot_queue: "{prefix}&#7F7F7FVerification queue: position {position}. Please wait…"
+  antibot_queue_wait: "{prefix}&#FFFF66Wait for your turn — position &#FFFFFF{position}&#FFFF66, watch the boss bar at the top"
+  antibot_queue_full: "&cThe verification queue is full. Try again in a minute."
+  antibot_queue_gain: "{prefix}&#A0FFA0PvP kill! You are &#FFFFFF{blocks}&#A0FFA0 positions closer to the check."
+  antibot_queue_lose: "{prefix}&#FF6666You died in the PvP zone — moved back &#FFFFFF{blocks}&#FF6666 in queue."
+  antibot_timeout: "{prefix}&#FF6666Verification timed out. Please rejoin."
+  antibot_click_wrong: "{prefix}&#FF6666Invalid confirmation link. Click the message above."
+  antibot_wait: "{prefix}&#FF6666Complete the bot check first — follow the chat instructions"
+  antibot_passed: "{prefix}&#A0FFA0Bot check passed!"
+  antibot_wrong_code: "{prefix}&#FF6666Wrong code. See the new code above."
+  antibot_failed_kick: "{prefix}&#FF6666Bot check failed."
+  antibot_respawn: "{prefix}&#FFFF66You are back at the check — please finish it."
+  antibot_ip_banned: "&cToo many failed checks from your IP. Try later."
+  antibot_bad_name: "&cThis nickname is not allowed on this server."
+  antibot_global_limit: "&cServer is overloaded with connections. Try again in a minute."
+  antibot_ip_limit: "&cToo many connections from your IP. Please wait."
+  antibot_reconnect: "&eConnection check: please reconnect in a couple of seconds."
+  antibot_multiaccount: "&cThe maximum number of accounts is already registered from your IP."
+
+  # ---------- 2FA ----------
+  twofa_enter_code: "{prefix}&#FFFFFFEnter the code from your authenticator app: &#A0FFA0/2fa 123456"
+  twofa_wrong_code: "{prefix}&#FF6666Wrong code. Try again."
+  twofa_expired: "{prefix}&#FF6666Code input timed out. Log in again."
+  twofa_disabled: "{prefix}&#FF6666Two-factor authentication is disabled on this server."
+  twofa_usage: "{prefix}&#FFFFFF/2fa on — enable, /2fa off — disable, /2fa <code> — confirm"
+  twofa_setup: "{prefix}&#FFFFFFAdd the secret below to your authenticator app, then enter the code: &#A0FFA0/2fa 123456"
+  twofa_confirm_hint: "{prefix}&#7F7F7FEnter the code from your app to enable 2FA"
+  twofa_enabled_done: "{prefix}&#A0FFA0Two-factor authentication enabled!"
+  twofa_disabled_done: "{prefix}&#FFFF66Two-factor authentication disabled."
+
+  # ---------- email & recovery ----------
+  email_disabled: "{prefix}&#FF6666Email is not configured on this server."
+  email_usage: "{prefix}&#FFFFFF/email <address> — link an email, then type the code from the letter"
+  email_invalid: "{prefix}&#FF6666Invalid email address."
+  email_code_sent: "{prefix}&#A0FFA0Code sent to your email. Type it in chat."
+  email_send_failed: "{prefix}&#FF6666Could not send the email. Check SMTP settings."
+  email_verified: "{prefix}&#A0FFA0Email verified!"
+  email_wrong_code: "{prefix}&#FF6666Wrong code from the letter."
+  email_code_expired: "{prefix}&#FF6666Code expired. Request a new one: /email <address>"
+  recover_no_email: "{prefix}&#FF6666No email linked to this account. Contact the administration."
+  recover_code_sent: "{prefix}&#A0FFA0Recovery code sent. Type: &#A0FFA0/recover <code> <new password>"
+  recover_usage: "{prefix}&#FFFFFF/recover — get a code, /recover <code> <new password> — reset"
+  recover_wrong_code: "{prefix}&#FF6666Wrong recovery code."
+  recover_code_expired: "{prefix}&#FF6666Code expired or attempts exhausted."
+  recover_success: "{prefix}&#A0FFA0Password recovered! Log in: &#A0FFA0/l"
+
+  # ---------- admin ----------
+  admin_no_permission: "{prefix}&#FF6666No permission"
+  admin_usage: "{prefix}&#FFFFFF/authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban>"
+  admin_player_not_found: "{prefix}&#FF6666Account not found"
+  admin_player_offline: "{prefix}&#FF6666Player is offline"
+  admin_reset_done: "{prefix}&#A0FFA0Password reset for {target}"
+  admin_unregister_done: "{prefix}&#A0FFA0Account deleted: {target}"
+  admin_forcelogin_done: "{prefix}&#A0FFA0Player force-logged in: {target}"
+  admin_setpw_done: "{prefix}&#A0FFA0Password set for {target}"
+  admin_setpw_prompt: "{prefix}&#FFFFFFType the new password for {target} in chat. &#7F7F7F(cancel: cancel)"
+  admin_setpw_cancelled: "{prefix}&#FFFF66Cancelled."
+  admin_setpw_timeout: "{prefix}&#FF6666Timeout. Run /authadmin setpw <name> again."
+  admin_setpw_too_short: "{prefix}&#FF6666Password too short."
+  admin_setpw_too_long: "{prefix}&#FF6666Password too long."
+  admin_setpw_invalid: "{prefix}&#FF6666Invalid characters."
+  admin_setpw_too_weak: "{prefix}&#FF6666Password too weak."
+  admin_logout_done: "{prefix}&#A0FFA0Player logged out: {target}"
+  admin_reload_done: "{prefix}&#A0FFA0Config reloaded (comments preserved)"
+  admin_info: "{prefix}&#FFFFFF{target}: registered={registered}, ip={ip}, lastlogin={lastauth}"
+  admin_list_header: "{prefix}&#FFFFFFAccounts (page {page}/{pages}, total {total}):"
+  admin_list_row: "{prefix}&#7F7F7F- &#FFFFFF{name} &#7F7F7F| {ip} | {online}"
+  admin_status: "{prefix}&#FFFFFFVTRegister v{version}: cached={total}, online={logged}, waiting={waiting}, mode={mode}"
+  admin_setspawn_usage: "{prefix}&#FFFFFF/authadmin setspawn <prelogin|postlogin|firstjoin>"
+  admin_setspawn_done: "{prefix}&#A0FFA0Spawn '{kind}' set to your position"
+  admin_import_started: "{prefix}&#FFFFFFImport started… (AuthMe, LoginSecurity, accounts.yml, import.yml)"
+  admin_unban_done: "{prefix}&#A0FFA0Temporary IP bans cleared"

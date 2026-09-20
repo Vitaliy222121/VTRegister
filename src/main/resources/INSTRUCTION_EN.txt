@@ -1,0 +1,108 @@
+================================================================================
+ VTRegister — FULL ANTI-BOT, QUEUE AND LOBBY GUIDE (EN)
+================================================================================
+
+1. HOW THE BOT CHECK WORKS
+--------------------------------------------------------------------------------
+On join the player is moved to an empty `auth_verify` world and passes
+stages in order (each toggled in config.yml -> antibot.stages):
+
+  fall    — the plugin lifts the player to a random height; they must
+            actually land on the platform. Special physics platforms:
+            SLIME (client must bounce up), COBWEB (slow sinking),
+            HONEY (soft landing). Bots cannot reproduce this.
+  camera  — accumulate N full camera turns (camera_turns). Slow is fine,
+            pauses allowed, any direction. camera_linearity kicks bots
+            rotating with a perfectly identical delta.
+  slots   — switch hotbar slot slots_required times. Anti-cheat:
+            the server ITSELF changes the slot and waits for a real
+            change (slot_grace_millis prevents ping-related false kicks).
+            During the stage the camera is jolted slot_camera_jolts times —
+            a live client answers with Look packets, a bot does not.
+  captcha — type the code shown in chat.
+  click   — click the chat message.
+  puzzle  — "remove the odd ones": an animal GUI, remove only the target
+            set (puzzle_remove), then type puzzle_confirm_word (default
+            "vse") — a 3...2...1 check runs.
+  math    — equation shown in chat/bossbar (math_where), answer in chat.
+            Off by default.
+  secret  — type an exact string (.bind, #help, custom or random —
+            secret_mode: default|custom|random). Cheat clients swallow
+            such commands and never send them to chat. Off by default.
+  block   — walk a RANDOM zigzag path (block_path_length), take the
+            special tool from the chest (block_tool_chest), break the
+            target block and pick up the drop. Falling off the path:
+            block_max_falls attempts, then a kick.
+
+Background checks: packet_check (move-packet limit per tick),
+kick_flyers (flying where not allowed = kick), per-stage timeouts.
+
+2. QUEUE (queue_mode)
+--------------------------------------------------------------------------------
+When active checks exceed max_concurrent_checks players wait in a queue.
+
+  none    — stand still, position shown in chat.
+  bossbar — plus a "Queue: N/M" bossbar.
+  lobby   — shared waiting PLATFORM: players walk around, 3-level parkour,
+            position bossbar + hologram counter, chat reminders every
+            queue_spam_seconds seconds. Falling = safe return, no damage.
+
+Queue settings: queue_max_size (online limit, 0=none), queue_chat_allowed
+(chat only between queued players), queue_hide_players, queue_flight
+(fly while waiting), queue_kick_flyers (kick cheating flyers).
+
+3. PvP ZONE IN THE LOBBY (queue_pvp)
+--------------------------------------------------------------------------------
+A rectangle set by corner1/corner2 coordinates (verify world). PvP is
+allowed only inside; damage outside is cancelled. The chest at
+chest_x/chest_z refills every chest_seconds with items:
+
+  "MATERIAL[:ENCHANTMENT:LEVEL][:AMOUNT]"
+  examples: "NETHERITE_CHESTPLATE:PROTECTION:25"
+            "DIAMOND_SWORD:SHARPNESS:1"
+            "GOLDEN_APPLE:25"        <- 2 fields = material + amount
+
+4. CUSTOM LOBBY PLATFORM / SCHEMATIC
+--------------------------------------------------------------------------------
+Want your own lobby instead of the built-in platform?
+
+  1. queue_build_lobby: false — the plugin builds nothing (hologram aside).
+  2. Build/paste your schematic in the auth_verify world around
+     (0, ~65, -512) — that is the lobby spawn. WorldEdit: //schem load,
+     //paste at the right spot.
+  3. Parkour / PvP area can also be built manually — PvP coordinates are
+     still taken from the config and work on any build.
+
+5. EMERGENCY MODE
+--------------------------------------------------------------------------------
+If the verify world fails to load the plugin does NOT silently pass bots:
+  - fallback_main_world: true -> arenas are built high in the sky of the
+    main world.
+  - The console is spammed emergency.alert_times times every
+    emergency.alert_interval_seconds seconds (default 10 / 5 min).
+
+6. BOSSBARS
+--------------------------------------------------------------------------------
+  bossbar: true          — check progress + countdown.
+  bossbar_color: auto    — per-stage colour OR fixed (BLUE/RED/...).
+  bossbar_title: ""      — custom template: {stage_num} {stage_total} {seconds}.
+  bossbar2_enabled       — second (promo) bar, bossbar2_title/color.
+
+7. PROXY (BungeeCord/Velocity)
+--------------------------------------------------------------------------------
+The queue is local to each server (queue_proxy_sync is reserved).
+Do NOT redirect waiting players to another server — the queue only exists
+where the check runs. After passing, players can be sent to the network
+lobby via proxy_server (see config.yml).
+
+8. OPTIMISATION
+--------------------------------------------------------------------------------
+  - One shared ticker (10 ticks) drives all checks and the queue — no
+    per-player tasks.
+  - The verify world is empty (VoidGenerator), autoSave off,
+    keepSpawnInMemory off.
+  - Arenas are reused (bounded slots), state is cleaned on
+    quit/kick/timeout/pass.
+  - Hologram and bossbars update once per tick at most.
+
+================================================================================

@@ -1,0 +1,60 @@
+# Сборка
+target/
+build/
+out/
+bin/
+dist/
+test-out/
+libs/
+*.class
+dependency-reduced-pom.xml
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.eclipse/
+.classpath
+.project
+.settings/
+
+# Локальный сервер и его файлы (не коммитить)
+plugins/
+server.properties
+bukkit.yml
+spigot.yml
+paper.yml
+paper-global.yml
+paper-world-defaults.yml
+pufferfish.yml
+purpur.yml
+commands.yml
+help.yml
+permissions.yml
+ops.json
+whitelist.json
+banned-*.json
+usercache.json
+eula.txt
+server.jar
+paper-*.jar
+spigot-*.jar
+logs/
+cache/
+world*/
+
+# Данные плагина (аккаунты игроков, бэкапы — приватное!)
+data/
+accounts.yml
+accounts.yml.migrated
+accounts.db
+accounts.db-journal
+spawns.yml
+backups/
+
+# Прочее
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db

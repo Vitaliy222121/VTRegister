@@ -1,0 +1,80 @@
+package me.vorchun.registerplugin.service;
+
+import me.vorchun.registerplugin.util.IpUtil;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class SessionManager {
+
+    private final JavaPlugin plugin;
+    private final AccountStore accountStore;
+    private final Map<UUID, Long> sessionExpiresAt = new ConcurrentHashMap<>();
+
+    public SessionManager(JavaPlugin plugin, AccountStore accountStore) {
+        this.plugin = plugin;
+        this.accountStore = accountStore;
+    }
+
+    public boolean isLoggedIn(UUID uuid) {
+        return sessionExpiresAt.containsKey(uuid);
+    }
+
+    public void logout(UUID uuid) {
+        sessionExpiresAt.remove(uuid);
+    }
+
+    public long getSessionDurationMillis() {
+        long seconds = plugin.getConfig().getLong("session.duration_seconds", 7200L);
+        if (seconds < 0) {
+            seconds = 0;
+        }
+        return seconds * 1000L;
+    }
+
+    public boolean canAutoLogin(Player player) {
+        if (!plugin.getConfig().getBoolean("session.auto_login_by_ip", false)) {
+            return false;
+        }
+
+        if (getSessionDurationMillis() <= 0L) {
+            return false;
+        }
+
+        UUID uuid = player.getUniqueId();
+        if (!accountStore.isRegistered(uuid)) {
+            return false;
+        }
+
+        AccountRecord r = accountStore.get(uuid);
+        if (r == null) {
+            return false;
+        }
+
+        String ip = IpUtil.getIp(plugin, player);
+        if (ip.isEmpty()) {
+            return false;
+        }
+
+        long ipLastAuth = r.getAuthMillisForIp(ip);
+        if (ipLastAuth <= 0) {
+            return false;
+        }
+
+        return System.currentTimeMillis() - ipLastAuth <= getSessionDurationMillis();
+    }
+
+    public void login(Player player) {
+        UUID uuid = player.getUniqueId();
+        long now = System.currentTimeMillis();
+        sessionExpiresAt.put(uuid, now);
+
+        if (accountStore.isRegistered(uuid)) {
+            String ip = IpUtil.getIp(plugin, player);
+            accountStore.updateAuth(uuid, player.getName(), ip, now);
+        }
+    }
+}

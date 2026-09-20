@@ -1,0 +1,39 @@
+name: RegisterPlugin
+version: '${project.version}'
+main: me.vorchun.registerplugin.RegisterPlugin
+description: VTRegister — авторизация/регистрация с защитой пароля, антиботом, 2FA и БД
+author: Vorchun
+website: https://mineleak.pro
+api-version: '1.16'
+# POSTWORLD (по умолчанию): мир антибот-проверки создаётся в onEnable,
+# а на фазе STARTUP Bukkit запрещает создание миров.
+softdepend: [Floodgate, Geyser, PlaceholderAPI]
+# Планировщик задач умеет работать с региональными потоками Folia.
+# Ограничение: мир антибот-проверки на Folia нужно создать вручную.
+folia-supported: true
+
+commands:
+  register:
+    aliases: [reg]
+    description: Регистрация (пароль в чат)
+    usage: /register
+  login:
+    aliases: [l]
+    description: Вход (пароль в чат)
+    usage: /login
+  changepassword:
+    aliases: [changepw, cp, passwd]
+    description: Смена своего пароля
+    usage: /changepassword
+  authadmin:
+    description: Администрирование авторизации
+    usage: /authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban>
+    permission: registerplugin.admin
+# /rpverify (кнопка антибот-проверки) намеренно НЕ регистрируется:
+# команда перехватывается до диспетчера ядра, поэтому пароли и токены
+# не попадают в лог "issued server command".
+
+permissions:
+  registerplugin.admin:
+    description: Доступ к /authadmin
+    default: op

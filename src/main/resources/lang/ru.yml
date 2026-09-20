@@ -1,0 +1,166 @@
+# ============================================================
+#  VTRegister — русские тексты
+# ============================================================
+#  Здесь можно менять ЛЮБЫЕ сообщения плагина.
+#  Цвета: &#RRGGBB (HEX), &a &c &l (обычные коды Minecraft).
+#  Плейсхолдеры: {prefix} {player} {code} {seconds} {stage_num}
+#                {stage_total} {slots} {blocks} {position} {target} {kind}
+#
+#  Приоритет текстов:
+#    config.yml -> messages.<ключ>  (переопределяет точечно)
+#    lang/ru.yml (этот файл)
+#    встроенный текст в коде (используется, если удалить строку ниже)
+#
+#  ВАЖНО: строки с пометкой «НЕ УДАЛЯТЬ» имеют встроенный резервный текст —
+#  игрок всё равно увидит предупреждение о безопасности.
+# ============================================================
+
+messages:
+  # ---------- режим авторизации (НЕ УДАЛЯТЬ) ----------
+  auth_mode_secure: "{prefix}&#A0FFA0Режим авторизации: ЗАЩИЩЁННЫЙ &#7F7F7F— пароль вводится в чат и не попадает в логи"
+  auth_mode_insecure: "{prefix}&#FF6666Режим авторизации: НЕЗАЩИЩЁННЫЙ &#7F7F7F— пароль вводится в команду и попадает в консоль и логи сервера!"
+
+  # ---------- предупреждения о пароле в команде (НЕ УДАЛЯТЬ) ----------
+  insecure_mode_warn: "{prefix}&#FF6666ВНИМАНИЕ: защищённый режим выключен — пароль из команды виден в консоли и логах сервера!"
+  insecure_blocked_warn: "{prefix}&#FF5555&lПАРОЛЬ ЗАБЛОКИРОВАН! &#FFFFFFТвоё сообщение с паролем не отправлено. &#7F7F7FЕсли вводить пароль командой — он попадёт в консоль и логи сервера, и владелец сервера сможет его увидеть."
+  insecure_repeat_hint: "{prefix}&#FFFFFFЕсли ты согласен с этим риском — &#FF5555повтори ту же команду с тем же паролем в течение {seconds} сек. &#A0FFA0Если нет — введи пароль в чат (безопасно) или включи защищённый режим."
+  insecure_confirmed: "{prefix}&#FFFF66Подтверждено. Пароль принят, но помни: он уже в логах сервера."
+  insecure_password_in_logs: "{prefix}&#FF5555&lВНИМАНИЕ! &#FFFFFFТы ввёл пароль командой — он записан в консоль и логи сервера. &#FF5555Владелец сервера МОЖЕТ его увидеть. &#FFFFFFСмени пароль: &#A0FFA0/changepassword &#7F7F7F(или включи security.secure_password_input: true)"
+
+  # ---------- вход / регистрация ----------
+  join_need_register: "{prefix}&#FFFFFFТы ещё не зарегистрирован. Введи: &#A0FFA0/reg &#7F7F7F(пароль введёшь следующим сообщением в чат)"
+  join_need_login: "{prefix}&#FFFFFFТребуется авторизация: &#A0FFA0/l &#7F7F7F(пароль — следующим сообщением в чат)"
+  join_auto_login: "{prefix}&#A0FFA0Автовход выполнен &#7F7F7F(сессия активна, IP совпал)"
+  join_bedrock_auto_login: "{prefix}&#A0FFA0Bedrock-авторизация выполнена автоматически &#7F7F7F(Floodgate-доверие активно)"
+  join_premium_auto_login: "{prefix}&#A0FFA0Лицензионный аккаунт подтверждён — вход без пароля"
+
+  already_logged_in: "{prefix}&#FFFF66Ты уже авторизован. Можно играть."
+  already_registered: "{prefix}&#FF6666Ты уже зарегистрирован. Для входа используй: &#A0FFA0/l"
+  not_registered: "{prefix}&#FF6666Ты не зарегистрирован. Для регистрации используй: &#A0FFA0/reg"
+
+  register_success: "{prefix}&#A0FFA0Регистрация успешна. &#FFFFFFПриятной игры!"
+  login_success: "{prefix}&#A0FFA0Вход выполнен. &#FFFFFFДобро пожаловать!"
+  wrong_password: "{prefix}&#FF6666Неверный пароль. &#7F7F7FПроверь раскладку/CapsLock: &#A0FFA0/l"
+  password_too_short: "{prefix}&#FF6666Пароль слишком короткий."
+  password_too_long: "{prefix}&#FF6666Пароль слишком длинный."
+  password_invalid: "{prefix}&#FF6666Пароль содержит недопустимые символы или пробелы по краям."
+  password_too_weak: "{prefix}&#FF6666Пароль слишком простой. Используй разные символы."
+  passwords_dont_match: "{prefix}&#FF6666Пароли не совпадают. Попробуй ещё раз."
+
+  password_in_command_blocked: "{prefix}&#FF6666Не вводи пароль в команду! &#FFFFFFНапиши только &#A0FFA0/l &#FFFFFFили &#A0FFA0/reg&#FFFFFF, а пароль — следующим сообщением в чат."
+  password_input_timeout: "{prefix}&#FF6666Время на ввод пароля вышло. Введи снова: &#A0FFA0/l &#FFFFFFили &#A0FFA0/reg"
+  password_input_cancelled: "{prefix}&#FFFF66Отмена. Ввод пароля отменён."
+
+  blocked_command: "{prefix}&#FF6666Сначала авторизуйся. Разрешено только: &#A0FFA0/l &#FFFFFFи &#A0FFA0/reg"
+
+  enter_password_chat_login: "{prefix}&#FFFFFFШаг 1: ввёл &#A0FFA0/l&#FFFFFF. Шаг 2: напиши пароль следующим сообщением в чат. &#7F7F7F(его не увидят другие)"
+  enter_password_chat_register: "{prefix}&#FFFFFFШаг 1: ввёл &#A0FFA0/reg&#FFFFFF. Шаг 2: придумай пароль и напиши его следующим сообщением в чат."
+  enter_password_chat_confirm: "{prefix}&#FFFFFFПовтори пароль ещё раз в чат для подтверждения."
+  enter_password_chat_old: "{prefix}&#FFFFFFСмена пароля: напиши СТАРЫЙ пароль следующим сообщением в чат. &#7F7F7F(отмена: cancel)"
+  enter_password_chat_new: "{prefix}&#FFFFFFТеперь напиши НОВЫЙ пароль следующим сообщением в чат."
+
+  change_password_success: "{prefix}&#A0FFA0Пароль успешно изменён!"
+  change_password_wrong_old: "{prefix}&#FF6666Старый пароль неверный. Смена отменена."
+  change_password_usage: "{prefix}&#FFFFFFИспользуй: &#A0FFA0/changepassword &#7F7F7F— затем старый и новый пароль в чат"
+
+  reminder_register_actionbar: "{prefix}&#FFFFFFРегистрация: &#A0FFA0/reg &#7F7F7F(пароль в чат)"
+  reminder_login_actionbar: "{prefix}&#FFFFFFВход: &#A0FFA0/l &#7F7F7F(пароль в чат)"
+  reminder_register_chat: "{prefix}&#FFFFFFРегистрация: &#A0FFA0/reg &#7F7F7F→ потом пароль в чат"
+  reminder_login_chat: "{prefix}&#FFFFFFВход: &#A0FFA0/l &#7F7F7F→ потом пароль в чат"
+
+  timeout_kick: "{prefix}&#FF6666Время на авторизацию вышло ({seconds} сек). Зайди снова: &#A0FFA0/l"
+  too_many_attempts_kick: "{prefix}&#FF6666Слишком много попыток входа. Подожди и попробуй позже."
+
+  # ---------- антибот ----------
+  antibot_started: "{prefix}&#FFFF66Подождите, идёт проверка на бота… &#7F7F7Fэто займёт меньше минуты"
+  antibot_bossbar: "&#FFD500Проверка на бота… &#FFFFFFэтап {stage_num}/{stage_total} &#7F7F7F(осталось {seconds}с)"
+  antibot_fall_next: "{prefix}&#A0FFA0Отлично! Ещё падений: &#FFFFFF{blocks}"
+  antibot_stage_fall: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0падай на платформу ({blocks} раз)"
+  antibot_stage_camera: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0крути камерой в любую сторону — накопи пару полных оборотов (можно с паузами)"
+  antibot_stage_slots: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0переключи слот хотбара {slots} раз(а) (колёсико/цифры 1-9)"
+  antibot_slots_force: "{prefix}&#FFFF66Теперь прокрути колесо мыши на ОДИН слот &#7F7F7F(проверка управления)"
+  antibot_slots_retry: "{prefix}&#FF6666Не получилось. Прокрути колесо мыши ещё раз на один слот."
+  antibot_stage_captcha: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: напиши в чат код &#A0FFA0{code}"
+  antibot_stage_click: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0[НАЖМИ СЮДА] &#7F7F7Fдля завершения"
+  antibot_stage_block: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0возьми инструмент из сундука, пройди по пути и сломай блок"
+  antibot_stage_puzzle: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0убери ТОЛЬКО лишних животных, затем напиши в чат слово из задания"
+  antibot_puzzle_countdown: "{prefix}&#FFFF66Идёт проверка пазла… &#FFFFFF{blocks}&#FFFF66…"
+  antibot_puzzle_wrong: "{prefix}&#FF6666Убрано не всё лишнее! Осталось: &#FFFFFF{blocks}&#FF6666. Убери только нужных и напиши слово ещё раз."
+  antibot_stage_math: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: реши пример и напиши ответ в чат — &#A0FFA0{expr}"
+  antibot_stage_secret: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total} (тест {num}/{total}): напиши в чат точно — &#A0FFA0{command}"
+  antibot_block_fall: "{prefix}&#FF6666Ты упал с пути! Осталось падений до кика: &#FFFFFF{blocks}"
+  antibot_need_tool: "{prefix}&#FF6666Этот блок ломается только спец-инструментом из сундука у старта пути."
+  antibot_fly_kick: "&cПолёт обнаружен там, где летать нельзя."
+  antibot_stage_passed: "{prefix}&#A0FFA0Этап пройден"
+  antibot_queue: "{prefix}&#7F7F7FОчередь на проверку: позиция {position}. Подожди…"
+  antibot_queue_wait: "{prefix}&#FFFF66Ожидай своей очереди — позиция &#FFFFFF{position}&#FFFF66, следи за боссбаром вверху экрана"
+  antibot_queue_full: "&cОчередь на проверку переполнена. Попробуй зайти через минуту."
+  antibot_queue_gain: "{prefix}&#A0FFA0Убийство в PvP-зоне! Ты на &#FFFFFF{blocks}&#A0FFA0 позиций ближе к проверке."
+  antibot_queue_lose: "{prefix}&#FF6666Ты погиб в PvP-зоне — очередь откатилась на &#FFFFFF{blocks}&#FF6666."
+  antibot_timeout: "{prefix}&#FF6666Время проверки истекло. Перезайди на сервер."
+  antibot_click_wrong: "{prefix}&#FF6666Неверная ссылка подтверждения. Нажми на сообщение выше."
+  antibot_wait: "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате"
+  antibot_passed: "{prefix}&#A0FFA0Проверка на бота пройдена!"
+  antibot_wrong_code: "{prefix}&#FF6666Неверный код. Смотри новый код выше."
+  antibot_failed_kick: "{prefix}&#FF6666Проверка на бота не пройдена."
+  antibot_respawn: "{prefix}&#FFFF66Ты вернулся на проверку — заверши её."
+  antibot_ip_banned: "&cСлишком много неудачных проверок с твоего IP. Попробуй позже."
+  antibot_bad_name: "&cТакой ник не разрешён на сервере."
+  antibot_global_limit: "&cСервер перегружен подключениями. Попробуй через минуту."
+  antibot_ip_limit: "&cСлишком много подключений с твоего IP. Подожди немного."
+  antibot_reconnect: "&eПроверка подключения: зайди ещё раз через пару секунд."
+  antibot_multiaccount: "&cС твоего IP уже зарегистрировано максимум аккаунтов."
+
+  # ---------- 2FA ----------
+  twofa_enter_code: "{prefix}&#FFFFFFВведи код из приложения-аутентификатора: &#A0FFA0/2fa 123456"
+  twofa_wrong_code: "{prefix}&#FF6666Неверный код. Попробуй ещё раз."
+  twofa_expired: "{prefix}&#FF6666Время на ввод кода истекло. Войди заново."
+  twofa_disabled: "{prefix}&#FF6666Двухфакторная аутентификация выключена на сервере."
+  twofa_usage: "{prefix}&#FFFFFF/2fa on — включить, /2fa off — выключить, /2fa <код> — подтвердить"
+  twofa_setup: "{prefix}&#FFFFFFОткрой приложение-аутентификатор и добавь секрет ниже, затем введи код: &#A0FFA0/2fa 123456"
+  twofa_confirm_hint: "{prefix}&#7F7F7FВведи код из приложения, чтобы включить 2FA"
+  twofa_enabled_done: "{prefix}&#A0FFA0Двухфакторная аутентификация включена!"
+  twofa_disabled_done: "{prefix}&#FFFF66Двухфакторная аутентификация выключена."
+
+  # ---------- почта и восстановление ----------
+  email_disabled: "{prefix}&#FF6666Почта не настроена на сервере."
+  email_usage: "{prefix}&#FFFFFF/email <адрес> — привязать почту, затем введи код из письма"
+  email_invalid: "{prefix}&#FF6666Некорректный адрес почты."
+  email_code_sent: "{prefix}&#A0FFA0Код отправлен на почту. Введи его в чат."
+  email_send_failed: "{prefix}&#FF6666Не удалось отправить письмо. Проверь настройки SMTP."
+  email_verified: "{prefix}&#A0FFA0Почта подтверждена!"
+  email_wrong_code: "{prefix}&#FF6666Неверный код из письма."
+  email_code_expired: "{prefix}&#FF6666Код истёк. Запроси новый: /email <адрес>"
+  recover_no_email: "{prefix}&#FF6666К аккаунту не привязана почта. Обратись к администрации."
+  recover_code_sent: "{prefix}&#A0FFA0Код восстановления отправлен на почту. Введи: &#A0FFA0/recover <код> <новый пароль>"
+  recover_usage: "{prefix}&#FFFFFF/recover — получить код, /recover <код> <новый пароль> — сменить пароль"
+  recover_wrong_code: "{prefix}&#FF6666Неверный код восстановления."
+  recover_code_expired: "{prefix}&#FF6666Код истёк или попытки исчерпаны."
+  recover_success: "{prefix}&#A0FFA0Пароль восстановлен! Войди: &#A0FFA0/l"
+
+  # ---------- админ ----------
+  admin_no_permission: "{prefix}&#FF6666Нет прав"
+  admin_usage: "{prefix}&#FFFFFF/authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban>"
+  admin_player_not_found: "{prefix}&#FF6666Аккаунт не найден"
+  admin_player_offline: "{prefix}&#FF6666Игрок не в сети"
+  admin_reset_done: "{prefix}&#A0FFA0Пароль сброшен для {target}"
+  admin_unregister_done: "{prefix}&#A0FFA0Аккаунт удалён: {target}"
+  admin_forcelogin_done: "{prefix}&#A0FFA0Игрок авторизован: {target}"
+  admin_setpw_done: "{prefix}&#A0FFA0Пароль установлен для {target}"
+  admin_setpw_prompt: "{prefix}&#FFFFFFВведи новый пароль для {target} следующим сообщением в чат. &#7F7F7F(отмена: cancel)"
+  admin_setpw_cancelled: "{prefix}&#FFFF66Отмена. Пароль не изменён."
+  admin_setpw_timeout: "{prefix}&#FF6666Время вышло. Введи /authadmin setpw <ник> снова."
+  admin_setpw_too_short: "{prefix}&#FF6666Пароль слишком короткий."
+  admin_setpw_too_long: "{prefix}&#FF6666Пароль слишком длинный."
+  admin_setpw_invalid: "{prefix}&#FF6666Недопустимые символы в пароле."
+  admin_setpw_too_weak: "{prefix}&#FF6666Пароль слишком простой."
+  admin_logout_done: "{prefix}&#A0FFA0Игрок разлогинен: {target}"
+  admin_reload_done: "{prefix}&#A0FFA0Конфиг перезагружен (комментарии сохранены)"
+  admin_info: "{prefix}&#FFFFFF{target}: зарегистрирован={registered}, IP={ip}, последний вход={lastauth}"
+  admin_list_header: "{prefix}&#FFFFFFАккаунты (стр. {page}/{pages}, всего {total}):"
+  admin_list_row: "{prefix}&#7F7F7F- &#FFFFFF{name} &#7F7F7F| {ip} | {online}"
+  admin_status: "{prefix}&#FFFFFFVTRegister v{version}: аккаунтов в кэше={total}, онлайн={logged}, ждут={waiting}, режим={mode}"
+  admin_setspawn_usage: "{prefix}&#FFFFFF/authadmin setspawn <prelogin|postlogin|firstjoin>"
+  admin_setspawn_done: "{prefix}&#A0FFA0Точка спавна '{kind}' установлена на твою позицию"
+  admin_import_started: "{prefix}&#FFFFFFИмпорт запущен… (AuthMe, LoginSecurity, accounts.yml, import.yml)"
+  admin_unban_done: "{prefix}&#A0FFA0Временные баны IP сняты"
