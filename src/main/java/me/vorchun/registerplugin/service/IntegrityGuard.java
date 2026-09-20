@@ -215,5 +215,5 @@ public final class IntegrityGuard {
 
     /** Bytecode signature expected at release build time. */
     private static final String EXPECTED2 =
-            "14c266bf57c4ffc6f2d3e488ab3e6d1813ad5a62db9bf880bc939f242d47095d";
+            "5d0b96e5a138990cd0720b1ea44510f50e34ca88f411b5a16c808af55fbd0b76";
 }

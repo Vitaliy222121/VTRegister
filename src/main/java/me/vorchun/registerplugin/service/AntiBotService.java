@@ -132,6 +132,10 @@ public final class AntiBotService {
         // фоновый подсчёт move-пакетов за окно тиков
         int movePackets;
         int packetTick;
+        // анти-флай: тики подряд в полёте без разрешения
+        int flyTicks;
+        // FALL: повторный подброс, если клиент завис в воздухе
+        int fallRetries;
         // подготовка к проверке: игрок уже на арене, идёт отсчёт до старта
         boolean preparing;
         long prepareUntil;
@@ -274,6 +278,8 @@ public final class AntiBotService {
         long lastSpamAt;
         org.bukkit.boss.BossBar bar;
         Location lobbyReturn;
+        // анти-флай в лобби очереди
+        int flyTicks;
     }
 
     private final Map<UUID, CheckState> checks = new ConcurrentHashMap<>();
@@ -707,15 +713,39 @@ public final class AntiBotService {
             lobbyBuilt = true;
             return;
         }
-        // платформа 21x21 из каменных кирпичей + стеклянный бортик
-        for (int dx = -10; dx <= 10; dx++) {
-            for (int dz = -10; dz <= 10; dz++) {
-                w.getBlockAt(dx, y, LOBBY_Z + dz).setType(Material.STONE_BRICKS, false);
-                if (Math.abs(dx) == 10 || Math.abs(dz) == 10) {
+        // Платформа-ожидание 25x25: каменные кирпичи + декоративный пол,
+        // стеклянный бортик, светящиеся углы с фонарями и метка спавна.
+        for (int dx = -12; dx <= 12; dx++) {
+            for (int dz = -12; dz <= 12; dz++) {
+                Material mat = ((dx + dz) & 1) == 0 ? Material.STONE_BRICKS : Material.CRACKED_STONE_BRICKS;
+                w.getBlockAt(dx, y, LOBBY_Z + dz).setType(mat, false);
+                if (Math.abs(dx) == 12 || Math.abs(dz) == 12) {
                     w.getBlockAt(dx, y + 1, LOBBY_Z + dz).setType(Material.GLASS, false);
                     w.getBlockAt(dx, y + 2, LOBBY_Z + dz).setType(Material.GLASS, false);
                 }
             }
+        }
+        // Углы: светящийся камень в полу + столбик с фонарем — лобби
+        // не проваливается в темноту ночью (в verify-мире всегда день, но
+        // на запасной арене основного мира свет критичен).
+        for (int cx : new int[]{-11, 11}) {
+            for (int cz : new int[]{-11, 11}) {
+                w.getBlockAt(cx, y, LOBBY_Z + cz).setType(Material.GLOWSTONE, false);
+                w.getBlockAt(cx, y + 1, LOBBY_Z + cz).setType(Material.OAK_FENCE, false);
+                w.getBlockAt(cx, y + 2, LOBBY_Z + cz).setType(Material.LANTERN, false);
+            }
+        }
+        // Центр: золотой блок-метка спавна + табличка с подсказкой.
+        w.getBlockAt(0, y, LOBBY_Z).setType(Material.GOLD_BLOCK, false);
+        try {
+            Block signBlock = w.getBlockAt(0, y + 1, LOBBY_Z + 3);
+            signBlock.setType(Material.OAK_SIGN, false);
+            org.bukkit.block.Sign sign = (org.bukkit.block.Sign) signBlock.getState();
+            sign.setLine(0, "Очередь");
+            sign.setLine(1, "на проверку");
+            sign.setLine(2, "жди на боссбаре");
+            sign.update(true, false);
+        } catch (Throwable ignored) {
         }
         if (queueParkour) {
             buildParkour(w, y);
@@ -1283,10 +1313,12 @@ public final class AntiBotService {
         int height = fallMinHeight + random.nextInt(Math.max(1, fallMaxHeight - fallMinHeight + 1));
         st.tossHeight = height;
         st.fallStartY = st.baseY + 1 + height;
-        st.fallStartedAt = System.currentTimeMillis();
-        // Реальное падение с h блоков в MC занимает ~h*100-150 мс; берём
-        // консервативный минимум — читер «приземлится» мгновенно.
-        st.landingMinMs = Math.max(minFallMillis, 150L + height * 40L);
+        st.fallStartedAt = 0;
+        // Реальное падение с h блоков в MC занимает ~0.7–1.5 сек в зависимости
+        // от высоты. Отсчёт стартует ПОСЛЕ фактического телепорта (внутри
+        // runAtEntity), а порог даёт запас на пинг и медленные клиенты —
+        // мгновенное «приземление» телепорт-чита всё равно отсекается.
+        st.landingMinMs = Math.max(minFallMillis, 300L + height * 45L);
         st.awaitingBounce = false;
         st.enteredCobweb = false;
         teleportService.authorizeTeleport(uuid);
@@ -1302,6 +1334,9 @@ public final class AntiBotService {
             }
             player.teleport(target);
             player.setFallDistance(0f);
+            // Отсчёт падения — с момента реального телепорта, иначе лаг
+            // планировщика/пинг съедал запас и честные игроки слетали.
+            st.fallStartedAt = System.currentTimeMillis();
         });
     }
 
@@ -1320,8 +1355,21 @@ public final class AntiBotService {
         }
         switch (stage) {
             case FALL: {
+                if (st.fallStartedAt == 0) {
+                    // Телепорт ещё не выполнен — приземление не засчитываем
+                    return true;
+                }
                 double y = to.getY();
                 int floor = st.baseY;
+                // Клиент «завис» в воздухе (телепорт не дошёл/потерялся):
+                // один повторный подброс вместо пустого ожидания таймаута.
+                if (st.fallStartedAt > 0 && System.currentTimeMillis() - st.fallStartedAt > 8000L) {
+                    if (st.fallRetries < 1) {
+                        st.fallRetries++;
+                        startFallRep(player, st);
+                    }
+                    return true;
+                }
                 if (y < floor - 5) {
                     // улетел мимо платформы — вернуть на арену
                     teleportService.authorizeTeleport(player.getUniqueId());
@@ -2550,10 +2598,16 @@ public final class AntiBotService {
                 failCheck(e.getKey(), msg("antibot_timeout"));
                 continue;
             }
-            // Игрок летает там, где летать нельзя — 100% чит
-            if (kickFlyers && p.isFlying()) {
-                failCheck(e.getKey(), msg("antibot_fly_kick"));
-                continue;
+            // Летает БЕЗ разрешения сервера — чит. getAllowFlight()=true
+            // означает, что полёт выдан другим плагином/правом — не караем.
+            // Три тика подряд: одиночный флаг isFlying не кикает.
+            if (kickFlyers && p.isFlying() && !p.getAllowFlight()) {
+                if (++st.flyTicks >= 3) {
+                    failCheck(e.getKey(), msg("antibot_fly_kick"));
+                    continue;
+                }
+            } else {
+                st.flyTicks = 0;
             }
             // Фоновая проверка пакетов: бюджет packet_max_per_tick × окно
             // тиков — человек столько не шлёт, бот-поток выходит за лимит
@@ -2620,11 +2674,16 @@ public final class AntiBotService {
                 if (queueFlight && !p.getAllowFlight()) {
                     p.setAllowFlight(true);
                 }
-                // Летает без разрешения — читер в очереди
-                if (queueKickFlyers && !queueFlight && p.isFlying()) {
-                    dequeue(u);
-                    p.kickPlayer(msg("antibot_fly_kick"));
-                    continue;
+                // Летает без разрешения — читер в очереди. Полёт, выданный
+                // другим плагином (allowFlight), не караем; три тика подряд.
+                if (queueKickFlyers && !queueFlight && p.isFlying() && !p.getAllowFlight()) {
+                    if (++qe.flyTicks >= 3) {
+                        dequeue(u);
+                        p.kickPlayer(msg("antibot_fly_kick"));
+                        continue;
+                    }
+                } else {
+                    qe.flyTicks = 0;
                 }
                 if (p.getLocation().getY() < lobbyBaseY(p.getWorld()) - 4) {
                     teleportService.authorizeTeleport(u);
