@@ -288,7 +288,7 @@ public final class MessageService {
         return sb.toString();
     }
 
-    private static final int READY = 812196048;
+    private static final int READY = 2109234892;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1018) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

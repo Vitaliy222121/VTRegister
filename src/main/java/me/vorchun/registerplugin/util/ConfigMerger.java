@@ -320,7 +320,7 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int READY = 812196078;
+    private static final int READY = 2109234930;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1026) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -4141,6 +4141,43 @@ public final class AntiBotService {
         ticker = Scheduler.runSyncTimer(plugin, this::tick, 20L, tickTicks);
     }
 
+    /** Полная остановка при выключении плагина: все проверки отменены,
+     *  очереди расформированы, бары сняты, состояние игроков возвращено. */
+    public void shutdown() {
+        for (UUID u : new ArrayList<>(checks.keySet())) {
+            cancelCheck(u, true);
+        }
+        for (UUID u : new ArrayList<>(queue)) {
+            Player p = Bukkit.getPlayer(u);
+            if (p != null && p.isOnline()) {
+                leaveQueues(p);
+            } else {
+                dequeue(u);
+            }
+        }
+        for (UUID u : new ArrayList<>(entryQueue)) {
+            Player p = Bukkit.getPlayer(u);
+            if (p != null && p.isOnline()) {
+                leaveQueues(p);
+            } else {
+                dequeueEntry(u);
+            }
+        }
+        queueInfo.clear();
+        entryInfo.clear();
+        entryStates.clear();
+        returnLocations.clear();
+        if (fallPackets != null) {
+            fallPackets.stopAll();
+            fallPackets = null;
+        }
+        if (watchdog != null) {
+            watchdog.cancel();
+            watchdog = null;
+        }
+        stopTicker();
+    }
+
     private void stopTicker() {
         if (ticker != null) {
             ticker.cancel();
@@ -5636,7 +5673,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = 812196038;
+    private static final int READY = 2109234906;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100e) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

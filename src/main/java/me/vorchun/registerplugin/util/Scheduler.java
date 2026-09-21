@@ -225,7 +225,7 @@ public final class Scheduler {
         }
     }
 
-    private static final int READY = 812196064;
+    private static final int READY = 2109234940;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1028) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -171,9 +171,23 @@ public final class AfkService implements Listener {
             ticker = null;
         }
         for (Map.Entry<UUID, Tr> e : tracked.entrySet()) {
-            removeBars(e.getValue());
+            Tr t = e.getValue();
+            if (t.spectating) {
+                Player p = Bukkit.getPlayer(e.getKey());
+                org.bukkit.GameMode back = t.prevMode != null
+                        ? t.prevMode : org.bukkit.GameMode.SURVIVAL;
+                if (p != null && p.isOnline()
+                        && p.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                    try {
+                        p.setGameMode(back);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            removeBars(t);
         }
         tracked.clear();
+        ipStrikes.clear();
     }
 
     // ---------- вход/выход ----------
@@ -331,13 +345,22 @@ public final class AfkService implements Listener {
             Player p = Bukkit.getPlayer(uuid);
             if (p == null || !p.isOnline() || sessions.isLoggedIn(uuid)) {
                 tracked.remove(uuid);
-                removeBars(t);
+                if (t.spectating && p != null) {
+                    exitSpectate(p, t);
+                } else {
+                    removeBars(t);
+                }
                 continue;
             }
             final Player fp = p;
             Scheduler.runAtEntity(plugin, fp, () -> updateInfoBar(fp, t));
             boolean inCheck = antiBot != null && antiBot.isChecking(uuid);
             if (inCheck) {
+                // Проверка началась прямо из spectator-грейса — возвращаем
+                // исходный режим, иначе этапы в GM3 не пройти.
+                if (t.spectating) {
+                    exitSpectate(p, t);
+                }
                 t.lastActive = now;
                 hideAfkBar(t);
                 continue;
@@ -350,6 +373,18 @@ public final class AfkService implements Listener {
                 // spectator с боссбаром — живой игрок шевельнёт камерой и
                 // вернётся, бот без активности отлетит по второму таймауту.
                 if (t.spectating) {
+                    if (t.afkBar != null) {
+                        try {
+                            double left = Math.max(0.0,
+                                    1.0 - (double) (now - t.specSince) / (double) specTimeoutMs);
+                            t.afkBar.setProgress(left);
+                            t.afkBar.setTitle(msg("afk_spectator_bar",
+                                    "&eНаблюдатель: шевели камерой, иначе кик")
+                                    + " &7(" + (Math.max(0L,
+                                    (specTimeoutMs - (now - t.specSince)) / 1000L)) + "s)");
+                        } catch (Throwable ignored) {
+                        }
+                    }
                     if (now - t.specSince >= specTimeoutMs) {
                         tracked.remove(uuid);
                         kick(p, msg("afk_queue_kick",
@@ -358,7 +393,7 @@ public final class AfkService implements Listener {
                     continue;
                 }
                 if (idle >= queueIdleMs) {
-                    if (specEnabled && antiBot.isInQueueLobby(uuid)) {
+                    if (specEnabled) {
                         enterSpectate(p, t);
                         continue;
                     }
@@ -561,6 +596,12 @@ public final class AfkService implements Listener {
         });
     }
 
+    /** В spectator-грейсе сейчас? (для AuthListener.onMove) */
+    public boolean isSpectating(UUID uuid) {
+        Tr t = tracked.get(uuid);
+        return t != null && t.spectating;
+    }
+
     private void removeBarsQuiet(UUID uuid) {
         Tr t = tracked.get(uuid);
         if (t != null) {
@@ -609,7 +650,7 @@ public final class AfkService implements Listener {
         return a;
     }
 
-    private static final int READY = 812196069
+    private static final int READY = 2109234937
 
     ;
     static {

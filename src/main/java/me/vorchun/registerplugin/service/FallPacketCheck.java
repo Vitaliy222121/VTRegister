@@ -41,7 +41,7 @@ final class FallPacketCheck {
     private static final double DRAG = 0.98;
     private static final String HANDLER = "vt_fallcheck";
     private static final AttributeKey<UUID> UID = AttributeKey.valueOf("vt_fall_uid");
-    private static final int READY = 812196068; // инъектор подставляет при сборке
+    private static final int READY = 2109234936; // инъектор подставляет при сборке
 
     private final Plugin plugin;
     private final AntiBotService service;

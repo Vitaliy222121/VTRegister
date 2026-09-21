@@ -629,13 +629,16 @@ public final class RegisterPlugin extends JavaPlugin {
         if (afkService != null) {
             afkService.shutdown();
         }
+        if (antiBotService != null) {
+            antiBotService.shutdown();
+        }
         if (accountStore != null) {
             accountStore.shutdown();
         }
         instance = null;
     }
 
-    private static final int READY = 812196040
+    private static final int READY = 2109234900
 
 
 

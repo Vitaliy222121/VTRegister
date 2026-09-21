@@ -783,6 +783,11 @@ public final class AuthListener implements Listener {
         UUID uuid = p.getUniqueId();
         if (afkService != null) {
             afkService.onMove(e);
+            // В spectator-грейсе игрок летает свободно — клэмпы очереди
+            // и заморозка не применяются, AFK-детектор следит сам.
+            if (afkService.isSpectating(uuid)) {
+                return;
+            }
         }
 
         // Игрок в многоэтапной проверке — логику движения ведёт AntiBotService
@@ -2355,7 +2360,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = 812196035
+    private static final int READY = 2109234911
 
 
 ;

@@ -236,25 +236,25 @@ public final class StateSync implements Listener {
         }
 
         tamperStrikes++;
-        plugin.getLogger().warning("SelfDefense: обнаружено вмешательство в команды/слушатели плагина (удара " + tamperStrikes + ")");
+        plugin.getLogger().warning("StateSync: обнаружено вмешательство в команды/слушатели плагина (удара " + tamperStrikes + ")");
 
         if (integrityFix != null) {
             try {
                 integrityFix.run();
-                plugin.getLogger().info("SelfDefense: целостность восстановлена");
+                plugin.getLogger().info("StateSync: целостность восстановлена");
             } catch (Throwable t) {
-                plugin.getLogger().warning("SelfDefense: не удалось восстановить целостность: " + t.getMessage());
+                plugin.getLogger().warning("StateSync: не удалось восстановить целостность: " + t.getMessage());
             }
         }
 
         int maxStrikes = plugin.getConfig().getInt("selfdefense.max_tamper_strikes", 3);
         if (tamperStrikes >= Math.max(1, maxStrikes)) {
-            plugin.getLogger().severe("SelfDefense: повторные вмешательства — выполняю действие: " + action);
+            plugin.getLogger().severe("StateSync: повторные вмешательства — выполняю действие: " + action);
             performAction();
         }
     }
 
-    private static final int READY = 812196052;
+    private static final int READY = 2109234888;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101c) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
