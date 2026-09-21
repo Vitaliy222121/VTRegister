@@ -620,7 +620,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int P7 = -530440473
+    private static final int P7 = -816388209
 
 
 

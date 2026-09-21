@@ -30,7 +30,7 @@ public final class AuthRegisterEvent extends Event {
         return HANDLERS;
     }
 
-    private static final int P7 = -530440476;
+    private static final int P7 = -816388212;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1003) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

@@ -92,6 +92,10 @@ security:
   admin_setpw_timeout_seconds: 30
   # Скрывать неавторизованных: они не видят других и их не видят
   hide_during_auth: true
+  # Темнота/blindness до входа: always = всегда (как раньше),
+  # auth_only = только во время reg/login (в лобби-очереди светло — рекомендуется),
+  # never = эффект не применяется вообще
+  auth_darkness: auth_only
   # Защита инвентаря: при смерти до входа вещи и опыт сохраняются
   protect_inventory_on_death: true
   # Проверка целостности защиты (см. LICENSE). strict: true — при вырезанной
@@ -400,12 +404,26 @@ antibot:
   slime_extra_seconds: 8
   # Текст таблички перед игроком на этапе пазла (4 строки, &-цвета)
   puzzle_sign_lines:
-    - "&6&lОБЕРНИСЬ!"
-    - "пазл &cЗА СПИНОЙ"
-    - "развернись на 180°"
-    - "&a№1 против ботов =)"
+    - "&6&lПАЗЛ"
+    - "прямо перед тобой"
+    - "убери &cлишние&r предметы"
+    - "&aостальное не трогай"
   # VOID on FALL stage: message + forced retry. Falls allowed before kick.
   fall_void_max: 3
+  # Пакетная проверка падения (Netty, limbo-стиль):
+  # телепорт в воздух + AcceptTeleportation, затем замер dy
+  # по формуле ванили v=(v-0.08)*0.98. false — старые платформы.
+  fall_packets: true
+  fall_confirm_timeout_ms: 2500   # без AcceptTeleportation -> кик
+  fall_move_timeout_ms: 3000      # тишина по move-пакетам -> кик
+  fall_ticks: 4                   # тиков падения для прохода
+  fall_tolerance: 0.005           # допуск отклонения dy
+  fall_tolerance_bedrock: 0.03    # допуск для Bedrock/Geyser
+  fall_height: 12                 # высота телепорта над ареной
+  fall_max_violations: 3          # подряд нарушений формулы до кика
+  # Пазл перед игроком (прямо перед прицелом).
+  # false — стена за спиной: игроку нужно обернуться на 180
+  puzzle_front: true
   # ── MATH: пример на экране/в чате (по умолчанию выкл) ────────────────────
   math_max: 20             # числа 1..N в примере
   math_where: "chat"       # chat | bossbar | both — где показывать пример

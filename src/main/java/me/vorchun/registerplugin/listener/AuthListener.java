@@ -131,6 +131,8 @@ public final class AuthListener implements Listener {
     private volatile Set<String> allowedCommandsCache = Collections.emptySet();
     private volatile boolean secureMode = true;
     private volatile boolean hideDuringAuth = true;
+    // always|auth_only|never - scope of darkness/blindness effect
+    private volatile String authDarkness = "auth_only";
     private volatile boolean requireConfirm = false;
     private volatile boolean enforceStrength = true;
     private volatile boolean protectDeath = true;
@@ -198,6 +200,7 @@ public final class AuthListener implements Listener {
 
         secureMode = plugin.getConfig().getBoolean("security.secure_password_input", true);
         hideDuringAuth = plugin.getConfig().getBoolean("security.hide_during_auth", true);
+        authDarkness = plugin.getConfig().getString("security.auth_darkness", "auth_only");
         requireConfirm = plugin.getConfig().getBoolean("password.require_confirm", false);
         enforceStrength = plugin.getConfig().getBoolean("password.enforce_strength", true);
         protectDeath = plugin.getConfig().getBoolean("security.protect_inventory_on_death", true);
@@ -244,7 +247,7 @@ public final class AuthListener implements Listener {
         // Изоляция ДО любой логики: темнота + пакетное скрытие. Если проверка
         // не стартует (рестарт, мир не готов, сбой) — игрок не видит мир
         // и не виден другим, а не стоит в обычном мире с вещами.
-        Compat.applyAuthDarkness(p);
+        darkness(p);
         if (hideDuringAuth) {
             applyHiding(p);
         }
@@ -294,7 +297,7 @@ public final class AuthListener implements Listener {
         if (premiumPending) {
             // Пока идёт запрос к Mojang — держим игрока как обычно (темнота + скрытие),
             // чтобы он не гулял по миру до решения
-            Compat.applyAuthDarkness(p);
+            darkness(p);
             if (hideDuringAuth) {
                 applyHiding(p);
             }
@@ -349,7 +352,7 @@ public final class AuthListener implements Listener {
     /** Обычный вход: инструкции + таймаут + напоминания. */
     private void continueAuthFlow(Player p, UUID uuid) {
         if (!accountStore.isRegistered(uuid)) {
-            Compat.applyAuthDarkness(p);
+            darkness(p);
             if (hideDuringAuth) {
                 applyHiding(p);
             }
@@ -375,7 +378,7 @@ public final class AuthListener implements Listener {
             return;
         }
 
-        Compat.applyAuthDarkness(p);
+        darkness(p);
         if (hideDuringAuth) {
             applyHiding(p);
         }
@@ -434,6 +437,13 @@ public final class AuthListener implements Listener {
     /**
      * Скрыть неавторизованного игрока от всех и всех от него.
      */
+    // Darkness per security.auth_darkness: never -> never applied
+    private void darkness(Player p) {
+        if (!"never".equals(authDarkness)) {
+            Compat.applyAuthDarkness(p);
+        }
+    }
+
     private void applyHiding(Player unauth) {
         for (Player other : Bukkit.getOnlinePlayers()) {
             if (other.equals(unauth)) {
@@ -861,6 +871,13 @@ public final class AuthListener implements Listener {
             // одеть броню ПКМ, поесть, размахнуться мечом. Открытие чужих
             // блоков (RIGHT_CLICK_BLOCK) остаётся запрещённым.
             if (antiBotService != null && antiBotService.isCheckWorld(e.getPlayer().getWorld())) {
+                // Сундук с инструментом этапа BLOCK — единственный открываемый
+                // блок на проверке (без инструмента целевой блок не сломать)
+                if (e.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+                        && antiBotService.isChecking(e.getPlayer().getUniqueId())
+                        && antiBotService.isToolChestBlock(e.getPlayer(), e.getClickedBlock())) {
+                    return;
+                }
                 if (e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK) {
                     return;
                 }
@@ -995,6 +1012,12 @@ public final class AuthListener implements Listener {
                 org.bukkit.inventory.Inventory top = e.getView().getTopInventory();
                 if (antiBotService.onPuzzleClick(p, top, e.getRawSlot())) {
                     e.setCancelled(true);
+                    return;
+                }
+                // Сундук инструмента этапа BLOCK: брать из него — можно,
+                // класть своё внутрь — нельзя (вещи бы потерялись)
+                if (antiBotService.isToolChestTop(p, top)
+                        && e.getRawSlot() >= 0 && e.getRawSlot() < top.getSize()) {
                     return;
                 }
             }
@@ -2294,7 +2317,7 @@ public final class AuthListener implements Listener {
         }
         Scheduler.runSyncLater(plugin, () -> {
             if (p.isOnline() && !sessionManager.isLoggedIn(p.getUniqueId())) {
-                Compat.applyAuthDarkness(p);
+                darkness(p);
                 teleportService.teleportToSafeLocation(p);
             }
         }, 1L);
@@ -2312,7 +2335,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = -530440468
+    private static final int P7 = -816388220
 
 
 ;

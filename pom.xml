@@ -43,6 +43,13 @@
             <version>2.11.6</version>
             <scope>provided</scope>
         </dependency>
+        <!-- Netty — внутри сервера, нужен только для компиляции пакетной проверки -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.68.Final</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>

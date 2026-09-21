@@ -110,7 +110,7 @@ public final class ServerCore {
         }
     }
 
-    private static final int P7 = -530440498;
+    private static final int P7 = -816388186;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1029) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

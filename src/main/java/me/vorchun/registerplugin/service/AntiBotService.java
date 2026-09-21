@@ -29,6 +29,7 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import me.vorchun.registerplugin.RegisterPlugin;
+import me.vorchun.registerplugin.util.Compat;
 import me.vorchun.registerplugin.util.Scheduler;
 import me.vorchun.registerplugin.util.ServerCore;
 
@@ -150,6 +151,8 @@ public final class AntiBotService {
         float joltPendingYaw;
         float joltPendingPitch;
         boolean joltEchoPending;
+        // FALL: идёт пакетная проверка падения (Netty) — onMove не трогаем
+        boolean fallPacketMode;
         // SLOTS strict: слот до форса и счётчик возвратов на него (re-lock чит)
         int preForceSlot = -1;
         int relockHits;
@@ -251,6 +254,9 @@ public final class AntiBotService {
     private volatile boolean adminLobbyModify = true;
     private volatile boolean adminLobbyTp = true;
     private volatile boolean protectFunctional = true;
+    private volatile FallPacketCheck fallPackets;
+    private volatile boolean puzzleFront = true;
+    private volatile String authDarkness = "auth_only";
 
     private volatile int pvpChestSeconds = 15;
     private volatile List<String> pvpItems = Collections.emptyList();
@@ -480,6 +486,19 @@ public final class AntiBotService {
         adminLobbyModify = plugin.getConfig().getBoolean("antibot.queue_pvp.admin_modify", true);
         adminLobbyTp = plugin.getConfig().getBoolean("antibot.queue_pvp.admin_lobby_tp", true);
         protectFunctional = plugin.getConfig().getBoolean("antibot.queue_pvp.protect_functional", true);
+        puzzleFront = plugin.getConfig().getBoolean("antibot.puzzle_front", true);
+        authDarkness = plugin.getConfig().getString("security.auth_darkness", "auth_only");
+        if (plugin.getConfig().getBoolean("antibot.fall_packets", true)) {
+            if (fallPackets == null) {
+                fallPackets = new FallPacketCheck(plugin, this);
+            }
+            fallPackets.reload();
+        } else {
+            if (fallPackets != null) {
+                fallPackets.stopAll();
+            }
+            fallPackets = null;
+        }
         pvpHoloText = plugin.getConfig().getString("antibot.queue_pvp.hologram_text",
 
                 "&c⚠ PvP-зона: смерть = -{lose} в очереди, убийство = +{gain}");
@@ -757,6 +776,9 @@ public final class AntiBotService {
                 // отсчёта тикер телепортирует его на арену и запустит этапы.
                 teleportService.authorizeTeleport(uuid);
                 player.teleport(lobbySpawn(lw));
+                if (!"always".equals(authDarkness)) {
+                    Compat.clearAuthDarkness(player);
+                }
                 feedForLobby(player);
                 st.preparing = true;
                 st.preparingInLobby = true;
@@ -765,6 +787,10 @@ public final class AntiBotService {
                 return;
             }
             preparePlayer(player, st);
+            // проверка идёт на арене — темнота reg/login здесь не нужна
+            if (!"always".equals(authDarkness)) {
+                Compat.clearAuthDarkness(player);
+            }
             teleportService.authorizeTeleport(uuid);
             player.teleport(arenaSpawn(st));
             if (prepareSeconds > 0) {
@@ -840,6 +866,10 @@ public final class AntiBotService {
             Scheduler.runAtEntity(plugin, player, () -> {
                 if (player.isOnline() && queue.contains(uuid)) {
                     player.teleport(lobbySpawn(fw));
+                    // темнота/blindness только для reg/login — в лобби светло
+                    if (!"always".equals(authDarkness)) {
+                        Compat.clearAuthDarkness(player);
+                    }
                     feedForLobby(player);
                     if (queueFlight) {
                         player.setAllowFlight(true);
@@ -985,7 +1015,124 @@ public final class AntiBotService {
      * Проверка целостности лобби: если платформа "не та" (мир старый,
      * схематика сломана, кто-то снёс пол) — принудительная перестройка.
      */
+    /** Поставить блок только если он отличается — без лишних пакетов. */
+    private static void fix(World w, int x, int y, int z, Material m) {
+        if (w.getBlockAt(x, y, z).getType() != m) {
+            w.getBlockAt(x, y, z).setType(m, false);
+        }
+    }
+
+    /**
+     * Починка декора лобби теми же циклами, что и buildLobby/buildPvpZone/
+     * buildParkour, но с guarded-записью: восстанавливаем сломанные
+     * фонари, стёкла бортика, башни, пол PvP, стены, колонны, красную
+     * линию, полосы паркура и финиш-фонари.
+     */
+    private void repairLobbyDecor(World w, int y) {
+        if (!queueBuildLobby) {
+            return;
+        }
+        final int R = 27;
+        try {
+            for (int dx = -R; dx <= R; dx++) {
+                for (int dz = -R; dz <= R; dz++) {
+                    Material mat = ((dx + dz) & 1) == 0
+                            ? Material.STONE_BRICKS : Material.POLISHED_ANDESITE;
+                    fix(w, dx, y, LOBBY_Z + dz, mat);
+                    if (Math.abs(dx) == R || Math.abs(dz) == R) {
+                        boolean gate = pvpEnabled && dz == R && Math.abs(dx) <= 2;
+                        if (dz == -R && (Math.abs(dx + 20) <= 1 || Math.abs(dx + 10) <= 1
+                                || Math.abs(dx) <= 1 || Math.abs(dx - 10) <= 1
+                                || Math.abs(dx - 20) <= 1 || Math.abs(dx - 26) <= 1)) {
+                            gate = true;
+                        }
+                        if (!gate) {
+                            fix(w, dx, y + 1, LOBBY_Z + dz, Material.GLASS);
+                            fix(w, dx, y + 2, LOBBY_Z + dz, Material.GLASS);
+                        }
+                    }
+                }
+            }
+            for (int lx = -24; lx <= 24; lx += 6) {
+                for (int lz = -24; lz <= 24; lz += 6) {
+                    fix(w, lx, y, LOBBY_Z + lz, Material.SEA_LANTERN);
+                }
+            }
+            for (int cx : new int[]{-R, R}) {
+                for (int cz : new int[]{-R, R}) {
+                    for (int h = 1; h <= 3; h++) {
+                        fix(w, cx, y + h, LOBBY_Z + cz, Material.STONE_BRICKS);
+                    }
+                    fix(w, cx, y + 4, LOBBY_Z + cz, Material.LANTERN);
+                }
+            }
+            fix(w, 0, y, LOBBY_Z, Material.GOLD_BLOCK);
+            if (queueParkour) {
+                int[][] lanes = {
+                        {-20, 2, 0}, {-10, 2, 1}, {0, 3, 0},
+                        {10, 3, 1}, {20, 4, 1}, {26, 4, 0}};
+                Material[] mats = {Material.GRASS_BLOCK, Material.OAK_PLANKS,
+                        Material.POLISHED_GRANITE, Material.IRON_BLOCK,
+                        Material.DIAMOND_BLOCK};
+                for (int lane = 0; lane < lanes.length; lane++) {
+                    int x = lanes[lane][0];
+                    int gap = lanes[lane][1];
+                    int riseEvery = lanes[lane][2] + 2;
+                    Material mat = mats[lane % mats.length];
+                    int py = y + 1;
+                    int pz = LOBBY_Z - 29;
+                    for (int i = 0; i < 18; i++) {
+                        fix(w, x, py, pz, mat);
+                        pz -= (gap + 1);
+                        if (i % riseEvery == riseEvery - 1) {
+                            py += 1;
+                        }
+                    }
+                    fix(w, x, py + 1, pz + gap + 1, Material.LANTERN);
+                }
+            }
+            if (pvpEnabled) {
+                int minX = Math.min(pvpX1, pvpX2), maxX = Math.max(pvpX1, pvpX2);
+                int minZ = Math.min(pvpZ1, pvpZ2), maxZ = Math.max(pvpZ1, pvpZ2);
+                int midZ = (minZ + maxZ) / 2;
+                for (int x = minX; x <= maxX; x++) {
+                    for (int z = minZ; z <= maxZ; z++) {
+                        Material mat = (Math.abs(x) <= 2 || z == midZ)
+                                ? Material.GRAVEL : Material.SMOOTH_STONE;
+                        fix(w, x, y, z, mat);
+                        boolean edge = x == minX || x == maxX || z == minZ || z == maxZ;
+                        if (edge && !(z == minZ && Math.abs(x) <= 2)) {
+                            fix(w, x, y + 1, z, Material.COBBLESTONE_WALL);
+                            fix(w, x, y + 2, z, Material.COBBLESTONE_WALL);
+                            fix(w, x, y + 3, z, Material.NETHER_BRICK_FENCE);
+                        }
+                    }
+                }
+                for (int px : new int[]{minX + 7, maxX - 7}) {
+                    for (int pz : new int[]{minZ + 7, maxZ - 7}) {
+                        for (int h = 1; h <= 3; h++) {
+                            fix(w, px, y + h, pz, Material.STONE_BRICKS);
+                        }
+                        fix(w, px, y + 4, pz, Material.LANTERN);
+                    }
+                }
+                for (int lx = minX; lx <= maxX; lx++) {
+                    fix(w, lx, y, minZ, Material.RED_CONCRETE);
+                    fix(w, lx, y, minZ - 1, Material.RED_CONCRETE);
+                }
+                fix(w, pvpChestX, y, pvpChestZ, Material.SMOOTH_STONE);
+                fix(w, pvpChestX + 1, y, pvpChestZ, Material.SMOOTH_STONE);
+                fix(w, pvpChestX + 1, y + 1, pvpChestZ, Material.CHEST);
+                if (speedButtonEnabled) {
+                    fix(w, pvpChestX + 4, y, pvpChestZ, Material.POLISHED_BLACKSTONE);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void verifyLobbyIntegrity(World w) {
+
         if (w == null || !queueBuildLobby) {
             return;
         }
@@ -1490,7 +1637,7 @@ public final class AntiBotService {
         Material[] pool = {
                 Material.STONE, Material.GRASS_BLOCK, Material.OAK_PLANKS,
                 Material.SANDSTONE, Material.SNOW_BLOCK, Material.DIRT,
-                Material.SLIME_BLOCK, Material.COBWEB, Material.HONEY_BLOCK
+                Material.COBWEB, Material.HONEY_BLOCK
         };
         return pool[random.nextInt(pool.length)];
     }
@@ -1706,6 +1853,15 @@ public final class AntiBotService {
         switch (stage) {
             case FALL:
                 sendMessage(player, "antibot_stage_fall", physicsRepetitions);
+                // Пакетная проверка падения (Netty, Limbo-стиль): телепорт
+                // в воздух + AcceptTeleportation + замер dy по формуле
+                // v=(v-0.08)*0.98. Не сработала инъекция — legacy-платформа.
+                if (fallPackets != null && st.world != null
+                        && fallPackets.start(player, st.world, st.arenaX + 0.5,
+                                st.baseY + 1, st.arenaZ + 0.5, st.bedrock)) {
+                    st.fallPacketMode = true;
+                    break;
+                }
                 // Сначала игрок СТОИТ на платформе (стенд-телепорт дошёл),
                 // подброс — с задержкой: иначе телепорт в воздух мог обогнать
                 // телепорт на платформу, и игрок улетал в бездну.
@@ -1758,7 +1914,56 @@ public final class AntiBotService {
      * пролететь вниз. Минимальное время падения считаем от высоты,
      * чтобы телепорт/onGround-читы отсекались по физике.
      */
+    /** Телепорт с разрешением в трекере телепортов (для FallPacketCheck). */
+    void authorizedTeleport(Player p, Location loc) {
+        teleportService.authorizeTeleport(p.getUniqueId());
+        p.teleport(loc);
+    }
+
+    /**
+     * Коллбек пакетной проверки падения (приходит уже на main-thread).
+     * pass -> ставим игрока на арену и двигаем этап; fail -> кик.
+     */
+    void onFallPacketResult(UUID uuid, boolean pass, String reason) {
+        CheckState st = checks.get(uuid);
+        Player p = Bukkit.getPlayer(uuid);
+        if (st == null || p == null || !p.isOnline() || !st.fallPacketMode) {
+            return;
+        }
+        st.fallPacketMode = false;
+        if (!pass) {
+            plugin.getLogger().info("AntiBot: fall-check failed для "
+                    + p.getName() + " (" + reason + ")");
+            failCheck(uuid, msg("antibot_failed_kick"));
+            return;
+        }
+        // Клиент висел в воздухе — возвращаем на арену перед следующим этапом
+        authorizedTeleport(p, arenaSpawn(st));
+        p.setFallDistance(0f);
+        st.physicsDone++;
+        passStage(p);
+    }
+
+    /** Сундук с инструментом этапа BLOCK — клик по нему разрешён. */
+    public boolean isToolChestBlock(Player p, org.bukkit.block.Block b) {
+        CheckState st = checks.get(p.getUniqueId());
+        return st != null && st.toolChestLoc != null
+                && b != null && st.toolChestLoc.equals(b.getLocation());
+    }
+
+    /** Верхний инвентарь — сундук инструмента этапа BLOCK. */
+    public boolean isToolChestTop(Player p, org.bukkit.inventory.Inventory top) {
+        CheckState st = checks.get(p.getUniqueId());
+        if (st == null || st.toolChestLoc == null || top == null) {
+            return false;
+        }
+        org.bukkit.block.Block b = st.toolChestLoc.getBlock();
+        return b.getState() instanceof org.bukkit.block.Chest
+                && ((org.bukkit.block.Chest) b.getState()).getInventory() == top;
+    }
+
     private void startFallRep(Player player, CheckState st) {
+
         UUID uuid = player.getUniqueId();
         buildPlatform(st, randomPlatformBlock());
         int height = fallMinHeight + random.nextInt(Math.max(1, fallMaxHeight - fallMinHeight + 1));
@@ -1817,6 +2022,11 @@ public final class AntiBotService {
             } else {
                 st.tpTarget = null;
             }
+        }
+        // Пакетная проверка падения: мир/фриз не трогаем — валидирует
+        // FallPacketCheck на уровне пакетов, результат придёт коллбеком.
+        if (st.fallPacketMode) {
+            return true;
         }
         Stage stage = getCurrentStage(player.getUniqueId());
         // Упал ниже арены вне этапа падения/блока — вернуть на арену.
@@ -2775,24 +2985,43 @@ public final class AntiBotService {
             Collections.shuffle(cells, random);
 
             World w = st.world;
-            // белая стена 3x3 ПОЗАДИ игрока (arenaZ+4): игрок появляется
-            // лицом на -Z и стену не видит — табличка велит обернуться.
+            // puzzle_front=true: стена ПЕРЕД игроком (смотрит на -Z,
+            // стена на arenaZ-4) — задание сразу перед прицелом.
+            // false — стена позади (arenaZ+4): старый режим с оборотом.
+            int wallZ = st.arenaZ + (puzzleFront ? -4 : 4);
+            int frameZ = st.arenaZ + (puzzleFront ? -3 : 3);
+            org.bukkit.block.BlockFace frameFace = puzzleFront
+                    ? org.bukkit.block.BlockFace.SOUTH : org.bukkit.block.BlockFace.NORTH;
+            int signX = puzzleFront ? st.arenaX - 2 : st.arenaX;
+            int signZ = st.arenaZ - 3;
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dy = 1; dy <= 3; dy++) {
-                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ + 4)
+                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, wallZ)
                             .setType(Material.QUARTZ_BLOCK, false);
                 }
             }
             // табличка-указатель ПЕРЕД игроком (на -Z, лицом к нему)
             try {
-                w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4)
-                        .setType(Material.QUARTZ_BLOCK, false);
-                org.bukkit.block.Block sb = w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 3);
-                sb.setType(Material.OAK_WALL_SIGN, false);
-                org.bukkit.block.data.Directional dir =
-                        (org.bukkit.block.data.Directional) sb.getBlockData();
-                dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
-                sb.setBlockData(dir, false);
+                if (!puzzleFront) {
+                    w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4)
+                            .setType(Material.QUARTZ_BLOCK, false);
+                }
+                org.bukkit.block.Block sb = w.getBlockAt(signX, st.baseY + 2, signZ);
+                // front-режим: знак стоит сбоку от стены — стоячий OAK_SIGN
+                // (wall sign без опорного блока отвалился бы)
+                if (puzzleFront) {
+                    sb.setType(Material.OAK_SIGN, false);
+                    org.bukkit.block.data.Rotatable rot =
+                            (org.bukkit.block.data.Rotatable) sb.getBlockData();
+                    rot.setRotation(org.bukkit.block.BlockFace.SOUTH);
+                    sb.setBlockData(rot, false);
+                } else {
+                    sb.setType(Material.OAK_WALL_SIGN, false);
+                    org.bukkit.block.data.Directional dir =
+                            (org.bukkit.block.data.Directional) sb.getBlockData();
+                    dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
+                    sb.setBlockData(dir, false);
+                }
                 org.bukkit.block.Sign ps = (org.bukkit.block.Sign) sb.getState();
                 // Текст таблички — из конфига antibot.puzzle_sign_lines
                 for (int li = 0; li < 4 && li < puzzleSignLines.size(); li++) {
@@ -2810,11 +3039,11 @@ public final class AntiBotService {
                 int dx = (i % 3) - 1;
                 int dy = 1 + (i / 3);
                 Location fl = new Location(w, st.arenaX + dx + 0.5,
-                        st.baseY + dy + 0.5, st.arenaZ + 3.0);
+                        st.baseY + dy + 0.5, frameZ + 0.0);
                 org.bukkit.entity.ItemFrame frame =
                         w.spawn(fl, org.bukkit.entity.ItemFrame.class);
                 try {
-                    frame.setFacingDirection(org.bukkit.block.BlockFace.NORTH);
+                    frame.setFacingDirection(frameFace);
                 } catch (Throwable ignored) {
                 }
                 frame.setItem(tileItem(name, w), false);
@@ -2998,6 +3227,9 @@ public final class AntiBotService {
                 sign.setLine(2, "жди на боссбаре");
                 sign.update(true, false);
             }
+            // Полное восстановление декора: фонари/стёкла/паркур/PvP-зону
+            // ломают чаще всего — переставляем только отличающиеся блоки.
+            repairLobbyDecor(w, y);
             if (pvpEnabled) {
                 if (w.getBlockAt(pvpChestX, y + 1, pvpChestZ).getType() != Material.CHEST) {
                     w.getBlockAt(pvpChestX, y, pvpChestZ).setType(Material.SMOOTH_STONE, false);
@@ -3461,6 +3693,9 @@ public final class AntiBotService {
     public void finishCheck(Player player) {
         UUID uuid = player.getUniqueId();
         CheckState st = checks.remove(uuid);
+        if (fallPackets != null) {
+            fallPackets.stop(uuid);
+        }
         removeBar(st);
         // Очередь ВХОДА на сервер: проверка пройдена, но слотов нет —
         // игрок ждёт на платформе лобби, инвентарь пока не возвращаем
@@ -3540,6 +3775,9 @@ public final class AntiBotService {
             Scheduler.runAtEntity(plugin, player, () -> {
                 if (player.isOnline() && entryQueue.contains(uuid)) {
                     player.teleport(lobbySpawn(fw));
+                    if (!"always".equals(authDarkness)) {
+                        Compat.clearAuthDarkness(player);
+                    }
                     feedForLobby(player);
                     if (queueFlight) {
                         player.setAllowFlight(true);
@@ -3651,6 +3889,9 @@ public final class AntiBotService {
             return;
         }
         CheckState st = checks.remove(uuid);
+        if (fallPackets != null) {
+            fallPackets.stop(uuid);
+        }
         dequeue(uuid);
         returnLocations.remove(uuid);
         removeBar(st);
@@ -3672,6 +3913,9 @@ public final class AntiBotService {
 
     public void cancelCheck(UUID uuid, boolean teleportBack) {
         CheckState st = checks.remove(uuid);
+        if (fallPackets != null) {
+            fallPackets.stop(uuid);
+        }
         restoreArena(st);
         // Игрок мог быть в очереди входа — его инвентарь лежит в entryStates
         if (st == null) {
@@ -4017,27 +4261,43 @@ public final class AntiBotService {
                 // или табличку — переставляем, иначе задание не видно.
                 if (st.world != null && st.puzzleFrames != null) {
                     World w = st.world;
+                    int wallZ = st.arenaZ + (puzzleFront ? -4 : 4);
+                    int signX = puzzleFront ? st.arenaX - 2 : st.arenaX;
+                    int signZ = st.arenaZ - 3;
                     for (int dx = -1; dx <= 1; dx++) {
                         for (int dy = 1; dy <= 3; dy++) {
                             org.bukkit.block.Block wb = w.getBlockAt(
-                                    st.arenaX + dx, st.baseY + dy, st.arenaZ + 4);
+                                    st.arenaX + dx, st.baseY + dy, wallZ);
                             if (wb.getType() != Material.QUARTZ_BLOCK) {
                                 wb.setType(Material.QUARTZ_BLOCK, false);
                             }
                         }
                     }
                     org.bukkit.block.Block sb = w.getBlockAt(
-                            st.arenaX, st.baseY + 2, st.arenaZ - 3);
+                            signX, st.baseY + 2, signZ);
                     if (!(sb.getState() instanceof org.bukkit.block.Sign)
                             || ((org.bukkit.block.Sign) sb.getState()).getLine(0).isEmpty()) {
-                        w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4)
-                                .setType(Material.QUARTZ_BLOCK, false);
-                        sb.setType(Material.OAK_WALL_SIGN, false);
+                        if (!puzzleFront) {
+                            w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4)
+                                    .setType(Material.QUARTZ_BLOCK, false);
+                        }
+                        if (puzzleFront) {
+                            sb.setType(Material.OAK_SIGN, false);
+                        } else {
+                            sb.setType(Material.OAK_WALL_SIGN, false);
+                        }
                         try {
-                            org.bukkit.block.data.Directional dir =
-                                    (org.bukkit.block.data.Directional) sb.getBlockData();
-                            dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
-                            sb.setBlockData(dir, false);
+                            if (puzzleFront) {
+                                org.bukkit.block.data.Rotatable rot =
+                                        (org.bukkit.block.data.Rotatable) sb.getBlockData();
+                                rot.setRotation(org.bukkit.block.BlockFace.SOUTH);
+                                sb.setBlockData(rot, false);
+                            } else {
+                                org.bukkit.block.data.Directional dir =
+                                        (org.bukkit.block.data.Directional) sb.getBlockData();
+                                dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
+                                sb.setBlockData(dir, false);
+                            }
                         } catch (Throwable ignored) {
                         }
                         org.bukkit.block.Sign ps = (org.bukkit.block.Sign) sb.getState();
@@ -4068,6 +4328,9 @@ public final class AntiBotService {
             verifyLobbyIntegrity(verifyWorld != null ? verifyWorld : fallbackWorld);
         }
 
+        if (fallPackets != null) {
+            fallPackets.tick();
+        }
         // Очередь: позиции, боссбар, напоминания в лобби
         tickQueue(now);
         // Очередь входа на сервер: позиции + выпуск волнами
@@ -5319,7 +5582,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = -530440471;
+    private static final int P7 = -816388223;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

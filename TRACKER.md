@@ -49,3 +49,21 @@
   на этом слое — его ловят camera-linearity/snap/packet-rate этапы.
 - Скорость кнопки требует мир `auth_verify`/check-world — в другом мире не сработает.
 - `queueMode == 2` обязателен для лобби-очереди (`isInQueueLobby`).
+
+## Фаза 3 — пакетное падение + лобби (текущая)
+
+| # | Задача | Статус |
+|---|--------|--------|
+| 1 | Убрать SLIME_BLOCK из пула платформ падения | ✅ удалён из `randomPlatformBlock` |
+| 2 | Полное восстановление лобби (фонари/стёкла/паркур/PvP) | ✅ `repairLobbyDecor` — guarded-запись всех декор-блоков каждые ~3с |
+| 3 | Темнота в лобби-очереди убрана — только reg/login | ✅ `security.auth_darkness: auth_only` (дефолт), снятие при входе в очередь/на арену |
+| 4 | Спринт в лобби | ✅ чинится снятием blindness (vanilla отключает спринт при blindness) + `feedForLobby` |
+| 5 | Сундук инструмента этапа BLOCK не открывался | ✅ `isToolChestBlock`/`isToolChestTop` exemptions в interact/inventory |
+| 6 | Пакетная проверка падения (Netty, limbo) | ✅ `FallPacketCheck`: teleport→AcceptTeleportation (2.5с)→4 тика dy по `v=(v-0.08)*0.98`, кик при onGround в воздухе/линейном падении/тишине >3с; Bedrock допуск 0.03 |
+| 7 | Пазл прямо перед прицелом | ✅ `antibot.puzzle_front: true` (дефолт), false — старый режим за спиной |
+
+### Верификация фазы 3
+- mvn package ✅, 49/49 тестов ✅
+- `s()=true`, `raw`=EXPECTED_FINGERPRINT, `sigOkLocal=true` ✅
+- Tamper: изменённый FallPacketCheck.class → другой sig → блок ✅
+- Новые ключи: `antibot.fall_*`, `antibot.puzzle_front`, `security.auth_darkness`
