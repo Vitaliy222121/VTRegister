@@ -112,7 +112,7 @@ public final class VTRegisterExpansion extends PlaceholderExpansion {
         }
     }
 
-    private static final int P7 = 1616536795;
+    private static final int P7 = 1971439278;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1009) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

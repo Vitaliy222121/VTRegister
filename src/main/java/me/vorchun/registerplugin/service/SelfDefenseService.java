@@ -254,7 +254,7 @@ public final class SelfDefenseService implements Listener {
         }
     }
 
-    private static final int P7 = 1616536782;
+    private static final int P7 = 1971439291;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x101c) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

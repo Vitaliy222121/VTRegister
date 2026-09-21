@@ -85,7 +85,7 @@ public final class Sec {
 
     private static volatile String cache;
 
-    private static final int P7 = 1616536825;
+    private static final int P7 = 1971439244;
 
     private static boolean p7() {
         return t(0x102b) == P7;

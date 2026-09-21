@@ -810,6 +810,24 @@ public final class AuthListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInteract(PlayerInteractEvent e) {
+        // Кнопка скорости — для всех, кто физически в мире лобби/проверки
+        // (включая залогиненного админа, тестирующего лобби)
+        if (antiBotService != null && e.getClickedBlock() != null
+                && e.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+                && antiBotService.onSpeedButton(e.getPlayer(), e.getClickedBlock())) {
+            return;
+        }
+        // Двойной сундук-набор: клик открывает ВИРТУАЛЬНЫЙ инвентарь на
+        // игрока (реальный сундук пуст — анти-дюп), открытие раз в N сек.
+        if (antiBotService != null && e.getClickedBlock() != null
+                && e.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+                && antiBotService.isKitChest(e.getClickedBlock())) {
+            e.setCancelled(true);
+            e.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+            e.setUseItemInHand(org.bukkit.event.Event.Result.DENY);
+            antiBotService.openKitChest(e.getPlayer());
+            return;
+        }
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
             // Кнопка скорости в лобби-PvP — единственное разрешённое действие
             if (antiBotService != null && e.getClickedBlock() != null
@@ -828,6 +846,17 @@ public final class AuthListener implements Listener {
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
             e.setCancelled(true);
         }
+    }
+
+    @EventHandler
+    public void onInvClose(org.bukkit.event.inventory.InventoryCloseEvent e) {
+        if (antiBotService == null || !(e.getPlayer() instanceof Player)) {
+            return;
+        }
+        Player p = (Player) e.getPlayer();
+        antiBotService.onPuzzleClose(p, e.getInventory());
+        antiBotService.onKitClose(p, e.getInventory());
+        antiBotService.onKitEditorClose(p, e.getInventory());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -921,6 +950,15 @@ public final class AuthListener implements Listener {
             }
             // Лобби: можно брать лут из PvP-сундука (только верхний инвентарь —
             // свои вещи в сундук положить нельзя, они бы потерялись)
+            // Виртуальный инвентарь набора: брать можно, положить своё — нет
+            if (antiBotService != null && antiBotService.isKitInv(e.getView().getTopInventory())) {
+                if (e.getRawSlot() >= 0 && e.getRawSlot() < e.getView().getTopInventory().getSize()
+                        && e.getClick() != org.bukkit.event.inventory.ClickType.NUMBER_KEY) {
+                    return;
+                }
+                e.setCancelled(true);
+                return;
+            }
             if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())
                     && antiBotService.isPvpArea(p.getLocation())) {
                 org.bukkit.inventory.Inventory topInv = e.getView().getTopInventory();
@@ -948,6 +986,10 @@ public final class AuthListener implements Listener {
                 if (s == AntiBotService.Stage.BLOCK || s == AntiBotService.Stage.PUZZLE) {
                     return;
                 }
+            }
+            // Виртуальный инвентарь набора — всегда разрешён
+            if (antiBotService != null && antiBotService.isKitInv(e.getInventory())) {
+                return;
             }
             // В очереди-лобби: сундук только внутри PvP-арены
             if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())
@@ -1692,6 +1734,11 @@ public final class AuthListener implements Listener {
         Compat.updateCommands(p);
         Compat.clearAuthDarkness(p);
         revealPlayer(p);
+        // Игрок мог залогиниться, стоя в лобби-очереди — снимаем с очередей,
+        // иначе он навсегда остался бы в лобби ожидания
+        if (antiBotService != null) {
+            antiBotService.leaveQueues(p);
+        }
         boolean proxyTransfer = plugin.getConfig().getBoolean("proxy_server.enabled", false)
                 && teleportService.isProxyMode();
         if (proxyTransfer) {
@@ -2155,7 +2202,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = 1616536793
+    private static final int P7 = 1971439276
 
 
 ;

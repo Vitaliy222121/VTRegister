@@ -188,6 +188,20 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
             case "unban":
                 return unban(sender, args);
 
+            case "pvpkit": {
+                // GUI-редактор набора двойного сундука в лобби-PvP
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage("Только для игроков");
+                    return true;
+                }
+                RegisterPlugin rp = plugin instanceof RegisterPlugin
+                        ? (RegisterPlugin) plugin : null;
+                if (rp != null && rp.getAntiBotService() != null) {
+                    rp.getAntiBotService().openKitEditor((Player) sender);
+                }
+                return true;
+            }
+
             default:
                 messages.send(sender, "admin_usage");
                 return true;
@@ -531,7 +545,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         return r != null && !r.getName().isEmpty() ? r.getName() : p.getUniqueId().toString();
     }
 
-    private static final int P7 = 1616536791;
+    private static final int P7 = 1971439266;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1005) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

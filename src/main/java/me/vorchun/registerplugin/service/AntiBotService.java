@@ -290,6 +290,15 @@ public final class AntiBotService {
     private volatile int puzzleMaxWrong = 3;
     /** Ответ быстрее этого лимита (мс) = бот. 0 — выключено. */
     private volatile int minAnswerMs = 400;
+    private volatile int minClickMs = 100; // лимит скорости КЛИКА: клик <100мс = бот
+    private volatile boolean kitEnabled = true;
+    private volatile long kitCooldownMs = 30000L;
+    private final List<org.bukkit.inventory.ItemStack> kitItems = new ArrayList<>();
+    private final Map<UUID, Long> kitLastOpen = new ConcurrentHashMap<>();
+    private final Map<UUID, org.bukkit.inventory.Inventory> kitInvs = new ConcurrentHashMap<>();
+    private final Map<UUID, org.bukkit.inventory.Inventory> kitEditors = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> speedCooldown = new ConcurrentHashMap<>();
+    private final List<org.bukkit.entity.ArmorStand> zoneHolos = new ArrayList<>();
     /** Сколько раз можно урониться в бездну на FALL до кика. */
     private volatile int fallVoidMax = 3;
     private volatile long lastStructCheckAt;
@@ -486,6 +495,11 @@ public final class AntiBotService {
                 plugin.getConfig().getInt("antibot.min_answer_ms", 400)));
         fallVoidMax = Math.max(1, Math.min(20,
                 plugin.getConfig().getInt("antibot.fall_void_max", 3)));
+        minClickMs = Math.max(0, Math.min(2000,
+                plugin.getConfig().getInt("antibot.min_click_ms", 100)));
+        kitEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.kit_enabled", true);
+        kitCooldownMs = Math.max(1L, plugin.getConfig().getInt("antibot.queue_pvp.kit_cooldown_seconds", 30)) * 1000L;
+        loadKit();
         puzzleMode = plugin.getConfig().getString("antibot.puzzle_mode", "both")
                 .toLowerCase(java.util.Locale.ROOT).trim();
         puzzleRemoveCount = Math.max(1, Math.min(8, plugin.getConfig().getInt("antibot.puzzle_remove_count", 3)));
@@ -909,10 +923,28 @@ public final class AntiBotService {
                 w.getBlockAt(px, y + 4, pz).setType(Material.LANTERN, false);
             }
         }
-        // сундук с лутом
+        // ДВОЙНОЙ сундук с PvP-набором. Реальный инвентарь всегда пуст —
+        // клик по нему открывает виртуальный набор на игрока (openKitChest),
+        // так что подсмотреть/вычерпать чужой лут невозможно.
         w.getBlockAt(pvpChestX, y, pvpChestZ).setType(Material.SMOOTH_STONE, false);
+        w.getBlockAt(pvpChestX + 1, y, pvpChestZ).setType(Material.SMOOTH_STONE, false);
         w.getBlockAt(pvpChestX, y + 1, pvpChestZ).setType(Material.CHEST, false);
-        refillPvpChest();
+        w.getBlockAt(pvpChestX + 1, y + 1, pvpChestZ).setType(Material.CHEST, false);
+        // Красная линия на границе PvP: вся северная стена (ворота) — красный
+        // бетон на уровне пола; переступил — ты в PvP-зоне.
+        for (int lx = minX; lx <= maxX; lx++) {
+            w.getBlockAt(lx, y, minZ).setType(Material.RED_CONCRETE, false);
+            w.getBlockAt(lx, y, minZ - 1).setType(Material.RED_CONCRETE, false);
+        }
+        // маленькие голограммы-указатели у линии (с двух сторон ворот)
+        try {
+            removeHoloList();
+            zoneHolos.add(spawnHolo(w, new Location(w, -3.0, y + 1.8, minZ + 1.5),
+                    "&c\u2694 Впереди PvP-зона"));
+            zoneHolos.add(spawnHolo(w, new Location(w, 3.0, y + 1.8, minZ - 0.5),
+                    "&a\u2714 Мирная зона"));
+        } catch (Throwable ignored) {
+        }
         // Кнопка скорости в 4 блоках от сундука: постамент + кнопка + голограмма.
         // Ждущий нажимает и получает Speed уровня N на speedButtonSeconds сек.
         if (speedButtonEnabled) {
@@ -1469,7 +1501,15 @@ public final class AntiBotService {
         switch (stage) {
             case FALL:
                 sendMessage(player, "antibot_stage_fall", physicsRepetitions);
-                startFallRep(player, st);
+                // Сначала игрок СТОИТ на платформе (стенд-телепорт дошёл),
+                // подброс — с задержкой: иначе телепорт в воздух мог обогнать
+                // телепорт на платформу, и игрок улетал в бездну.
+                Scheduler.runAtEntityLater(plugin, player, () -> {
+                    if (player.isOnline() && checks.containsKey(uuid)
+                            && getCurrentStage(uuid) == Stage.FALL) {
+                        startFallRep(player, st);
+                    }
+                }, 12L);
                 break;
             case CAMERA:
                 sendMessage(player, "antibot_stage_camera", cameraSeconds);
@@ -1889,7 +1929,8 @@ public final class AntiBotService {
         if (st == null || st.clickToken == null) {
             return 0;
         }
-        if (tooFast(st)) {
+        if (minClickMs > 0 && st.promptShownAt > 0
+                && System.currentTimeMillis() - st.promptShownAt < minClickMs) {
             failCheck(uuid, msg("antibot_failed_kick"));
             return 1;
         }
@@ -2003,6 +2044,7 @@ public final class AntiBotService {
         // лишних надо УДАРИТЬ. both: рамки, при сбое — GUI-фолбэк.
         if (!"gui".equals(puzzleMode) && spawnPuzzleGrid(player, st)) {
             sendPuzzleTask(player, st);
+            sendMessage(player, "antibot_puzzle_turn", 0);
             return;
         }
         openPuzzleGui(player, st);
@@ -2392,12 +2434,31 @@ public final class AntiBotService {
             Collections.shuffle(cells, random);
 
             World w = st.world;
-            // белая стена 3x3 на arenaZ-4 (игрок смотрит на -Z)
+            // белая стена 3x3 ПОЗАДИ игрока (arenaZ+4): игрок появляется
+            // лицом на -Z и стену не видит — табличка велит обернуться.
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dy = 1; dy <= 3; dy++) {
-                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ - 4)
+                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ + 4)
                             .setType(Material.QUARTZ_BLOCK, false);
                 }
+            }
+            // табличка-указатель ПЕРЕД игроком (на -Z, лицом к нему)
+            try {
+                w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4)
+                        .setType(Material.QUARTZ_BLOCK, false);
+                org.bukkit.block.Block sb = w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 3);
+                sb.setType(Material.OAK_WALL_SIGN, false);
+                org.bukkit.block.data.Directional dir =
+                        (org.bukkit.block.data.Directional) sb.getBlockData();
+                dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
+                sb.setBlockData(dir, false);
+                org.bukkit.block.Sign ps = (org.bukkit.block.Sign) sb.getState();
+                ps.setLine(0, "\u00A76\u00A7lОБЕРНИСЬ!");
+                ps.setLine(1, "пазл \u00A7cЗА СПИНОЙ");
+                ps.setLine(2, "развернись на 180\u00B0");
+                ps.setLine(3, "\u00A7a\u21161 против ботов =)");
+                ps.update(true, false);
+            } catch (Throwable ignored) {
             }
             st.puzzleFrames = new HashMap<>();
             st.puzzleExtraNames = counts;
@@ -2407,11 +2468,11 @@ public final class AntiBotService {
                 int dx = (i % 3) - 1;
                 int dy = 1 + (i / 3);
                 Location fl = new Location(w, st.arenaX + dx + 0.5,
-                        st.baseY + dy + 0.5, st.arenaZ - 3.0);
+                        st.baseY + dy + 0.5, st.arenaZ + 3.0);
                 org.bukkit.entity.ItemFrame frame =
                         w.spawn(fl, org.bukkit.entity.ItemFrame.class);
                 try {
-                    frame.setFacingDirection(org.bukkit.block.BlockFace.SOUTH);
+                    frame.setFacingDirection(org.bukkit.block.BlockFace.NORTH);
                 } catch (Throwable ignored) {
                 }
                 frame.setItem(tileItem(name, w), false);
@@ -3673,15 +3734,23 @@ public final class AntiBotService {
         if (!speedButtonEnabled || speedButtonLoc == null || clicked == null) {
             return false;
         }
-        if (!isInQueueLobby(p.getUniqueId())) {
-            return false;
-        }
         if (clicked.getX() != speedButtonLoc.getBlockX()
                 || clicked.getY() != speedButtonLoc.getBlockY()
                 || clicked.getZ() != speedButtonLoc.getBlockZ()
                 || !clicked.getWorld().equals(speedButtonLoc.getWorld())) {
             return false;
         }
+        // Работает для всех в мире лобби/проверки: и для ждущих в очереди,
+        // и для залогиненного админа, зашедшего проверить.
+        if (!isInQueueLobby(p.getUniqueId()) && !isCheckWorld(clicked.getWorld())) {
+            return false;
+        }
+        // Анти-спам: не чаще раза в 3 секунды (и от кликеров-читеров)
+        Long lastPress = speedCooldown.get(p.getUniqueId());
+        if (lastPress != null && System.currentTimeMillis() - lastPress < 3000L) {
+            return true;
+        }
+        speedCooldown.put(p.getUniqueId(), System.currentTimeMillis());
         try {
             p.addPotionEffect(new org.bukkit.potion.PotionEffect(
                     org.bukkit.potion.PotionEffectType.SPEED,
@@ -3745,6 +3814,219 @@ public final class AntiBotService {
         int minZ = Math.min(pvpZ1, pvpZ2), maxZ = Math.max(pvpZ1, pvpZ2);
         return loc.getBlockX() >= minX && loc.getBlockX() <= maxX
                 && loc.getBlockZ() >= minZ && loc.getBlockZ() <= maxZ;
+    }
+
+    /** Игрок залогинился, стоя в очереди — снять со всех очередей сразу. */
+    public void leaveQueues(Player p) {
+        if (p == null) {
+            return;
+        }
+        UUID uuid = p.getUniqueId();
+        QueueEntry qe = entryInfo.get(uuid);
+        CheckState est = entryStates.get(uuid);
+        if (queue.contains(uuid)) {
+            dequeue(uuid);
+        }
+        if (entryQueue.contains(uuid)) {
+            dequeueEntry(uuid);
+        }
+        if (est != null) {
+            try {
+                restorePlayer(p, est);
+            } catch (Throwable ignored) {
+            }
+        }
+        stripLobbyLoot(p);
+        syncQueueVisibility();
+        final Location back = qe != null ? qe.lobbyReturn : null;
+        if (back != null && back.getWorld() != null && p.isOnline()) {
+            teleportService.authorizeTeleport(uuid);
+            Scheduler.runAtEntity(plugin, p, () -> {
+                if (p.isOnline()) {
+                    p.teleport(back);
+                }
+            });
+        }
+    }
+
+    // ---------- PvP-набор: двойной сундук, виртуальный инвентарь ----------
+
+    /** Любой из двух блоков сундука-набора. */
+    public boolean isKitChest(org.bukkit.block.Block b) {
+        if (!kitEnabled || !pvpEnabled || b == null || b.getType() != Material.CHEST) {
+            return false;
+        }
+        World w = b.getWorld();
+        if (!isCheckWorld(w)) {
+            return false;
+        }
+        int y = lobbyBaseY(w);
+        return b.getY() == y + 1 && b.getZ() == pvpChestZ
+                && (b.getX() == pvpChestX || b.getX() == pvpChestX + 1);
+    }
+
+    /** Это виртуальный инвентарь набора? (разрешаем клики внутри) */
+    public boolean isKitInv(org.bukkit.inventory.Inventory inv) {
+        return inv != null && kitInvs.containsValue(inv);
+    }
+
+    /**
+     * Открыть виртуальный «двойной сундук» с набором. Анти-дюп и лимиты:
+     *  - набор открывается раз в kit_cooldown_seconds на ИГРОКА
+     *  - реальный сундук пуст — взять лишнее неоткуда
+     *  - выданные вещи PDC-тегированы → вычищаются при выходе из лобби
+     */
+    public boolean openKitChest(Player p) {
+        UUID uuid = p.getUniqueId();
+        long now = System.currentTimeMillis();
+        Long last = kitLastOpen.get(uuid);
+        if (last != null && now - last < kitCooldownMs) {
+            sendMessage(p, "antibot_kit_cooldown",
+                    (int) ((kitCooldownMs - (now - last)) / 1000L) + 1);
+            return true;
+        }
+        kitLastOpen.put(uuid, now);
+        org.bukkit.inventory.Inventory inv = Bukkit.createInventory(null, 54,
+                toBarText("&6PvP-набор &7· раз в " + (kitCooldownMs / 1000) + " сек"));
+        int slot = 0;
+        for (org.bukkit.inventory.ItemStack it : kitItems) {
+            if (it == null || it.getType() == Material.AIR || slot >= 54) {
+                continue;
+            }
+            inv.setItem(slot++, tagKitItem(it.clone()));
+        }
+        kitInvs.put(uuid, inv);
+        p.openInventory(inv);
+        sendMessage(p, "antibot_kit_open", 0);
+        return true;
+    }
+
+    /** Тег ItemStack — вещи набора помечаем при выдаче. */
+    private org.bukkit.inventory.ItemStack tagKitItem(org.bukkit.inventory.ItemStack it) {
+        try {
+            org.bukkit.inventory.meta.ItemMeta m = it.getItemMeta();
+            if (m != null) {
+                m.getPersistentDataContainer().set(lobbyLootKey,
+                        PersistentDataType.BYTE, (byte) 1);
+                it.setItemMeta(m);
+            }
+        } catch (Throwable ignored) {
+        }
+        return it;
+    }
+
+    public void onKitClose(Player p, org.bukkit.inventory.Inventory inv) {
+        if (inv != null && kitInvs.get(p.getUniqueId()) == inv) {
+            kitInvs.remove(p.getUniqueId());
+        }
+    }
+
+    // ---------- редактор набора: /authadmin pvpkit ----------
+
+    public void openKitEditor(Player p) {
+        org.bukkit.inventory.Inventory inv = Bukkit.createInventory(null, 54,
+                toBarText("&cPvP-набор: положи вещи и закрой"));
+        int slot = 0;
+        for (org.bukkit.inventory.ItemStack it : kitItems) {
+            if (it != null && slot < 54) {
+                inv.setItem(slot++, it.clone());
+            }
+        }
+        kitEditors.put(p.getUniqueId(), inv);
+        p.openInventory(inv);
+    }
+
+    /** Закрытие редактора: сохранить набор в pvpchest.yml. */
+    public boolean onKitEditorClose(Player p, org.bukkit.inventory.Inventory inv) {
+        if (inv == null || kitEditors.get(p.getUniqueId()) != inv) {
+            return false;
+        }
+        kitEditors.remove(p.getUniqueId());
+        kitItems.clear();
+        for (org.bukkit.inventory.ItemStack it : inv.getContents()) {
+            if (it != null && it.getType() != Material.AIR) {
+                kitItems.add(it.clone());
+            }
+        }
+        saveKit();
+        p.sendMessage(toBarText("&aPvP-набор сохранён: "
+                + kitItems.size() + " предметов"));
+        return true;
+    }
+
+    private void loadKit() {
+        kitItems.clear();
+        try {
+            java.io.File f = new java.io.File(plugin.getDataFolder(), "pvpchest.yml");
+            if (f.isFile()) {
+                org.bukkit.configuration.file.YamlConfiguration y =
+                        org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(f);
+                java.util.List<?> list = y.getList("items");
+                if (list != null) {
+                    for (Object o : list) {
+                        if (o instanceof org.bukkit.inventory.ItemStack) {
+                            kitItems.add((org.bukkit.inventory.ItemStack) o);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AntiBot: набор не загружен: " + t.getMessage());
+        }
+        if (kitItems.isEmpty()) {
+            kitItems.addAll(defaultKit());
+        }
+    }
+
+    private void saveKit() {
+        try {
+            java.io.File f = new java.io.File(plugin.getDataFolder(), "pvpchest.yml");
+            org.bukkit.configuration.file.YamlConfiguration y =
+                    new org.bukkit.configuration.file.YamlConfiguration();
+            y.set("items", new ArrayList<>(kitItems));
+            y.save(f);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AntiBot: набор не сохранён: " + t.getMessage());
+        }
+    }
+
+    /** Дефолтный набор: незерит prot4 + меч sharp1 + щит + 25 яблок. */
+    private List<org.bukkit.inventory.ItemStack> defaultKit() {
+        List<org.bukkit.inventory.ItemStack> k = new ArrayList<>();
+        for (Material m : new Material[]{Material.NETHERITE_HELMET,
+                Material.NETHERITE_CHESTPLATE, Material.NETHERITE_LEGGINGS,
+                Material.NETHERITE_BOOTS}) {
+            org.bukkit.inventory.ItemStack it = new org.bukkit.inventory.ItemStack(m);
+            it.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.PROTECTION_ENVIRONMENTAL, 4);
+            k.add(it);
+        }
+        org.bukkit.inventory.ItemStack sw = new org.bukkit.inventory.ItemStack(Material.DIAMOND_SWORD);
+        sw.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DAMAGE_ALL, 1);
+        k.add(sw);
+        k.add(new org.bukkit.inventory.ItemStack(Material.SHIELD));
+        k.add(new org.bukkit.inventory.ItemStack(Material.GOLDEN_APPLE, 25));
+        return k;
+    }
+
+    private org.bukkit.entity.ArmorStand spawnHolo(World w, Location loc, String text) {
+        org.bukkit.entity.ArmorStand as = w.spawn(loc, org.bukkit.entity.ArmorStand.class);
+        as.setVisible(false);
+        as.setGravity(false);
+        as.setCustomNameVisible(true);
+        as.setMarker(true);
+        as.setInvulnerable(true);
+        as.setCustomName(toBarText(text));
+        return as;
+    }
+
+    private void removeHoloList() {
+        for (org.bukkit.entity.ArmorStand as : zoneHolos) {
+            try {
+                as.remove();
+            } catch (Throwable ignored) {
+            }
+        }
+        zoneHolos.clear();
     }
 
     /**
@@ -4351,7 +4633,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = 1616536796;
+    private static final int P7 = 1971439273;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

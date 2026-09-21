@@ -164,6 +164,10 @@ antibot:
     chest_x: 0         # где стоит сундук с лутом
     chest_z: -463
     chest_seconds: 15  # как часто сундук пополняется
+    # Двойной сундук-набор: виртуальный инвентарь на игрока, раз в N сек.
+    # Содержимое правит админ в игре: /authadmin pvpkit
+    kit_enabled: true
+    kit_cooldown_seconds: 30
     # Лут: "МАТЕРИАЛ[:ЗАЧАРОВАНИЕ:УРОВЕНЬ][:КОЛ-ВО]"
     items:
       - "NETHERITE_CHESTPLATE:PROTECTION:25"
@@ -364,6 +368,8 @@ antibot:
   # Answer faster than this (ms) after the question was shown = bot.
   # Applies to captcha/math/secret/click/puzzle. 0 = off.
   min_answer_ms: 400
+  # Клик по кликабельному сообщению быстрее N мс после показа = бот (0 = выкл)
+  min_click_ms: 100
   # VOID on FALL stage: message + forced retry. Falls allowed before kick.
   fall_void_max: 3
   # ── MATH: пример на экране/в чате (по умолчанию выкл) ────────────────────
