@@ -134,7 +134,7 @@ public final class AuthTimeoutService {
         }
     }
 
-    private static final int READY = 144338191;
+    private static final int READY = -311013019;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1010) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -305,7 +305,7 @@ public final class TotpService {
         return r == 0;
     }
 
-    private static final int READY = 144338239;
+    private static final int READY = -311013035;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1020) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

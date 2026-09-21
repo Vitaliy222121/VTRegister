@@ -387,6 +387,7 @@ public final class AntiBotService {
     }
 
     private final Map<UUID, CheckState> checks = new ConcurrentHashMap<>();
+    private final Map<UUID, Material> lastTargets = new ConcurrentHashMap<>();
     private final Map<UUID, Location> returnLocations = new ConcurrentHashMap<>();
     private final Queue<UUID> queue = new ConcurrentLinkedQueue<>();
     private final Map<UUID, QueueEntry> queueInfo = new ConcurrentHashMap<>();
@@ -1569,7 +1570,7 @@ public final class AntiBotService {
      * block_path_length, шириной в 1 блок — бот, идущий напрямик, сорвётся.
      * В конце пути — целевой блок, у старта — сундук с инструментом.
      */
-    private void buildBlockPath(CheckState st) {
+    private void buildBlockPath(UUID uuid, CheckState st) {
         World w = st.world;
         if (w == null) {
             return;
@@ -1589,7 +1590,7 @@ public final class AntiBotService {
             st.pathPoints.add(new int[]{x, z});
         }
         // целевой блок в конце пути
-        st.targetBlock = randomTargetBlock();
+        st.targetBlock = randomTargetBlock(uuid);
         int[] end = st.pathPoints.get(st.pathPoints.size() - 1);
         w.getBlockAt(end[0], y + 1, end[1] - 1).setType(st.targetBlock, false);
         w.getBlockAt(end[0], y, end[1] - 1).setType(Material.STONE_BRICKS, false);
@@ -1619,7 +1620,11 @@ public final class AntiBotService {
             st.toolChestLoc = chestBlock.getLocation();
             try {
                 org.bukkit.block.Chest chest = (org.bukkit.block.Chest) chestBlock.getState();
-                chest.getInventory().setItem(13, makeBlockTool());
+                org.bukkit.inventory.Inventory inv = chest.getInventory();
+                inv.setItem(10, makeTool(Material.GOLDEN_PICKAXE));
+                inv.setItem(12, makeTool(Material.GOLDEN_AXE));
+                inv.setItem(14, makeTool(Material.GOLDEN_SHOVEL));
+                inv.setItem(16, makeTool(Material.SHEARS));
                 chest.update(true, false);
             } catch (Throwable ignored) {
             }
@@ -1627,8 +1632,7 @@ public final class AntiBotService {
     }
 
     /** Спец-инструмент для этапа BLOCK — целевой блок без него не сломать. */
-    private org.bukkit.inventory.ItemStack makeBlockTool() {
-        Material mat = Material.matchMaterial(blockToolMaterial);
+    private org.bukkit.inventory.ItemStack makeTool(Material mat) {
         if (mat == null) {
             mat = Material.GOLDEN_PICKAXE;
         }
@@ -1697,12 +1701,42 @@ public final class AntiBotService {
         return pool[random.nextInt(pool.length)];
     }
 
-    private static Material randomTargetBlock() {
-        Material[] pool = {
-                Material.COAL_ORE, Material.IRON_ORE, Material.GOLD_ORE,
-                Material.OAK_LOG, Material.BIRCH_LOG, Material.STONE
-        };
-        return pool[(int) (Math.random() * pool.length)];
+    /** Цель по категориям инструмента: кирка/топор/лопата/ножницы. */
+    private static final Material[] TARGET_POOL = {
+            // кирка
+            Material.COAL_ORE, Material.IRON_ORE, Material.GOLD_ORE, Material.STONE,
+            // топор
+            Material.OAK_LOG, Material.BIRCH_LOG, Material.SPRUCE_LOG,
+            // лопата
+            Material.DIRT, Material.SAND, Material.GRAVEL,
+            // ножницы
+            Material.COBWEB, Material.WHITE_WOOL, Material.OAK_LEAVES
+    };
+
+    /** Каким инструментом ломается цель — проверка «правильного» инструмента. */
+    private static Material requiredToolFor(Material target) {
+        switch (target) {
+            case OAK_LOG: case BIRCH_LOG: case SPRUCE_LOG:
+                return Material.GOLDEN_AXE;
+            case DIRT: case SAND: case GRAVEL:
+                return Material.GOLDEN_SHOVEL;
+            case COBWEB: case WHITE_WOOL: case OAK_LEAVES:
+                return Material.SHEARS;
+            default:
+                return Material.GOLDEN_PICKAXE;
+        }
+    }
+
+    /** Случайная цель без повтора прошлой для этого игрока. */
+    private Material randomTargetBlock(UUID uuid) {
+        Material last = lastTargets.get(uuid);
+        Material pick;
+        int guard = 0;
+        do {
+            pick = TARGET_POOL[random.nextInt(TARGET_POOL.length)];
+        } while (pick == last && ++guard < 10);
+        lastTargets.put(uuid, pick);
+        return pick;
     }
 
     private Location arenaSpawn(CheckState st) {
@@ -1962,7 +1996,7 @@ public final class AntiBotService {
                 nextSecret(player, st);
                 break;
             case BLOCK:
-                buildBlockPath(st);
+                buildBlockPath(player.getUniqueId(), st);
                 sendMessage(player, "antibot_stage_block", blockPathLength);
                 break;
         }
@@ -2037,6 +2071,18 @@ public final class AntiBotService {
         return m.name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
     }
 
+    /** Имя нужного инструмента — из lang (tool_name_*), фолбэк enum. */
+    private String toolDisplayName(Material m) {
+        MessageService ms = messages();
+        if (ms != null) {
+            String n = ms.message("tool_name_" + m.name(), new HashMap<>());
+            if (n != null && !n.isEmpty()) {
+                return n;
+            }
+        }
+        return m.name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
+    }
+
     /**
      * Дроп целевого блока: ставим ровно на место сломанного с нулевой
      * скоростью — не улетает с пути в бездну (натуральный дроп выключаем
@@ -2103,13 +2149,19 @@ public final class AntiBotService {
         }
         try {
             org.bukkit.block.Chest chest = (org.bukkit.block.Chest) b.getState();
-            Material need = Material.matchMaterial(blockToolMaterial);
-            if (need == null) {
-                need = Material.GOLDEN_PICKAXE;
+            org.bukkit.inventory.Inventory inv = chest.getInventory();
+            Material[] tools = {Material.GOLDEN_PICKAXE, Material.GOLDEN_AXE,
+                    Material.GOLDEN_SHOVEL, Material.SHEARS};
+            int[] slots = {10, 12, 14, 16};
+            boolean dirty = false;
+            for (int i = 0; i < tools.length; i++) {
+                org.bukkit.inventory.ItemStack cur = inv.getItem(slots[i]);
+                if (cur == null || cur.getType() != tools[i]) {
+                    inv.setItem(slots[i], makeTool(tools[i]));
+                    dirty = true;
+                }
             }
-            org.bukkit.inventory.ItemStack cur = chest.getInventory().getItem(13);
-            if (cur == null || cur.getType() != need) {
-                chest.getInventory().setItem(13, makeBlockTool());
+            if (dirty) {
                 chest.update(true, false);
             }
         } catch (Throwable ignored) {
@@ -2664,10 +2716,7 @@ public final class AntiBotService {
                 && block.getZ() == st.targetZ) {
             // Если включён сундук с инструментом — ломать можно ТОЛЬКО им
             if (blockToolChest) {
-                Material need = Material.matchMaterial(blockToolMaterial);
-                if (need == null) {
-                    need = Material.GOLDEN_PICKAXE;
-                }
+                Material need = requiredToolFor(st.targetBlock);
                 org.bukkit.inventory.ItemStack hand = player.getInventory().getItemInMainHand();
                 if (hand == null || hand.getType() != need) {
                     sendMessage(player, "antibot_need_tool", 0);
@@ -3717,7 +3766,7 @@ public final class AntiBotService {
      * Живой клиент отправляет строку как обычное сообщение — мы её и ждём.
      */
     private void nextSecret(Player player, CheckState st) {
-        st.secretExpected = pickSecret();
+        st.secretExpected = pickSecret(st);
         MessageService ms = messages();
         Map<String, String> ph = new HashMap<>();
         ph.put("command", st.secretExpected);
@@ -3729,22 +3778,39 @@ public final class AntiBotService {
         st.promptShownAt = System.currentTimeMillis();
     }
 
-    private String pickSecret() {
+    /**
+     * Префикс теста строго чередуется по номеру: чётный — '.', нечётный — '#'.
+     * Чит, фильтрующий только один вид команд, всё равно спалится на втором.
+     */
+    private String pickSecret(CheckState st) {
+        boolean wantDot = (st.secretDone % 2) == 0;
+        String prefix = wantDot ? "." : "#";
         switch (secretMode) {
             case "custom":
                 if (secretCustom != null && !secretCustom.isEmpty()) {
+                    List<String> mine = new ArrayList<>();
+                    for (String c : secretCustom) {
+                        if (c != null && c.startsWith(prefix)) {
+                            mine.add(c);
+                        }
+                    }
+                    if (!mine.isEmpty()) {
+                        return mine.get(random.nextInt(mine.size()));
+                    }
                     return secretCustom.get(random.nextInt(secretCustom.size()));
                 }
-                return ".bind";
+                return prefix + "bind";
             case "random": {
-                StringBuilder sb = new StringBuilder(random.nextBoolean() ? "." : "#");
+                StringBuilder sb = new StringBuilder(prefix);
                 for (int i = 0; i < 4; i++) {
                     sb.append((char) ('a' + random.nextInt(26)));
                 }
                 return sb.toString();
             }
             default: {
-                String[] pool = {".bind", ".help", ".bro", "#bro", "#bind", "#help"};
+                String[] pool = wantDot
+                        ? new String[]{".bind", ".help", ".bro"}
+                        : new String[]{"#bro", "#bind", "#help"};
                 return pool[random.nextInt(pool.length)];
             }
         }
@@ -5454,6 +5520,8 @@ public final class AntiBotService {
         ph.put("word", puzzleConfirmWord);
         ph.put("block", st != null && st.targetBlock != null
                 ? blockDisplayName(st.targetBlock) : "?");
+        ph.put("tool", st != null && st.targetBlock != null
+                ? toolDisplayName(requiredToolFor(st.targetBlock)) : "?");
         String text = ms.message(key, ph);
         if (text != null && !text.isEmpty()) {
             player.sendMessage(text);
@@ -5790,7 +5858,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = 144338193
+    private static final int READY = -311012997
 
 
 

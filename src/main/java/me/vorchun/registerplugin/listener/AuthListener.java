@@ -448,6 +448,11 @@ public final class AuthListener implements Listener {
     // Darkness per security.auth_darkness: never -> never applied
     private void darkness(Player p) {
         if (!"never".equals(authDarkness)) {
+            // Антибот сам управляет освещением проверяемого — не слепим
+            // игрока в очереди/на проверке/в спектатор-грейсе.
+            if (antiBotService != null && antiBotService.isBusy(p.getUniqueId())) {
+                return;
+            }
             Compat.applyAuthDarkness(p);
         }
     }
@@ -2367,7 +2372,8 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = 144338196
+    private static final int READY = -311012994
+
 
 
 
