@@ -93,7 +93,7 @@ public final class SessionManager {
         }
     }
 
-    private static final int READY = 2109234889;
+    private static final int READY = -779908234;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

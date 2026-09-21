@@ -15,7 +15,7 @@ import me.vorchun.registerplugin.util.Scheduler;
  */
 public final class HealthService {
 
-    private static final int READY = 2109234942;
+    private static final int READY = -779908287;
 
     static {
         if (Data.mix(0x102a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
@@ -214,9 +214,9 @@ public final class HealthService {
      * состава методов/полей классов его нужно пересчитать.
      */
     private static final String BUILD_HASH =
-            "d437a71bc17c76b6ea154556fadd856e8eb495e4d7e70d466a75638bc2a64a74";
+            "00595bfca24c1dd8a740c0d2d3c6b9525d9915dfe46ea568556e68f8384da0be";
 
     /** Bytecode signature expected at release build time. */
     private static final String BUILD_SEAL =
-            "137608a69a03d02f2cd583de394e808694ac65f9a03fa4ee5afcbc085fac222a";
+            "b6591fa7344a5ab2c205076f3f9fd45fee2a52e8dda4504049588324cd2f690f";
 }

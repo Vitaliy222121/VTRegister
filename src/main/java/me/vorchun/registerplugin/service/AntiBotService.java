@@ -4655,7 +4655,7 @@ public final class AntiBotService {
 
     /** Зона PvP в очереди-лобби (координаты из конфига). */
     public boolean isPvpArea(Location loc) {
-        if (!pvpEnabled || loc == null) {
+        if (!pvpEnabled || loc == null || !isCheckWorld(loc.getWorld())) {
             return false;
         }
         int minX = Math.min(pvpX1, pvpX2), maxX = Math.max(pvpX1, pvpX2);
@@ -5673,7 +5673,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = 2109234906;
+    private static final int READY = -779908251;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100e) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

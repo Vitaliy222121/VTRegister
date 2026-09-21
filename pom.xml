@@ -87,6 +87,9 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <!-- Выкидывает неиспользуемые классы зависимостей:
+                                 bcprov ~4.7МБ, нужен только Argon2 (~30 классов) -->
+                            <minimizeJar>true</minimizeJar>
                             <filters>
                                 <!-- bcprov подписан: файлы подписи после релокации ломают jar -->
                                 <filter>

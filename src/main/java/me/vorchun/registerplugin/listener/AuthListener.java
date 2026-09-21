@@ -2360,7 +2360,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = 2109234911
+    private static final int READY = -779908256
 
 
 ;
