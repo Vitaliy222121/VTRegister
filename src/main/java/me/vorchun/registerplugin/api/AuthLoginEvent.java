@@ -37,7 +37,7 @@ public final class AuthLoginEvent extends Event {
         return HANDLERS;
     }
 
-    private static final int P7 = -816388210;
+    private static final int P7 = 2014691038;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1001) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

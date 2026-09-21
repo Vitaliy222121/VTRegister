@@ -36,6 +36,12 @@
             <artifactId>jbcrypt</artifactId>
             <version>0.4</version>
         </dependency>
+        <!-- BouncyCastle — Argon2id для хеширования паролей (шейдится в libs.bouncycastle) -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk15on</artifactId>
+            <version>1.63</version>
+        </dependency>
         <!-- PlaceholderAPI — опциональная интеграция (softdepend) -->
         <dependency>
             <groupId>me.clip</groupId>
@@ -81,10 +87,26 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <!-- bcprov подписан: файлы подписи после релокации ломают jar -->
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.EC</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                             <relocations>
                                 <relocation>
                                     <pattern>org.mindrot.jbcrypt</pattern>
                                     <shadedPattern>me.vorchun.registerplugin.libs.bcrypt</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.bouncycastle</pattern>
+                                    <shadedPattern>me.vorchun.registerplugin.libs.bouncycastle</shadedPattern>
                                 </relocation>
                             </relocations>
                         </configuration>

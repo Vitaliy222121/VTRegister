@@ -62,6 +62,8 @@ public final class ImportService {
             importAuthMe(new File(plugins, "AuthMe/authme.db"), overwrite, report);
             importLoginSecurity(new File(plugins, "LoginSecurity/LoginSecurity.db"), overwrite, report);
             importLoginSecurity(new File(plugins, "LoginSecurity/users.db"), overwrite, report);
+            importLimboAuth(new File(plugins, "LimboAuth/limboauth.db"), overwrite, report);
+            importLimboAuth(new File(plugins, "LimboAuth/auth.db"), overwrite, report);
             importLegacyYaml(new File(plugin.getDataFolder(), "accounts.yml"), overwrite, report);
             importLegacyYaml(new File(AccountStore.dataFolder(plugin), "accounts.yml"), overwrite, report);
             importGeneric(new File(plugin.getDataFolder(), "import.yml"), overwrite, report);
@@ -130,6 +132,33 @@ public final class ImportService {
             }
         } catch (Throwable t) {
             plugin.getLogger().warning("Импорт LoginSecurity: " + t.getMessage());
+        }
+    }
+
+    // ---------- LimboAuth ----------
+    // LimboAuth по умолчанию хранит базу в H2 — её читать JDBC-SQLite нельзя;
+    // но при database-type: SQLITE таблица AUTH читается напрямую.
+    // Схема: NICKNAME, HASH (BCrypt $2a$), IP, LOGINDATE (+ TOTPTOKEN, UUID...).
+    private void importLimboAuth(File db, boolean overwrite, Report report) {
+        if (!db.exists()) {
+            return;
+        }
+        report.sources.add("LimboAuth");
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db.getAbsolutePath());
+             Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery("SELECT NICKNAME, HASH, IP, LOGINDATE FROM AUTH")) {
+            while (rs.next()) {
+                String name = rs.getString("NICKNAME");
+                String hash = rs.getString("HASH");
+                if (name == null || hash == null || hash.isEmpty()) {
+                    report.failed++;
+                    continue;
+                }
+                save(name, hash, safe(rs.getString("IP")), rs.getLong("LOGINDATE"), overwrite, report);
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Импорт LimboAuth (" + db.getName() + "): " + t.getMessage()
+                    + " — если база в формате H2, конвертируй её в SQLite или используй import.yml");
         }
     }
 
@@ -253,7 +282,19 @@ public final class ImportService {
         return s == null ? "" : s;
     }
 
-    private static final int P7 = -816388198;
+    private static final int P7 = 2014691018
+
+
+
+
+
+
+
+
+
+
+
+;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1015) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

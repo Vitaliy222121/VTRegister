@@ -52,7 +52,7 @@ public final class IpUtil {
         return ip;
     }
 
-    private static final int P7 = -816388184;
+    private static final int P7 = 2014691064;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1027) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

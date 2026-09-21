@@ -40,8 +40,12 @@ public final class StandaloneTest {
         System.out.println("--- PasswordHasher ---");
 
         String hash = PasswordHasher.hash("TestPassword123");
-        check("hash format 4 parts", hash.split("\\$").length == 4);
-        check("hash algo pbkdf2_sha512", hash.startsWith("pbkdf2_sha512$"));
+        // Основной алгоритм — Argon2id ($argon2id$v=19$m=..,t=..,p=..$salt$hash),
+        // при недоступности BouncyCastle — откат на pbkdf2_* (4 части)
+        boolean argon = hash.startsWith("$argon2id$");
+        check("hash format argon2id/pbkdf2",
+                argon ? hash.split("\\$").length == 6 : hash.split("\\$").length == 4);
+        check("hash algo argon2id", argon || hash.startsWith("pbkdf2_sha512$"));
 
         check("verify correct", PasswordHasher.verify("TestPassword123", hash));
         check("verify wrong", !PasswordHasher.verify("WrongPassword", hash));

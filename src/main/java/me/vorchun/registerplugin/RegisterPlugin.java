@@ -69,6 +69,7 @@ public final class RegisterPlugin extends JavaPlugin {
     private BedrockSupportService bedrockSupportService;
     private AntiBotService antiBotService;
     private AntiBotGuard antiBotGuard;
+    private me.vorchun.registerplugin.service.AfkService afkService;
     private EasyPasswordList easyPasswordList;
     private SelfDefenseService selfDefenseService;
     private AuthService authService;
@@ -193,6 +194,12 @@ public final class RegisterPlugin extends JavaPlugin {
 
         this.antiBotGuard = new AntiBotGuard(this, accountStore);
         getServer().getPluginManager().registerEvents(antiBotGuard, this);
+
+        // AFK-защита + детект макросов + BossBar #2/#3 для неавторизованных
+        this.afkService = new me.vorchun.registerplugin.service.AfkService(
+                this, sessionManager, antiBotService, bedrockSupportService, messageService);
+        this.afkService.setGuard(antiBotGuard);
+        this.authListener.setAfkService(afkService);
 
         this.selfDefenseService = new SelfDefenseService(this, this::restoreIntegrity);
         getServer().getPluginManager().registerEvents(selfDefenseService, this);
@@ -377,6 +384,7 @@ public final class RegisterPlugin extends JavaPlugin {
         if (spawnService != null) spawnService.reload();
         if (commandLogGuard != null) commandLogGuard.reload();
         if (integrityGuard != null) integrityGuard.reload();
+        if (afkService != null) afkService.reload();
     }
 
     /**
@@ -478,6 +486,10 @@ public final class RegisterPlugin extends JavaPlugin {
 
     public AntiBotService getAntiBotService() {
         return antiBotService;
+    }
+
+    public me.vorchun.registerplugin.service.AfkService getAfkService() {
+        return afkService;
     }
 
     public AntiBotGuard getAntiBotGuard() {
@@ -614,13 +626,18 @@ public final class RegisterPlugin extends JavaPlugin {
         if (authService != null) {
             authService.shutdown();
         }
+        if (afkService != null) {
+            afkService.shutdown();
+        }
         if (accountStore != null) {
             accountStore.shutdown();
         }
         instance = null;
     }
 
-    private static final int P7 = -816388209
+    private static final int P7 = 2014691039
+
+
 
 
 

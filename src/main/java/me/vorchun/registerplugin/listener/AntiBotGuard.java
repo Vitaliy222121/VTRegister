@@ -45,6 +45,7 @@ public final class AntiBotGuard implements Listener {
     private final Map<String, Deque<Long>> joinsByIp = new ConcurrentHashMap<>();
     private final Map<String, Integer> onlineByIp = new ConcurrentHashMap<>();
     private final Map<String, Long> bannedUntil = new ConcurrentHashMap<>();
+    private final Map<String, String> banMessages = new ConcurrentHashMap<>();
     private final Map<String, Long> recentQuit = new ConcurrentHashMap<>();
     private final Deque<Long> globalJoins = new ArrayDeque<>();
 
@@ -116,7 +117,13 @@ public final class AntiBotGuard implements Listener {
                 return d.isEmpty();
             }
         });
-        bannedUntil.entrySet().removeIf(e -> now > e.getValue());
+        bannedUntil.entrySet().removeIf(e -> {
+            if (now > e.getValue()) {
+                banMessages.remove(e.getKey());
+                return true;
+            }
+            return false;
+        });
         recentQuit.entrySet().removeIf(e -> now - e.getValue() > Math.max(windowMs, 60_000L));
         synchronized (globalJoins) {
             while (!globalJoins.isEmpty() && now - globalJoins.peekFirst() > windowMs) {
@@ -170,6 +177,20 @@ public final class AntiBotGuard implements Listener {
         }
     }
 
+    /**
+     * Временный бан IP извне (AFK/бот-детект): ip — hostAddress,
+     * durationMs — длительность, message — текст кика при входе.
+     */
+    public void banIp(String ip, long durationMs, String message) {
+        if (ip == null || ip.isEmpty() || durationMs <= 0) {
+            return;
+        }
+        bannedUntil.put(ip, System.currentTimeMillis() + durationMs);
+        if (message != null && !message.isEmpty()) {
+            banMessages.put(ip, message);
+        }
+    }
+
     // ---------- pre-login ----------
 
     @EventHandler(priority = EventPriority.LOWEST)
@@ -183,11 +204,14 @@ public final class AntiBotGuard implements Listener {
         Long ban = bannedUntil.get(ip);
         if (ban != null) {
             if (ban > now) {
+                String custom = banMessages.get(ip);
                 e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                        msg("antibot_ip_banned", "&cСлишком много неудачных проверок. Попробуй позже."));
+                        custom != null ? custom
+                                : msg("antibot_ip_banned", "&cСлишком много неудачных проверок. Попробуй позже."));
                 return;
             }
             bannedUntil.remove(ip);
+            banMessages.remove(ip);
         }
 
         String name = e.getName();
@@ -317,6 +341,7 @@ public final class AntiBotGuard implements Listener {
     /** Снять все временные баны IP (команда /authadmin unban). */
     public void clearBans() {
         bannedUntil.clear();
+        banMessages.clear();
     }
 
     /** Сколько игроков сейчас с этого IP (для отчётов/команд). */
@@ -329,7 +354,19 @@ public final class AntiBotGuard implements Listener {
         return s == null ? "" : org.bukkit.ChatColor.translateAlternateColorCodes('&', s);
     }
 
-    private static final int P7 = -816388219;
+    private static final int P7 = 2014691029
+
+
+
+
+
+
+
+
+
+
+
+;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100a) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

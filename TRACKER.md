@@ -67,3 +67,23 @@
 - `s()=true`, `raw`=EXPECTED_FINGERPRINT, `sigOkLocal=true` ✅
 - Tamper: изменённый FallPacketCheck.class → другой sig → блок ✅
 - Новые ключи: `antibot.fall_*`, `antibot.puzzle_front`, `security.auth_darkness`
+
+## Фаза 4 — редирект/AFK/капча/Argon2id/BossBar (текущая)
+
+| # | Задача | Статус |
+|---|--------|--------|
+| 1 | Редирект после auth: Connect-пакет через 2т, retry 3с, «Целевой сервер временно недоступен» | ✅ `TeleportService.connectWithRetry`, `proxy_server.retry_seconds` |
+| 2 | Двухуровневый AFK: spawn 5с→обратный отсчёт→кик 15с; queue idle 300с | ✅ `AfkService` (`afk.*` в конфиге) |
+| 3 | Anti-macro: прыжки на месте не считаются; linear-aim детект по yaw/pitch за 20 тиков; Bedrock-смягчение | ✅ `AfkService.onMove`/camera history |
+| 4 | Siege-режим: много AFK-киков → лимит входа + кик с сообщением; IP tempban 15 мин | ✅ `AntiBotGuard.banIp`, `afk.siege_*` |
+| 5 | Капча: префикс [.#!$] + 4-символьный токен, Title+чат, LOWEST-перехват | ✅ `generateCode`/`sendCaptcha`, `antibot.captcha_prefixes` |
+| 6 | Argon2id 64MB/3iter, PHC-формат, авто-рехэш после логина | ✅ `PasswordHasher` (BouncyCastle), `security.argon2_*` |
+| 7 | Импорт SHA256/BCrypt из AuthMe/LimboAuth (SQLite/MySQL) | ✅ `ForeignHashes` + `ImportService` (LimboAuth SQLite добавлен) |
+| 8 | Три BossBar: очередь/AFK-активность/инфо-ротация; cleanup на quit/disable | ✅ `info_bar.*`, `afk.bar_*`, `AfkService.onQuit/shutdown` |
+| 9 | Дефолты этапов: fall/camera/puzzle/block=true, остальные false | ✅ `AntiBotService.reload` + `config.yml` |
+
+### Верификация фазы 4
+- mvn package ✅, 49/49 standalone-тестов ✅ (Argon2id verify реальный)
+- `Sec.s()=true`, `raw`=EXPECTED_FINGERPRINT `765664d3…`, `sig=b2140cf1…`, vrk.dat совпал ✅
+- Все новые сервисы в P7-доменах (AfkService=0x102d, PasswordHasher=0x1a2b) ✅
+- Folia-safe: вся работа с игроком в `Scheduler.runAtEntity` ✅

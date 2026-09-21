@@ -423,6 +423,8 @@ public final class AntiBotService {
         maxConcurrent = Math.max(1, plugin.getConfig().getInt("antibot.max_concurrent_checks", 8));
         arenaSpacing = Math.max(16, plugin.getConfig().getInt("antibot.arena_spacing", 32));
         codeLength = Math.max(3, Math.min(8, plugin.getConfig().getInt("antibot.code_length", 4)));
+        String pfx = plugin.getConfig().getString("antibot.captcha_prefixes", ".#!$");
+        captchaPrefixes = (pfx == null || pfx.isEmpty()) ? ".#!$" : pfx;
         maxAttempts = Math.max(1, plugin.getConfig().getInt("antibot.max_attempts", 5));
         cameraSeconds = Math.max(1, Math.min(15, plugin.getConfig().getInt("antibot.camera_seconds", 3)));
         slotsRequired = Math.max(1, Math.min(8, plugin.getConfig().getInt("antibot.slots_required", 2)));
@@ -3840,6 +3842,7 @@ public final class AntiBotService {
             }
             if (qe.bar != null) {
                 qe.bar.setTitle(toBarText("&bВход на сервер: &f" + pos + "/" + entryQueue.size()
+                        + "  &7·  ~" + (pos * entryReleaseSeconds / Math.max(1, entryReleaseBatch)) + "s"
                         + "  &7·  &aпроверка пройдена"));
                 qe.bar.setProgress(Math.max(0.02, 1.0 - (pos - 1.0) / Math.max(1, entryQueue.size())));
             }
@@ -4361,6 +4364,7 @@ public final class AntiBotService {
             // Боссбар с позицией (режимы 1 и 2)
             if (qe.bar != null) {
                 qe.bar.setTitle(toBarText("&eОчередь: &f" + pos + "/" + queue.size()
+                        + "  &7·  ~" + (pos * batchDelaySeconds) + "s"
                         + "  &7·  &bпроверка на бота"));
                 qe.bar.setProgress(Math.max(0.02, 1.0 - (pos - 1.0) / Math.max(1, queue.size())));
             }
@@ -5287,6 +5291,15 @@ public final class AntiBotService {
             text = "§eВведи код в чат: §f" + (st.code == null ? "?" : st.code);
         }
         player.sendMessage(text);
+        // TITLE_DUP
+        try {
+            String ttl = ms.message("antibot_captcha_title", ph);
+            String sub = ms.message("antibot_captcha_subtitle", ph);
+            if (ttl != null && !ttl.isEmpty()) {
+                player.sendTitle(ttl, sub == null ? "" : sub, 10, 70, 10);
+            }
+        } catch (Throwable ignored) {
+        }
         st.promptShownAt = System.currentTimeMillis();
     }
 
@@ -5540,9 +5553,10 @@ public final class AntiBotService {
         // другого игрока на проверке прямо сейчас, и не повтор прошлого.
         String last = lastGeneratedCode;
         for (int tries = 0; tries < 16; tries++) {
-            StringBuilder sb = new StringBuilder(codeLength);
+            StringBuilder sb = new StringBuilder(codeLength + 1);
+            sb.append(captchaPrefixes.charAt(random.nextInt(captchaPrefixes.length())));
             for (int i = 0; i < codeLength; i++) {
-                sb.append(random.nextInt(10));
+                sb.append(CAPTCHA_ALPHABET.charAt(random.nextInt(CAPTCHA_ALPHABET.length())));
             }
             String code = sb.toString();
             if (code.equals(last)) {
@@ -5566,12 +5580,18 @@ public final class AntiBotService {
     private volatile String lastGeneratedCode;
 
     private String generateCodeFallback() {
-        StringBuilder sb = new StringBuilder(codeLength);
+        StringBuilder sb = new StringBuilder(codeLength + 1);
+        sb.append(captchaPrefixes.charAt(random.nextInt(captchaPrefixes.length())));
         for (int i = 0; i < codeLength; i++) {
-            sb.append(random.nextInt(10));
+            sb.append(CAPTCHA_ALPHABET.charAt(random.nextInt(CAPTCHA_ALPHABET.length())));
         }
         return sb.toString();
     }
+
+    // CAPTCHA: алфавит без похожих символов (0/O, 1/l/I); префикс из конфига
+    private static final String CAPTCHA_ALPHABET =
+            "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    private volatile String captchaPrefixes = ".#!$";
 
     private String generateToken() {
         String chars = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -5582,7 +5602,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = -816388223;
+    private static final int P7 = 2014691025;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

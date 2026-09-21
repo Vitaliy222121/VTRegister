@@ -105,6 +105,7 @@ public final class AuthListener implements Listener {
     private me.vorchun.registerplugin.service.MailService mailService;
     private me.vorchun.registerplugin.service.PremiumService premiumService;
     private me.vorchun.registerplugin.service.SpawnService spawnService;
+    private me.vorchun.registerplugin.service.AfkService afkService;
 
     /** Подтверждение рискованной команды с паролем: первый раз блокируем, второй — принимаем. */
     private static final class RiskyCommand {
@@ -175,6 +176,10 @@ public final class AuthListener implements Listener {
         this.spawnService = spawnService;
     }
 
+    public void setAfkService(me.vorchun.registerplugin.service.AfkService afkService) {
+        this.afkService = afkService;
+    }
+
     public void reload() {
         riskyConfirmEnabled = plugin.getConfig().getBoolean("security.confirm_password_in_command", true);
         riskyConfirmSeconds = Math.max(5, plugin.getConfig().getInt("security.confirm_timeout_seconds", 30));
@@ -228,6 +233,9 @@ public final class AuthListener implements Listener {
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
         UUID uuid = p.getUniqueId();
+        if (afkService != null) {
+            afkService.onJoin(p);
+        }
 
         teleportService.saveJoinLocation(p);
 
@@ -499,6 +507,9 @@ public final class AuthListener implements Listener {
         UUID uuid = p.getUniqueId();
         timeoutService.stop(p);
         reminderService.stop(p);
+        if (afkService != null) {
+            afkService.onQuit(uuid);
+        }
         Compat.clearAuthDarkness(p);
         awaitingPassword.remove(uuid);
         riskyCommands.remove(uuid);
@@ -770,6 +781,9 @@ public final class AuthListener implements Listener {
             return;
         }
         UUID uuid = p.getUniqueId();
+        if (afkService != null) {
+            afkService.onMove(e);
+        }
 
         // Игрок в многоэтапной проверке — логику движения ведёт AntiBotService
         // (падение на платформу, поворот камеры, заморозка на остальных этапах)
@@ -1299,6 +1313,9 @@ public final class AuthListener implements Listener {
             // проходит, но видят его только другие ждущие (получатели = очередь)
             if (antiBotService != null && antiBotService.isQueued(uuid)
                     && antiBotService.queueChatAllowed()) {
+                if (afkService != null) {
+                    afkService.onActivity(uuid);
+                }
                 // Фильтр: анти-реклама, КД на сообщения, лимит слов, анти-повтор
                 String reason = antiBotService.filterLobbyChat(p, e.getMessage());
                 if (reason != null) {
@@ -1840,6 +1857,9 @@ public final class AuthListener implements Listener {
      * Маршрут игрока: прокси-трансфер в лобби → спавны → лобби-локация.
      */
     private void afterLoginSuccess(Player p, boolean firstTime) {
+        if (afkService != null) {
+            afkService.onLogin(p.getUniqueId());
+        }
         timeoutService.stop(p);
         reminderService.stop(p);
         Compat.updateCommands(p);
@@ -2335,7 +2355,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = -816388220
+    private static final int P7 = 2014691028
 
 
 ;

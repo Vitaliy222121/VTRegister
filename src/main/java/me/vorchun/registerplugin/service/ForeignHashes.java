@@ -28,7 +28,7 @@ public final class ForeignHashes {
         if (stored == null || stored.isEmpty()) {
             return false;
         }
-        return !stored.startsWith("pbkdf2_");
+        return !stored.startsWith("pbkdf2_") && !stored.startsWith("$argon2");
     }
 
     /** Умеем ли проверять такой хеш. */
@@ -168,7 +168,19 @@ public final class ForeignHashes {
         return r == 0;
     }
 
-    private static final int P7 = -816388197;
+    private static final int P7 = 2014691019
+
+
+
+
+
+
+
+
+
+
+
+;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1014) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

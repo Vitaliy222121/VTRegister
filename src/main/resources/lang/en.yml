@@ -177,3 +177,15 @@ messages:
   admin_setspawn_done: "{prefix}&#A0FFA0Spawn '{kind}' set to your position"
   admin_import_started: "{prefix}&#FFFFFFImport started… (AuthMe, LoginSecurity, accounts.yml, import.yml)"
   admin_unban_done: "{prefix}&#A0FFA0Temporary IP bans cleared"
+
+  # ---------- AFK / anti-macro / siege mode ----------
+  afk_countdown: "{prefix}&#FFAA00Move! Kick in &#FF5555{seconds}s"
+  afk_kick: "&cYou were idle for too long."
+  afk_queue_kick: "&cAFK in queue: no activity for too long."
+  afk_bot_kick: "&cBot-like camera behavior detected."
+  afk_siege_kick: "&eSorry, we may be under a bot attack — protection is on. If you are not a bot, sorry =( rejoin please!"
+  afk_ip_ban: "&cOur system flagged very suspicious behavior, please come back later."
+  afk_bar_title: "&cMove! Kick in {seconds}s"
+  proxy_transfer_failed: "&cTarget server is temporarily unavailable. Please rejoin later."
+  antibot_captcha_title: "&e{code}"
+  antibot_captcha_subtitle: "&7Type this code in chat"

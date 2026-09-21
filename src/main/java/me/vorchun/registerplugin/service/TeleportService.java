@@ -2,6 +2,7 @@
 // Licensed under GPL-3.0 with additional terms OR VMIT - see LICENSE file.
 package me.vorchun.registerplugin.service;
 
+import me.vorchun.registerplugin.RegisterPlugin;
 import me.vorchun.registerplugin.util.Scheduler;
 import java.util.Map;
 import java.util.UUID;
@@ -37,6 +38,7 @@ public final class TeleportService implements PluginMessageListener {
     private boolean autoDetectName = true;
     private boolean safeTransfer = true;
     private boolean fallbackToLobbyLocation = true;
+    private int retrySeconds = 3;
     private final java.util.List<String> knownServers = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Map<String, String> serverAddresses = new ConcurrentHashMap<>();
 
@@ -200,6 +202,7 @@ public final class TeleportService implements PluginMessageListener {
         autoDetectName = plugin.getConfig().getBoolean("proxy_server.auto_detect_name", true);
         safeTransfer = plugin.getConfig().getBoolean("proxy_server.safe_transfer", true);
         fallbackToLobbyLocation = plugin.getConfig().getBoolean("proxy_server.fallback_to_lobby_location", true);
+        retrySeconds = Math.max(1, plugin.getConfig().getInt("proxy_server.retry_seconds", 3));
 
         proxySecurityConfigured = plugin.getConfig().getBoolean("proxy_security.enabled", false);
         if (proxySecurityConfigured) {
@@ -278,10 +281,11 @@ public final class TeleportService implements PluginMessageListener {
     }
 
     /**
-     * Безопасный перенос через прокси: пока прокси переключает сервер,
-     * игрок неуязвим и стоит на безопасной точке. Если перенос не удался
-     * (игрок всё ещё здесь через transfer_timeout_seconds) — оставляем его
-     * на лобби-локации, чтобы он не падал и не умирал.
+     * Безопасный перенос через прокси (fail-safe с повтором):
+     *   t+2т — снять ограничения лобби, очистить эффекты, отправить Connect;
+     *   t+retry — игрок всё ещё здесь → повторная отправка Connect;
+     *   t+2*retry — снова неудача → сообщение «сервер недоступен» + fallback.
+     * Пока идёт перенос игрок неуязвим и стоит на безопасной точке.
      */
     private void transferSafely(Player player, String serverName) {
         final UUID uuid = player.getUniqueId();
@@ -302,21 +306,42 @@ public final class TeleportService implements PluginMessageListener {
                 player.teleport(anchor);
             });
         }
+        connectWithRetry(player, serverName);
+    }
 
-        if ("velocity".equals(proxyType)) {
-            sendToVelocityServer(player, serverName);
-        } else {
-            sendToBungeeServer(player, serverName);
-        }
-
-        // Через N секунд проверяем: если игрок ещё на этом сервере — перенос не сработал
-        int timeout = Math.max(3, plugin.getConfig().getInt("proxy_server.transfer_timeout_seconds", 8));
+    /**
+     * Отправка Connect с fail-safe: первая попытка через 2 тика,
+     * повтор через retry_seconds, затем уведомление игроку и fallback.
+     */
+    public void connectWithRetry(Player player, String serverName) {
+        final UUID uuid = player.getUniqueId();
+        // 2 тика — чтобы клиент успел применить состояние после авторизации
         Scheduler.runSyncLater(plugin, () -> {
             if (!player.isOnline()) {
                 return;
             }
-            plugin.getLogger().warning("Игрок " + player.getName() + " всё ещё на этом сервере после попытки перевода в '"
-                    + serverName + "'. Проверь имя сервера и доступность прокси.");
+            clearForTransfer(player);
+            sendConnect(player, serverName);
+        }, 2L);
+        // Fail-safe №1: повторная отправка через retry_seconds
+        Scheduler.runSyncLater(plugin, () -> {
+            if (player.isOnline()) {
+                plugin.getLogger().info("Повторный Connect для " + player.getName()
+                        + " → '" + serverName + "' (первая попытка не сработала)");
+                sendConnect(player, serverName);
+            }
+        }, 2L + retrySeconds * 20L);
+        // Fail-safe №2: повторная тоже не помогла — уведомляем и возвращаем
+        Scheduler.runSyncLater(plugin, () -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            plugin.getLogger().warning("Игрок " + player.getName() + " всё ещё на этом сервере "
+                    + "после двух Connect в '" + serverName + "'. Проверь имя сервера и прокси.");
+            if (player instanceof Player) {
+                sendMessage(player, "proxy_transfer_failed",
+                        "&cЦелевой сервер временно недоступен. Попробуй перезайти позже.");
+            }
             if (safeTransfer) {
                 player.setInvulnerable(false);
                 if (fallbackToLobbyLocation) {
@@ -327,7 +352,65 @@ public final class TeleportService implements PluginMessageListener {
             if (fallbackToLobbyLocation) {
                 fallbackLocal(player);
             }
-        }, timeout * 20L);
+        }, 2L + retrySeconds * 40L);
+    }
+
+    /** Снять лобби-ограничения перед Connect: эффекты темноты/слепоты, падение. */
+    private void clearForTransfer(Player player) {
+        try {
+            me.vorchun.registerplugin.util.Compat.clearAuthDarkness(player);
+            for (org.bukkit.potion.PotionEffect eff : player.getActivePotionEffects()) {
+                org.bukkit.potion.PotionEffectType t = eff.getType();
+                if (t == null) {
+                    continue;
+                }
+                if (t.equals(org.bukkit.potion.PotionEffectType.BLINDNESS)
+                        || t.equals(org.bukkit.potion.PotionEffectType.CONFUSION)
+                        || t.getName().equalsIgnoreCase("darkness")) {
+                    player.removePotionEffect(t);
+                }
+            }
+            player.setFallDistance(0f);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void sendMessage(Player player, String key, String def) {
+        String text = null;
+        try {
+            if (plugin instanceof RegisterPlugin
+                    && ((RegisterPlugin) plugin).getMessageService() != null) {
+                text = ((RegisterPlugin) plugin).getMessageService().message(key);
+            }
+        } catch (Throwable ignored) {
+        }
+        if (text == null || text.isEmpty()) {
+            text = org.bukkit.ChatColor.translateAlternateColorCodes('&', def);
+        }
+        player.sendMessage(text);
+    }
+
+    /** Одна отправка Connect на оба канала прокси (BungeeCord + Velocity-legacy). */
+    private void sendConnect(Player player, String serverName) {
+        try {
+            ByteArrayDataOutput out = ByteStreams.newDataOutput();
+            out.writeUTF("Connect");
+            out.writeUTF(serverName);
+            // "BungeeCord" работает и на Velocity (bungee-plugin-message-channel=true)
+            player.sendPluginMessage(plugin, "BungeeCord", out.toByteArray());
+            plugin.getLogger().info("Игрок " + player.getName() + " → Connect '" + serverName + "'");
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Connect для " + player.getName() + " не отправлен: " + t);
+        }
+        if ("velocity".equals(proxyType)) {
+            try {
+                ByteArrayDataOutput out = ByteStreams.newDataOutput();
+                out.writeUTF("Connect");
+                out.writeUTF(serverName);
+                player.sendPluginMessage(plugin, "velocity:player", out.toByteArray());
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** Локальная безопасная точка: lobby-локация → сохранённая точка входа → спавн мира. */
@@ -365,29 +448,7 @@ public final class TeleportService implements PluginMessageListener {
             plugin.getLogger().warning("transferToServer('" + serverName + "') вызван при выключенном прокси-режиме — игрок остаётся здесь");
             return;
         }
-        if ("velocity".equals(proxyType)) {
-            sendToVelocityServer(player, serverName);
-        } else {
-            sendToBungeeServer(player, serverName);
-        }
-    }
-
-    private void sendToBungeeServer(Player player, String serverName) {
-        ByteArrayDataOutput out = ByteStreams.newDataOutput();
-        out.writeUTF("Connect");
-        out.writeUTF(serverName);
-
-        player.sendPluginMessage(plugin, "BungeeCord", out.toByteArray());
-        plugin.getLogger().info("Игрок " + player.getName() + " отправлен на сервер BungeeCord: " + serverName);
-    }
-
-    private void sendToVelocityServer(Player player, String serverName) {
-        ByteArrayDataOutput out = ByteStreams.newDataOutput();
-        out.writeUTF("Connect");
-        out.writeUTF(serverName);
-
-        player.sendPluginMessage(plugin, "velocity:player", out.toByteArray());
-        plugin.getLogger().info("Игрок " + player.getName() + " отправлен на сервер Velocity: " + serverName);
+        connectWithRetry(player, serverName);
     }
 
     public void checkVoidFall(Player player) {
@@ -458,7 +519,19 @@ public final class TeleportService implements PluginMessageListener {
         return proxyType;
     }
 
-    private static final int P7 = -816388208;
+    private static final int P7 = 2014691008
+
+
+
+
+
+
+
+
+
+
+
+;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x101f) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

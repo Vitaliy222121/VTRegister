@@ -95,7 +95,7 @@ public final class LoginAttemptService {
         }
     }
 
-    private static final int P7 = -816388199;
+    private static final int P7 = 2014691017;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1016) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
