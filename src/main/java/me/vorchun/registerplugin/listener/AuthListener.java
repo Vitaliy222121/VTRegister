@@ -1093,6 +1093,10 @@ public final class AuthListener implements Listener {
             if (antiBotService != null && antiBotService.isChecking(p.getUniqueId())) {
                 AntiBotService.Stage s = antiBotService.getCurrentStage(p.getUniqueId());
                 if (s == AntiBotService.Stage.BLOCK || s == AntiBotService.Stage.PUZZLE) {
+                    if (s == AntiBotService.Stage.BLOCK
+                            && antiBotService.isToolChestTop(p, e.getInventory())) {
+                        antiBotService.ensureToolChestNow(p);
+                    }
                     return;
                 }
             }
@@ -2191,12 +2195,24 @@ public final class AuthListener implements Listener {
             return;
         }
         Player p = (Player) e.getEntity();
+        // Снятие/замена эффекта (newEffect == null) пропускаем ВСЕГДА — иначе
+        // наш же removePotionEffect(BLINDNESS) блокировался бы этим
+        // обработчиком и слепота не снималась никогда.
+        if (e.getNewEffect() == null) {
+            return;
+        }
         if (!sessionManager.isLoggedIn(p.getUniqueId())) {
-            org.bukkit.potion.PotionEffectType type = e.getNewEffect() != null ? e.getNewEffect().getType() : null;
-            // Наши собственные эффекты (темнота/слепота) должны проходить,
-            // иначе плагин сам себя блокирует на 1.19+
-            if (type != null && (type.equals(org.bukkit.potion.PotionEffectType.BLINDNESS)
-                    || type.getName().equalsIgnoreCase("darkness"))) {
+            org.bukkit.potion.PotionEffectType type = e.getNewEffect().getType();
+            boolean dark = type.equals(org.bukkit.potion.PotionEffectType.BLINDNESS)
+                    || type.getName().equalsIgnoreCase("darkness");
+            // Игрок занят антиботом (очередь/проверка/вход) — слепоту и
+            // темноту не пускаем вовсе, откуда бы ни пришла.
+            if (dark && antiBotService != null && antiBotService.isBusy(p.getUniqueId())) {
+                e.setCancelled(true);
+                return;
+            }
+            // Своя auth-темнота на экранах входа — разрешена.
+            if (dark) {
                 return;
             }
             e.setCancelled(true);
@@ -2372,7 +2388,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = -311012994
+    private static final int READY = 811582366
 
 
 

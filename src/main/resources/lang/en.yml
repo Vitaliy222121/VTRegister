@@ -91,6 +91,7 @@ messages:
   antibot_kit_open: "{prefix}&#A0FFA0PvP kit — take the items! (lobby only)"
   antibot_kit_cooldown: "{prefix}&#FF6666Kit is once per {blocks} sec — wait!"
   antibot_puzzle_turn: "{prefix}&#FFD75FTurn around — the puzzle is BEHIND you! Punch the extras."
+  antibot_puzzle_front: "{prefix}&#FFD75FThe puzzle is right in front of you! Punch the extras."
   chat_slowdown: "{prefix}&#FFAA00Slow down — wait a couple of seconds between messages!"
   chat_ads_blocked: "{prefix}&#FF6666Links and ads are not allowed in chat!"
   chat_too_long: "{prefix}&#FF6666Message is too long!"

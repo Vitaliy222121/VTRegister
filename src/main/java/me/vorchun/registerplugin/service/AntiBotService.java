@@ -785,7 +785,7 @@ public final class AntiBotService {
                 teleportService.authorizeTeleport(uuid);
                 player.teleport(lobbySpawn(lw));
                 if (!"always".equals(authDarkness)) {
-                    Compat.clearAuthDarkness(player);
+                    clearVision(player);
                 }
                 feedForLobby(player);
                 st.preparing = true;
@@ -797,7 +797,7 @@ public final class AntiBotService {
             preparePlayer(player, st);
             // проверка идёт на арене — темнота reg/login здесь не нужна
             if (!"always".equals(authDarkness)) {
-                Compat.clearAuthDarkness(player);
+                clearVision(player);
             }
             teleportService.authorizeTeleport(uuid);
             player.teleport(arenaSpawn(st));
@@ -858,7 +858,7 @@ public final class AntiBotService {
             final Player fp0 = player;
             Scheduler.runAtEntity(plugin, fp0, () -> {
                 if (fp0.isOnline()) {
-                    Compat.clearAuthDarkness(fp0);
+                    clearVision(fp0);
                 }
             });
         }
@@ -885,7 +885,7 @@ public final class AntiBotService {
                     player.teleport(lobbySpawn(fw));
                     // темнота/blindness только для reg/login — в лобби светло
                     if (!"always".equals(authDarkness)) {
-                        Compat.clearAuthDarkness(player);
+                        clearVision(player);
                     }
                     feedForLobby(player);
                     if (queueFlight) {
@@ -1032,6 +1032,12 @@ public final class AntiBotService {
      */
     /** Поставить блок только если он отличается — без лишних пакетов. */
     private static void fix(World w, int x, int y, int z, Material m) {
+        // Чанк выгружен — не поднимаем его с диска ради декора: пропускаем.
+        // Иначе каждый проход ремонта создаёт chunk-ticket'ы и гоняет
+        // light-engine на главном потоке (трейс ChunkMapDistance в spark).
+        if (!w.isChunkLoaded(x >> 4, z >> 4)) {
+            return;
+        }
         if (w.getBlockAt(x, y, z).getType() != m) {
             w.getBlockAt(x, y, z).setType(m, false);
         }
@@ -1754,7 +1760,7 @@ public final class AntiBotService {
         player.setFallDistance(0f);
         player.setVelocity(player.getVelocity().zero());
         if (!"always".equals(authDarkness)) {
-            Compat.clearAuthDarkness(player);
+            clearVision(player);
         }
         // В мире проверки игрок должен быть «пустым»: ни предметов, ни опыта.
         // Всё сохраняем и вернём после проверки (или при выходе/кике).
@@ -1796,8 +1802,32 @@ public final class AntiBotService {
         st.inventorySaved = false;
     }
 
+    /**
+     * Страховка от «тёмного мира»: снимаем BLINDNESS/DARKNESS и даём
+     * NIGHT_VISION — даже если арена оказалась в ночном fallback-мире,
+     * игрок видит. NV снимается в restorePlayer при выпуске.
+     */
+    private static void clearVision(Player p) {
+        if (p == null) {
+            return;
+        }
+        Compat.clearAuthDarkness(p);
+        try {
+            if (!p.hasPotionEffect(org.bukkit.potion.PotionEffectType.NIGHT_VISION)) {
+                p.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                        org.bukkit.potion.PotionEffectType.NIGHT_VISION,
+                        Integer.MAX_VALUE, 0, true, false, false));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** Вернуть игроку его режим/полёт/предметы после проверки. */
     private void restorePlayer(Player player, CheckState st) {
+        try {
+            player.removePotionEffect(org.bukkit.potion.PotionEffectType.NIGHT_VISION);
+        } catch (Throwable ignored) {
+        }
         restoreInventory(player, st);
         if (!restorePlayerState || st == null) {
             return;
@@ -2165,6 +2195,13 @@ public final class AntiBotService {
                 chest.update(true, false);
             }
         } catch (Throwable ignored) {
+        }
+    }
+
+    /** Наполнить сундук инструментов прямо при открытии (страховка к тикеру). */
+    public void ensureToolChestNow(Player p) {
+        if (p != null) {
+            ensureToolChest(checks.get(p.getUniqueId()));
         }
     }
 
@@ -2820,7 +2857,7 @@ public final class AntiBotService {
         // лишних надо УДАРИТЬ. both: рамки, при сбое — GUI-фолбэк.
         if (!"gui".equals(puzzleMode) && spawnPuzzleGrid(player, st)) {
             sendPuzzleTask(player, st);
-            sendMessage(player, "antibot_puzzle_turn", 0);
+            sendMessage(player, puzzleFront ? "antibot_puzzle_front" : "antibot_puzzle_turn", 0);
             return;
         }
         openPuzzleGui(player, st);
@@ -3000,7 +3037,17 @@ public final class AntiBotService {
         }
         try {
             java.io.File f = puzzleImages.get(random.nextInt(puzzleImages.size()));
-            final java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(f);
+            java.awt.image.BufferedImage raw = javax.imageio.ImageIO.read(f);
+            final java.awt.image.BufferedImage img;
+            if (raw != null && (raw.getWidth() != 128 || raw.getHeight() != 128)) {
+                img = new java.awt.image.BufferedImage(128, 128,
+                        java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                java.awt.Graphics2D g2 = img.createGraphics();
+                g2.drawImage(raw, 0, 0, 128, 128, null);
+                g2.dispose();
+            } else {
+                img = raw;
+            }
             World w = st.world;
             org.bukkit.map.MapView view = Bukkit.createMap(w);
             view.getRenderers().forEach(view::removeRenderer);
@@ -3985,7 +4032,7 @@ public final class AntiBotService {
                 if (player.isOnline() && entryQueue.contains(uuid)) {
                     player.teleport(lobbySpawn(fw));
                     if (!"always".equals(authDarkness)) {
-                        Compat.clearAuthDarkness(player);
+                        clearVision(player);
                     }
                     feedForLobby(player);
                     if (queueFlight) {
@@ -4048,7 +4095,7 @@ public final class AntiBotService {
                 continue;
             }
             if (!"always".equals(authDarkness)) {
-                Compat.clearAuthDarkness(p);
+                clearVision(p);
             }
             if (qe.bar != null) {
                 qe.bar.setTitle(toBarText("&bВход на сервер: &f" + pos + "/" + entryQueue.size()
@@ -4389,7 +4436,7 @@ public final class AntiBotService {
             // Слепота — только рег/логин: снимаем на ВСЕХ фазах проверки,
             // включая отсчёт (applyAuthDarkness из join-flow мог прийти позже)
             if (!"always".equals(authDarkness)) {
-                Compat.clearAuthDarkness(p);
+                clearVision(p);
             }
             // Подготовка к проверке: игрок уже на арене, идёт отсчёт.
             // Каждую секунду — тайтл + чат «готовься, сейчас проверка».
@@ -4436,7 +4483,7 @@ public final class AntiBotService {
             // Слепота только для рег/логина: на проверке снимаем принудительно
             // — отложенный applyAuthDarkness из join-flow мог прийти после enqueue
             if (!"always".equals(authDarkness)) {
-                Compat.clearAuthDarkness(p);
+                clearVision(p);
             }
             if (st.stageDeadline > 0 && now > st.stageDeadline) {
                 failCheck(e.getKey(), msg("antibot_timeout"));
@@ -4606,7 +4653,7 @@ public final class AntiBotService {
                 continue;
             }
             if (!"always".equals(authDarkness)) {
-                Compat.clearAuthDarkness(p);
+                clearVision(p);
             }
             // Боссбар с позицией (режимы 1 и 2)
             if (qe.bar != null) {
@@ -5858,7 +5905,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = -311012997
+    private static final int READY = 811582363
 
 
 

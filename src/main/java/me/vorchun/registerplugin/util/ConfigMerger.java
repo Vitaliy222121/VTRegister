@@ -93,7 +93,9 @@ public final class ConfigMerger {
                 changedInner = true;
             }
         }
-        if (changedInner) {
+        boolean upgraded = resourceName.startsWith("lang/")
+                && upgradeStalePlaceholders(userLines, defBlocks);
+        if (changedInner || upgraded) {
             rewriteFile(target, userLines);
         }
 
@@ -118,10 +120,81 @@ public final class ConfigMerger {
         if (tail.length() > 0) {
             appendToFile(target, tail.toString());
         }
-        if (changedInner || tail.length() > 0) {
+        if (changedInner || upgraded || tail.length() > 0) {
             plugin.getLogger().warning(resourceName
-                    + ": файл конфигурации старый или неполный — недостающие ключи добавлены автоматически (комментарии сохранены). Новые функции работают со значениями по умолчанию из конфига v1.1.5");
+                    + ": файл конфигурации старый или неполный — недостающие ключи добавлены, устаревшие тексты с новыми {плейсхолдерами} обновлены автоматически (комментарии сохранены). Новые функции работают со значениями по умолчанию из конфига v1.1.5");
         }
+    }
+
+    /**
+     * Обновить значения 2-го уровня, у которых в дефолтной строке появились
+     * {плейсхолдеры}, отсутствующие в пользовательской строке. Без этого
+     * старые lang-файлы навсегда держат устаревший текст без новых
+     * подстановок (например, {block} в сообщении этапа BLOCK).
+     * Трогаются только однострочные скаляры.
+     */
+    private static boolean upgradeStalePlaceholders(List<String> userLines, List<Block> defBlocks) {
+        boolean changed = false;
+        for (Block defSection : defBlocks) {
+            int start = -1;
+            int end = userLines.size();
+            for (int i = 0; i < userLines.size(); i++) {
+                String k = keyAt(userLines.get(i), 0);
+                if (k == null) {
+                    continue;
+                }
+                if (start < 0) {
+                    if (k.equals(defSection.key)) {
+                        start = i;
+                    }
+                } else {
+                    end = i;
+                    break;
+                }
+            }
+            if (start < 0) {
+                continue;
+            }
+            for (String defLine : defSection.lines) {
+                String dk = keyAt(defLine, 2);
+                if (dk == null) {
+                    continue;
+                }
+                Set<String> need = placeholdersOf(defLine);
+                if (need.isEmpty()) {
+                    continue;
+                }
+                for (int i = start + 1; i < end; i++) {
+                    String uk = keyAt(userLines.get(i), 2);
+                    if (uk == null || !uk.equals(dk)) {
+                        continue;
+                    }
+                    if (!placeholdersOf(userLines.get(i)).containsAll(need)) {
+                        userLines.set(i, defLine);
+                        changed = true;
+                    }
+                    break;
+                }
+            }
+        }
+        return changed;
+    }
+
+    /** Имена {плейсхолдеров} в части значения (после первого ':'). */
+    private static Set<String> placeholdersOf(String line) {
+        Set<String> out = new LinkedHashSet<>();
+        int colon = line.indexOf(':');
+        if (colon < 0) {
+            return out;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\\{([A-Za-z0-9_]+)\\}").matcher(line);
+        while (m.find()) {
+            if (m.start() > colon) {
+                out.add(m.group(1));
+            }
+        }
+        return out;
     }
 
     /**
@@ -320,7 +393,29 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int READY = -311013037;
+    private static final int READY = 811582387
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1026) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

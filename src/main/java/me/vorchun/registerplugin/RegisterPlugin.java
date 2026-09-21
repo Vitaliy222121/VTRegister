@@ -233,13 +233,18 @@ public final class RegisterPlugin extends JavaPlugin {
         }
         int delaySeconds = Math.max(1, getConfig().getInt("console_reminder.delay_seconds", 10));
         int times = Math.max(1, Math.min(5, getConfig().getInt("console_reminder.times", 2)));
-        String text = getConfig().getString("console_reminder.message",
-                "VTRegister обновляется — официальные источники: MineLeak.pro (автор vitaliy21), Telegram-канал SerclStudio");
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        lines.add(getConfig().getString("console_reminder.message",
+                "VTRegister обновляется — официальные источники: MineLeak.pro (автор vitaliy21), Telegram-канал SerclStudio"));
+        lines.addAll(getConfig().getStringList("console_reminder.messages"));
         for (int i = 0; i < times; i++) {
-            final int index = i;
-            Scheduler.runSyncLater(this, () -> getLogger().log(Level.INFO,
-                    text + (times > 1 ? " (" + (index + 1) + "/" + times + ")" : "")),
-                    delaySeconds * 20L + index * 40L);
+            for (int li = 0; li < lines.size(); li++) {
+                final int index = i;
+                final String line = lines.get(li);
+                Scheduler.runSyncLater(this, () -> getLogger().log(Level.INFO,
+                        line + (times > 1 ? " (" + (index + 1) + "/" + times + ")" : "")),
+                        delaySeconds * 20L + (index * lines.size() + li) * 40L);
+            }
         }
     }
 
@@ -641,7 +646,10 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int READY = -311013003
+    private static final int READY = 811582357
+
+
+
 
 
 
