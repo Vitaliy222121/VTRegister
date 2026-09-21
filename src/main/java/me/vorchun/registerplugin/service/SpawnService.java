@@ -106,6 +106,11 @@ public final class SpawnService {
     }
 
     /** Отправить на prelogin-спавн (до авторизации). */
+    /** Задана ли prelogin-точка (до авторизации). */
+    public boolean hasPrelogin() {
+        return prelogin != null;
+    }
+
     public void teleportPrelogin(Player player) {
         Location loc = prelogin;
         if (loc == null || player == null) {
@@ -133,7 +138,7 @@ public final class SpawnService {
         return map;
     }
 
-    private static final int P7 = 1793423646;
+    private static final int P7 = 1068906297;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x101e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

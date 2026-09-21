@@ -26,6 +26,10 @@ session:
   # Автовход, если IP игрока совпадает с доверенным.
   # ⚠️ За прокси без IP-forwarding включать опасно — см. proxy.known_proxy_ips
   auto_login_by_ip: false
+  # Рестарт сервера убивает IP-сессии: после перезагрузки все игроки
+  # обязаны войти заново (антиспам-реконнект ботами после рестарта).
+  # false — сессии переживают рестарт в пределах duration_seconds
+  invalidate_on_restart: true
 
 # ── Авторизация ─────────────────────────────────────────────────────────────
 auth:
@@ -324,6 +328,38 @@ antibot:
     - "PARROT_SPAWN_EGG"
     - "FOX_SPAWN_EGG"
   puzzle_max_wrong: 3      # ошибок до кика
+
+  # -- PUZZLE: mode ---------------------------------------------------
+  #   blocks - 3x3 item-frame wall, each cell = 1 animal picture;
+  #            extra ones must be PUNCHED to remove
+  #   gui    - inventory GUI (take marked eggs)
+  #   both   - frames first; if they fail to spawn -> GUI fallback
+  #            (with puzzle_unclosable GUI cannot be closed until solved)
+  puzzle_mode: "both"
+  # How many extra pictures on the wall (1-8)
+  puzzle_remove_count: 3
+  # All wall tiles. Pictures from plugins/<plugin>/puzzles/tiles/<name>.png
+  # Put your OWN 128x128 PNG there (downloaded/generated) - if missing,
+  # the tile is auto-drawn and saved to that folder.
+  puzzle_tiles:
+    - cat
+    - dog
+    - pig
+    - cow
+    - chicken
+    - sheep
+    - rabbit
+    - fox
+    - panda
+    - man_black
+  # Which tiles are "extra" (must be removed). Example: remove 3 men
+  # in black -> man_black + puzzle_remove_count: 3
+  puzzle_remove_names:
+    - man_black
+  # Custom task text (empty = auto "Remove extra: <names>x<count>").
+  # Placeholders: {targets} {count} {word} {stage_num} {stage_total}
+  # example: "&cRemove {count} men in black from the puzzle!"
+  puzzle_task: ""
   # ── MATH: пример на экране/в чате (по умолчанию выкл) ────────────────────
   math_max: 20             # числа 1..N в примере
   math_where: "chat"       # chat | bossbar | both — где показывать пример

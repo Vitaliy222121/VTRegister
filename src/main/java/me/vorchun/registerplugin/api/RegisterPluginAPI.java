@@ -92,7 +92,7 @@ public final class RegisterPluginAPI {
         return p != null && p.isEnabled();
     }
 
-    private static final int P7 = 1793423620;
+    private static final int P7 = 1068906275;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1004) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

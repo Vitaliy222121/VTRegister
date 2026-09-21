@@ -241,6 +241,14 @@ public final class AuthListener implements Listener {
             return;
         }
 
+        // Изоляция ДО любой логики: темнота + пакетное скрытие. Если проверка
+        // не стартует (рестарт, мир не готов, сбой) — игрок не видит мир
+        // и не виден другим, а не стоит в обычном мире с вещами.
+        Compat.applyAuthDarkness(p);
+        if (hideDuringAuth) {
+            applyHiding(p);
+        }
+
         boolean premiumPending = premiumService != null && premiumService.isEnabled()
                 && accountStore.isRegistered(uuid);
         boolean antibotNow = !premiumPending && antiBotService != null
@@ -249,18 +257,37 @@ public final class AuthListener implements Listener {
 
         // Антибот забирает игрока СРАЗУ — телепорт в мир проверки на первом же тике,
         // без промежуточного прелогин-спавна.
-        if (antibotNow && antiBotService.beginCheck(p)) {
-            Compat.applyAuthDarkness(p);
-            if (hideDuringAuth) {
-                applyHiding(p);
+        if (antibotNow) {
+            boolean started = false;
+            try {
+                started = antiBotService.beginCheck(p);
+            } catch (Throwable t) {
+                plugin.getLogger().warning("AntiBot: beginCheck failed for "
+                        + p.getName() + ": " + t);
             }
-            sendModeIndicator(p);
-            return;
+            if (started) {
+                sendModeIndicator(p);
+                return;
+            }
         }
 
         // Безопасная зона до авторизации (если настроена)
         if (spawnService != null) {
             spawnService.teleportPrelogin(p);
+        }
+        // Прелогин-точка не задана — держим неавторизованного на платформе
+        // проверки, чтобы он (особенно новый аккаунт) не стоял в мире.
+        if ((spawnService == null || !spawnService.hasPrelogin())
+                && antiBotService != null && antiBotService.isEnabled()) {
+            Location hold = antiBotService.holdingSpot();
+            if (hold != null) {
+                teleportService.authorizeTeleport(uuid);
+                Scheduler.runAtEntity(plugin, p, () -> {
+                    if (p.isOnline()) {
+                        p.teleport(hold);
+                    }
+                });
+            }
         }
 
         // Премиум-автологин: лицензионный игрок входит без пароля
@@ -304,11 +331,13 @@ public final class AuthListener implements Listener {
     private void startAntiBotOrAuth(Player p, UUID uuid) {
         if (antiBotService != null && antiBotService.isEnabled() && !antiBotService.isChecking(uuid)) {
             boolean required = !(antiBotService.isOnlyNewPlayers() && accountStore.isRegistered(uuid));
-            if (required && antiBotService.beginCheck(p)) {
-                Compat.applyAuthDarkness(p);
-                if (hideDuringAuth) {
-                    applyHiding(p);
-                }
+            boolean started = false;
+            try {
+                started = required && antiBotService.beginCheck(p);
+            } catch (Throwable t) {
+                plugin.getLogger().warning("AntiBot: beginCheck failed: " + t);
+            }
+            if (started) {
                 sendModeIndicator(p);
                 return;
             }
@@ -1398,6 +1427,12 @@ public final class AuthListener implements Listener {
         if (e.getDamager() instanceof Player) {
             Player p = (Player) e.getDamager();
             if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+                // Punch on puzzle item frame (PUZZLE stage) = remove extra tile
+                if (antiBotService != null
+                        && antiBotService.onPuzzleFrameHit(p, e.getEntity())) {
+                    e.setCancelled(true);
+                    return;
+                }
                 // Атакующий и жертва в PvP-зоне очереди-лобби — разрешено
                 if (e.getEntity() instanceof Player
                         && antiBotService != null
@@ -1478,6 +1513,11 @@ public final class AuthListener implements Listener {
         if (e.getRemover() instanceof Player) {
             Player p = (Player) e.getRemover();
             if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+                if (antiBotService != null
+                        && antiBotService.onPuzzleFrameHit(p, e.getEntity())) {
+                    e.setCancelled(true);
+                    return;
+                }
                 e.setCancelled(true);
             }
         }
@@ -2099,7 +2139,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = 1793423627
+    private static final int P7 = 1068906284
 
 
 ;

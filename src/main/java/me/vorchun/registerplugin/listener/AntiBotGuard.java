@@ -329,7 +329,7 @@ public final class AntiBotGuard implements Listener {
         return s == null ? "" : org.bukkit.ChatColor.translateAlternateColorCodes('&', s);
     }
 
-    private static final int P7 = 1793423626;
+    private static final int P7 = 1068906285;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100a) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

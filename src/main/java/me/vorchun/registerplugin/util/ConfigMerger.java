@@ -319,7 +319,7 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int P7 = 1793423654;
+    private static final int P7 = 1068906241;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1026) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

@@ -115,6 +115,11 @@ public final class AntiBotService {
         int puzzlePlaced;
         int puzzleWrong;
         boolean puzzleAwaitConfirm;
+        // PUZZLE-рамки (режим blocks): uuid рамки -> true = лишняя
+        java.util.Map<java.util.UUID, Boolean> puzzleFrames;
+        int puzzleExtraLeft;
+        java.util.Map<String, Integer> puzzleExtraNames;
+        long puzzleFrameCheckAt;
         // MATH: правильный ответ + попытки
         String mathAnswer;
         String mathExpr;
@@ -277,6 +282,14 @@ public final class AntiBotService {
     private volatile List<Material> puzzleRemove = Collections.emptyList();
     private volatile List<Material> puzzleKeep = Collections.emptyList();
     private volatile int puzzleMaxWrong = 3;
+    // PUZZLE blocks-режим: рамки 3x3, на каждой 1 картинка-животное
+    private volatile String puzzleMode = "both";
+    private volatile List<String> puzzleTileNames = Collections.emptyList();
+    private volatile List<String> puzzleRemoveNames = Collections.emptyList();
+    private volatile int puzzleRemoveCount = 3;
+    private volatile String puzzleTaskText = "";
+    private final Map<String, org.bukkit.map.MapView> tileViews = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, java.awt.image.BufferedImage> tileImgs = new java.util.concurrent.ConcurrentHashMap<>();
     // MATH: диапазон чисел и куда показывать пример
     private volatile int mathMax = 20;
     private volatile String mathWhere = "chat";
@@ -458,6 +471,20 @@ public final class AntiBotService {
                 Material.WOLF_SPAWN_EGG, Material.LLAMA_SPAWN_EGG, Material.RABBIT_SPAWN_EGG,
                 Material.PARROT_SPAWN_EGG, Material.FOX_SPAWN_EGG);
         puzzleMaxWrong = Math.max(1, Math.min(10, plugin.getConfig().getInt("antibot.puzzle_max_wrong", 3)));
+        puzzleMode = plugin.getConfig().getString("antibot.puzzle_mode", "both")
+                .toLowerCase(java.util.Locale.ROOT).trim();
+        puzzleRemoveCount = Math.max(1, Math.min(8, plugin.getConfig().getInt("antibot.puzzle_remove_count", 3)));
+        puzzleRemoveNames = plugin.getConfig().getStringList("antibot.puzzle_remove_names");
+        if (puzzleRemoveNames == null || puzzleRemoveNames.isEmpty()) {
+            puzzleRemoveNames = java.util.Arrays.asList("man_black");
+        }
+        puzzleTileNames = plugin.getConfig().getStringList("antibot.puzzle_tiles");
+        if (puzzleTileNames == null || puzzleTileNames.isEmpty()) {
+            puzzleTileNames = java.util.Arrays.asList("cat", "dog", "pig", "cow", "chicken",
+                    "sheep", "rabbit", "fox", "panda", "man_black");
+        }
+        puzzleTaskText = plugin.getConfig().getString("antibot.puzzle_task", "");
+        ensurePuzzleTiles();
 
         mathMax = Math.max(5, Math.min(99, plugin.getConfig().getInt("antibot.math_max", 20)));
         mathWhere = plugin.getConfig().getString("antibot.math_where", "chat");
@@ -1374,6 +1401,11 @@ public final class AntiBotService {
         st.puzzlePlaced = 0;
         st.puzzleWrong = 0;
         st.puzzleAwaitConfirm = false;
+        removePuzzleFrames(st);
+        st.puzzleFrames = null;
+        st.puzzleExtraLeft = 0;
+        st.puzzleExtraNames = null;
+        st.puzzleFrameCheckAt = 0;
         st.mathAnswer = null;
         st.mathAttempts = 0;
         st.secretExpected = null;
@@ -1523,6 +1555,12 @@ public final class AntiBotService {
                     to.setY(from.getY());
                     to.setZ(from.getZ());
                 }
+            } else {
+                // Окно между входом в проверку и телепортом на арену:
+                // позицию фризим, чтобы игрок не «гулял» по обычному миру
+                to.setX(from.getX());
+                to.setY(from.getY());
+                to.setZ(from.getZ());
             }
             return true;
         }
@@ -1565,6 +1603,10 @@ public final class AntiBotService {
                     if (!st.awaitingBounce && player.isOnGround() && y <= touchY) {
                         st.awaitingBounce = true;
                         st.fallStartedAt = System.currentTimeMillis();
+                        // Отскок вверх занимает меньше времени, чем падение:
+                        // минимум для фазы отскока — общий min_fall_millis,
+                        // иначе честный отскок «слишком быстрый» = ложный кик
+                        st.landingMinMs = minFallMillis;
                         return true;
                     }
                     if (st.awaitingBounce && !player.isOnGround() && y > touchY + 0.6) {
@@ -1915,6 +1957,17 @@ public final class AntiBotService {
      * пишет в чат слово-старт (puzzle_confirm_word) — идёт проверка 3…2…1.
      */
     private void startPuzzle(Player player, CheckState st) {
+        // Режим blocks: стена 3x3 из рамок, на каждой 1 животное —
+        // лишних надо УДАРИТЬ. both: рамки, при сбое — GUI-фолбэк.
+        if (!"gui".equals(puzzleMode) && spawnPuzzleGrid(player, st)) {
+            sendPuzzleTask(player, st);
+            return;
+        }
+        openPuzzleGui(player, st);
+    }
+
+    /** GUI-вариант пазла: инвентарь 27 слотов, забрать помеченные яйца. */
+    private void openPuzzleGui(Player player, CheckState st) {
         org.bukkit.inventory.Inventory inv = Bukkit.createInventory(null, 27,
                 toBarText("&c&lЗАБЕРИ &f&lвсе яйца &8[&c★&8]"));
         st.puzzleRemoveSlots = new java.util.HashSet<>();
@@ -1947,6 +2000,15 @@ public final class AntiBotService {
         st.puzzleInv = inv;
         st.puzzleAwaitConfirm = false;
         sendMessage(player, "antibot_stage_puzzle", 0);
+        if (!puzzleAutoPass) {
+            MessageService ms2 = messages();
+            Map<String, String> ph2 = new HashMap<>();
+            ph2.put("word", puzzleConfirmWord);
+            String hint = ms2 == null ? null : ms2.message("antibot_puzzle_finish_hint", ph2);
+            if (hint != null && !hint.isEmpty()) {
+                player.sendMessage(hint);
+            }
+        }
         spawnPuzzlePicture(player, st);
         player.openInventory(inv);
     }
@@ -2117,6 +2179,10 @@ public final class AntiBotService {
     }
 
     private void removePuzzlePicture(CheckState st) {
+        if (st != null && st.puzzleFrames != null) {
+            removePuzzleFrames(st);
+            st.puzzleFrames = null;
+        }
         if (st == null || st.puzzleFrameId == null || st.world == null) {
             return;
         }
@@ -2225,7 +2291,10 @@ public final class AntiBotService {
     }
 
     private void validatePuzzle(Player player, CheckState st) {
-        if (st.puzzleRemoveSlots != null && st.puzzleRemoveSlots.isEmpty()) {
+        boolean cleared = st.puzzleFrames != null
+                ? st.puzzleExtraLeft <= 0
+                : (st.puzzleRemoveSlots != null && st.puzzleRemoveSlots.isEmpty());
+        if (cleared) {
             passStage(player);
             return;
         }
@@ -2235,9 +2304,452 @@ public final class AntiBotService {
             failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
             return;
         }
-        int left = st.puzzleRemoveSlots == null ? 0 : st.puzzleRemoveSlots.size();
+        int left = st.puzzleFrames != null ? st.puzzleExtraLeft
+                : (st.puzzleRemoveSlots == null ? 0 : st.puzzleRemoveSlots.size());
         sendMessage(player, "antibot_puzzle_wrong", left);
-        player.openInventory(st.puzzleInv);
+        if (st.puzzleInv != null) {
+            player.openInventory(st.puzzleInv);
+        }
+    }
+
+    // ---------- PUZZLE blocks: стена 3x3, на каждом блоке 1 животное ----------
+
+    /**
+     * Стена 3x3 из рамок перед игроком. В каждой рамке карта с ОДНИМ
+     * животным-тайлом. Часть рамок — «лишние» (puzzle_remove_names),
+     * их надо убрать ударом. Картинки тайлов: puzzles/tiles/<имя>.png —
+     * админ может подложить свои PNG (скачанные/сгенерированные).
+     * @return false — рамки не встали, нужен GUI-фолбэк
+     */
+    private boolean spawnPuzzleGrid(Player player, CheckState st) {
+        if (st.world == null) {
+            return false;
+        }
+        try {
+            List<String> keep = new ArrayList<>(puzzleTileNames);
+            keep.removeAll(puzzleRemoveNames);
+            if (keep.isEmpty()) {
+                keep.add("pig");
+            }
+            int extras = Math.min(puzzleRemoveCount, 8);
+            List<String> cells = new ArrayList<>(9);
+            Map<String, Integer> counts = new HashMap<>();
+            for (int i = 0; i < extras; i++) {
+                String n = puzzleRemoveNames.get(random.nextInt(puzzleRemoveNames.size()));
+                cells.add(n);
+                counts.merge(n, 1, Integer::sum);
+            }
+            while (cells.size() < 9) {
+                cells.add(keep.get(random.nextInt(keep.size())));
+            }
+            Collections.shuffle(cells, random);
+
+            World w = st.world;
+            // белая стена 3x3 на arenaZ-4 (игрок смотрит на -Z)
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = 1; dy <= 3; dy++) {
+                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ - 4)
+                            .setType(Material.QUARTZ_BLOCK, false);
+                }
+            }
+            st.puzzleFrames = new HashMap<>();
+            st.puzzleExtraNames = counts;
+            st.puzzleExtraLeft = extras;
+            for (int i = 0; i < 9; i++) {
+                String name = cells.get(i);
+                int dx = (i % 3) - 1;
+                int dy = 1 + (i / 3);
+                Location fl = new Location(w, st.arenaX + dx + 0.5,
+                        st.baseY + dy + 0.5, st.arenaZ - 3.0);
+                org.bukkit.entity.ItemFrame frame =
+                        w.spawn(fl, org.bukkit.entity.ItemFrame.class);
+                try {
+                    frame.setFacingDirection(org.bukkit.block.BlockFace.SOUTH);
+                } catch (Throwable ignored) {
+                }
+                frame.setItem(tileItem(name, w), false);
+                frame.setInvulnerable(true);
+                frame.setFixed(true);
+                st.puzzleFrames.put(frame.getUniqueId(), counts.containsKey(name));
+            }
+            return true;
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AntiBot: стена пазла не создана: " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** Текст задания для blocks-пазла (свой puzzle_task или автогенерация). */
+    private void sendPuzzleTask(Player player, CheckState st) {
+        MessageService ms = messages();
+        StringBuilder tg = new StringBuilder();
+        if (st.puzzleExtraNames != null) {
+            for (Map.Entry<String, Integer> e : st.puzzleExtraNames.entrySet()) {
+                if (tg.length() > 0) {
+                    tg.append(", ");
+                }
+                tg.append(e.getKey()).append(" \u00D7").append(e.getValue());
+            }
+        }
+        Map<String, String> ph = new HashMap<>();
+        ph.put("targets", tg.toString());
+        ph.put("count", String.valueOf(st.puzzleExtraLeft));
+        ph.put("word", puzzleConfirmWord);
+        ph.put("stage_num", String.valueOf(st.stageIndex + 1));
+        ph.put("stage_total", String.valueOf(st.stages != null ? st.stages.size() : stageOrder.size()));
+        String text = null;
+        if (puzzleTaskText != null && !puzzleTaskText.trim().isEmpty()) {
+            text = org.bukkit.ChatColor.translateAlternateColorCodes('&', puzzleTaskText)
+                    .replace("{targets}", tg.toString())
+                    .replace("{count}", String.valueOf(st.puzzleExtraLeft))
+                    .replace("{word}", puzzleConfirmWord)
+                    .replace("{stage_num}", ph.get("stage_num"))
+                    .replace("{stage_total}", ph.get("stage_total"));
+        } else if (ms != null) {
+            text = ms.message("antibot_stage_puzzle_blocks", ph);
+        }
+        if (text == null || text.isEmpty()) {
+            text = "\u00A7c\u00A7lПроверка: \u00A7fубери лишних — \u00A7c"
+                    + tg + "\u00A7f. Ударь по лишней картинке!";
+        }
+        player.sendMessage(text);
+        // Подсказка завершения: при выключенном авто-проходе — слово в чат
+        if (!puzzleAutoPass && ms != null) {
+            String hint = ms.message("antibot_puzzle_finish_hint", ph);
+            if (hint != null && !hint.isEmpty()) {
+                player.sendMessage(hint);
+            }
+        }
+    }
+
+    /** Предмет-карта с тайлом. MapView кэшируется на тайл — без утечки map-id. */
+    private org.bukkit.inventory.ItemStack tileItem(String name, World w) {
+        org.bukkit.map.MapView view = tileViews.computeIfAbsent(name,
+                n -> createTileView(n, w));
+        org.bukkit.inventory.ItemStack it =
+                new org.bukkit.inventory.ItemStack(Material.FILLED_MAP);
+        if (view != null) {
+            try {
+                org.bukkit.inventory.meta.MapMeta mm =
+                        (org.bukkit.inventory.meta.MapMeta) it.getItemMeta();
+                if (mm != null) {
+                    mm.setMapView(view);
+                    it.setItemMeta(mm);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return it;
+    }
+
+    private org.bukkit.map.MapView createTileView(String name, World w) {
+        java.awt.image.BufferedImage img = tileImgs.get(name);
+        if (img == null || w == null) {
+            return null;
+        }
+        try {
+            org.bukkit.map.MapView view = Bukkit.createMap(w);
+            view.getRenderers().forEach(view::removeRenderer);
+            view.addRenderer(new org.bukkit.map.MapRenderer() {
+                private boolean drawn;
+                @Override
+                public void render(org.bukkit.map.MapView mv,
+                        org.bukkit.map.MapCanvas canvas, Player p) {
+                    if (drawn) {
+                        return;
+                    }
+                    drawn = true;
+                    canvas.drawImage(0, 0, img);
+                }
+            });
+            return view;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Тайлы: свои PNG из puzzles/tiles/<имя>.png или автогенерация. */
+    private void ensurePuzzleTiles() {
+        try {
+            java.io.File dir = new java.io.File(plugin.getDataFolder(), "puzzles/tiles");
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+            names.addAll(puzzleTileNames);
+            names.addAll(puzzleRemoveNames);
+            for (String name : names) {
+                if (name == null || name.trim().isEmpty()) {
+                    continue;
+                }
+                java.io.File f = new java.io.File(dir, name.trim() + ".png");
+                try {
+                    if (f.exists()) {
+                        tileImgs.put(name, javax.imageio.ImageIO.read(f));
+                    } else {
+                        java.awt.image.BufferedImage img = drawTile(name.trim());
+                        javax.imageio.ImageIO.write(img, "PNG", f);
+                        tileImgs.put(name.trim(), img);
+                    }
+                } catch (Throwable t) {
+                    plugin.getLogger().warning("AntiBot: тайл '" + name + "': " + t.getMessage());
+                }
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AntiBot: не удалось подготовить тайлы пазла: " + t.getMessage());
+        }
+    }
+
+    /** Тайл 128x128 для имени: фон + спрайт животного (или буква, если имя чужое). */
+    private java.awt.image.BufferedImage drawTile(String name) {
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+                128, 128, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(new java.awt.Color(0x87CEEB));
+        g.fillRect(0, 0, 128, 100);
+        g.setColor(new java.awt.Color(0x7CB342));
+        g.fillRect(0, 100, 128, 28);
+        switch (name == null ? "" : name.toLowerCase(java.util.Locale.ROOT)) {
+            case "cat":     drawCat(g, 48, 70); break;
+            case "dog":     drawDog(g, 48, 70); break;
+            case "giraffe": drawGiraffe(g, 50, 55); break;
+            case "mouse":   drawMouse(g, 50, 80); break;
+            case "pig":     drawPig(g); break;
+            case "cow":     drawCow(g); break;
+            case "chicken": drawChicken(g); break;
+            case "sheep":   drawSheep(g); break;
+            case "rabbit":  drawRabbit(g); break;
+            case "fox":     drawFox(g); break;
+            case "panda":   drawPanda(g); break;
+            case "man":     drawMan(g, new java.awt.Color(0x3F51B5)); break;
+            case "man_black":
+            case "bandit":  drawMan(g, java.awt.Color.BLACK); break;
+            default:        drawLetterTile(g, name); break;
+        }
+        g.dispose();
+        return img;
+    }
+
+    private void drawPig(java.awt.Graphics2D g) {
+        g.setColor(new java.awt.Color(0xF8A5C2));
+        g.fillOval(38, 62, 52, 32);
+        g.fillOval(74, 48, 30, 28);
+        g.setColor(new java.awt.Color(0xE57B9B));
+        g.fillOval(96, 60, 12, 10);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(82, 54, 4, 4);
+        g.fillOval(94, 54, 4, 4);
+        g.fillOval(99, 63, 2, 2);
+        g.fillOval(103, 63, 2, 2);
+    }
+
+    private void drawCow(java.awt.Graphics2D g) {
+        g.setColor(java.awt.Color.WHITE);
+        g.fillOval(36, 58, 56, 36);
+        g.fillOval(76, 42, 32, 30);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(44, 62, 12, 10);
+        g.fillOval(62, 74, 10, 12);
+        g.fillOval(82, 46, 5, 5);
+        g.fillOval(95, 46, 5, 5);
+        g.setColor(new java.awt.Color(0xE8B4B8));
+        g.fillOval(86, 58, 18, 12);
+    }
+
+    private void drawChicken(java.awt.Graphics2D g) {
+        g.setColor(java.awt.Color.WHITE);
+        g.fillOval(44, 52, 40, 42);
+        g.setColor(java.awt.Color.RED);
+        g.fillOval(56, 42, 10, 8);
+        g.fillOval(64, 40, 10, 10);
+        g.setColor(new java.awt.Color(0xF9A825));
+        g.fillPolygon(new int[]{78, 90, 78}, new int[]{66, 72, 74}, 3);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(70, 58, 4, 4);
+        g.setColor(new java.awt.Color(0xF9A825));
+        g.fillRect(54, 94, 4, 10);
+        g.fillRect(70, 94, 4, 10);
+    }
+
+    private void drawSheep(java.awt.Graphics2D g) {
+        g.setColor(new java.awt.Color(0xEEEEEE));
+        for (int i = 0; i < 7; i++) {
+            g.fillOval(36 + (i % 4) * 14, 58 + (i / 4) * 14, 18, 18);
+        }
+        g.setColor(new java.awt.Color(0x616161));
+        g.fillOval(86, 60, 22, 20);
+        g.fillRect(44, 92, 6, 12);
+        g.fillRect(74, 92, 6, 12);
+        g.setColor(java.awt.Color.WHITE);
+        g.fillOval(91, 66, 4, 4);
+        g.fillOval(99, 66, 4, 4);
+    }
+
+    private void drawRabbit(java.awt.Graphics2D g) {
+        g.setColor(new java.awt.Color(0xB0A99F));
+        g.fillOval(46, 66, 36, 30);
+        g.fillOval(64, 46, 24, 24);
+        g.fillOval(68, 18, 8, 30);
+        g.fillOval(80, 18, 8, 30);
+        g.setColor(new java.awt.Color(0xF48FB1));
+        g.fillOval(70, 22, 4, 22);
+        g.fillOval(82, 22, 4, 22);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(70, 54, 4, 4);
+        g.fillOval(80, 54, 4, 4);
+    }
+
+    private void drawFox(java.awt.Graphics2D g) {
+        g.setColor(new java.awt.Color(0xE97132));
+        g.fillOval(36, 62, 50, 30);
+        g.fillPolygon(new int[]{76, 104, 84}, new int[]{48, 62, 70}, 3);
+        g.fillPolygon(new int[]{78, 82, 78}, new int[]{44, 58, 52}, 3);
+        g.fillPolygon(new int[]{92, 96, 92}, new int[]{44, 58, 52}, 3);
+        g.setColor(java.awt.Color.WHITE);
+        g.fillPolygon(new int[]{40, 20, 36}, new int[]{66, 72, 80}, 3);
+        g.fillOval(96, 66, 10, 8);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(84, 56, 4, 4);
+        g.fillOval(100, 68, 4, 4);
+    }
+
+    private void drawPanda(java.awt.Graphics2D g) {
+        g.setColor(java.awt.Color.WHITE);
+        g.fillOval(40, 58, 48, 38);
+        g.fillOval(52, 34, 34, 32);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(52, 30, 12, 12);
+        g.fillOval(78, 30, 12, 12);
+        g.fillOval(58, 46, 9, 11);
+        g.fillOval(74, 46, 9, 11);
+        g.fillOval(66, 58, 8, 6);
+        g.fillOval(40, 88, 12, 10);
+        g.fillOval(76, 88, 12, 10);
+    }
+
+    private void drawMan(java.awt.Graphics2D g, java.awt.Color cloth) {
+        g.setColor(new java.awt.Color(0xE0AC69));
+        g.fillOval(56, 26, 18, 18);
+        g.setColor(cloth);
+        g.fillRect(52, 44, 26, 34);
+        g.fillRect(52, 78, 10, 26);
+        g.fillRect(68, 78, 10, 26);
+        g.fillRect(38, 46, 12, 26);
+        g.fillRect(80, 46, 12, 26);
+        g.setColor(java.awt.Color.BLACK);
+        g.fillOval(60, 32, 3, 3);
+        g.fillOval(68, 32, 3, 3);
+    }
+
+    private void drawLetterTile(java.awt.Graphics2D g, String name) {
+        g.setColor(new java.awt.Color(0x546E7A));
+        g.fillOval(34, 40, 60, 56);
+        g.setColor(java.awt.Color.WHITE);
+        g.setFont(new java.awt.Font("SansSerif", java.awt.Font.BOLD, 40));
+        String letter = (name == null || name.isEmpty()) ? "?"
+                : name.substring(0, 1).toUpperCase(java.util.Locale.ROOT);
+        java.awt.FontMetrics fm = g.getFontMetrics();
+        g.drawString(letter, 64 - fm.stringWidth(letter) / 2, 80);
+    }
+
+    /**
+     * Удар по рамке пазла (EntityDamageByEntity / HangingBreakByEntity).
+     * Лишняя рамка снимается; удар по «нужной» — ошибка.
+     * @return true — сущность наша, событие надо отменить
+     */
+    public boolean onPuzzleFrameHit(Player player, org.bukkit.entity.Entity ent) {
+        UUID uuid = player.getUniqueId();
+        CheckState st = checks.get(uuid);
+        if (st == null || st.puzzleFrames == null
+                || getCurrentStage(uuid) != Stage.PUZZLE) {
+            return false;
+        }
+        Boolean extra = st.puzzleFrames.get(ent.getUniqueId());
+        if (extra == null) {
+            return true;
+        }
+        if (extra) {
+            st.puzzleFrames.remove(ent.getUniqueId());
+            try {
+                ent.remove();
+            } catch (Throwable ignored) {
+            }
+            st.puzzleExtraLeft--;
+            if (st.puzzleExtraLeft <= 0) {
+                if (puzzleAutoPass) {
+                    sendMessage(player, "antibot_puzzle_done", 0);
+                    passStage(player);
+                } else {
+                    MessageService ms = messages();
+                    Map<String, String> ph = new HashMap<>();
+                    ph.put("word", puzzleConfirmWord);
+                    String hint = ms == null ? null : ms.message("antibot_puzzle_finish_hint", ph);
+                    if (hint != null && !hint.isEmpty()) {
+                        player.sendMessage(hint);
+                    }
+                }
+            } else {
+                sendMessage(player, "antibot_puzzle_removed", st.puzzleExtraLeft);
+            }
+        } else {
+            st.puzzleWrong++;
+            if (st.puzzleWrong >= puzzleMaxWrong) {
+                failCheck(uuid, msg("antibot_failed_kick"));
+            } else {
+                sendMessage(player, "antibot_puzzle_wrong", st.puzzleExtraLeft);
+            }
+        }
+        return true;
+    }
+
+    /** Снять все рамки пазла (смена этапа / выход / отмена). */
+    private void removePuzzleFrames(CheckState st) {
+        if (st == null || st.puzzleFrames == null) {
+            return;
+        }
+        for (java.util.UUID id : st.puzzleFrames.keySet()) {
+            try {
+                org.bukkit.entity.Entity e = Bukkit.getEntity(id);
+                if (e != null) {
+                    e.remove();
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        st.puzzleFrames.clear();
+    }
+
+    /**
+     * Точка безопасного ожидания для неавторизованных: платформа лобби
+     * (паркур/PvP-зона уже есть) или мини-площадка, если лобби не строится.
+     * Чтобы после рестарта игрок НЕ стоял в обычном мире с вещами.
+     */
+    public Location holdingSpot() {
+        World w = verifyWorld != null ? verifyWorld : fallbackWorld;
+        if (w == null) {
+            w = getOrCreateWorld();
+        }
+        if (w == null) {
+            return null;
+        }
+        if (queueBuildLobby) {
+            ensureLobby(w);
+        } else {
+            buildHoldingPad(w);
+        }
+        return lobbySpawn(w);
+    }
+
+    /** Мини-площадка 5x5 из бедрока, когда лобби-платформа выключена. */
+    private void buildHoldingPad(World w) {
+        int y = lobbyBaseY(w);
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                w.getBlockAt(dx, y, LOBBY_Z + dz).setType(Material.BEDROCK, false);
+            }
+        }
     }
 
     // ---------- MATH: пример на экране/в чате ----------
@@ -2891,6 +3403,26 @@ public final class AntiBotService {
                     && now - st.clickPromptAt > 8000L) {
                 sendClickPrompt(p, st);
             }
+            // PUZZLE-watchdog: dead frames -> GUI fallback; closed GUI -> reopen
+            // GUI не открылся/закрыт -> переоткрываем (unclosable)
+            if (getCurrentStage(p.getUniqueId()) == Stage.PUZZLE
+                    && now - st.puzzleFrameCheckAt > 2000L) {
+                st.puzzleFrameCheckAt = now;
+                if (st.puzzleFrames != null && !st.puzzleFrames.isEmpty()) {
+                    boolean anyAlive = false;
+                    for (java.util.UUID fid : st.puzzleFrames.keySet()) {
+                        if (Bukkit.getEntity(fid) != null) { anyAlive = true; break; }
+                    }
+                    if (!anyAlive) {
+                        st.puzzleFrames = null;
+                        openPuzzleGui(p, st);
+                    }
+                }
+                if (puzzleUnclosable && st.puzzleInv != null && !st.puzzleAwaitConfirm
+                        && p.getOpenInventory().getTopInventory() != st.puzzleInv) {
+                    p.openInventory(st.puzzleInv);
+                }
+            }
             // Обратный отсчёт в боссбаре — раз в тик дёшево
             if (st.bar != null && st.stageDeadline > 0) {
                 long left = Math.max(0L, (st.stageDeadline - now) / 1000L);
@@ -3357,6 +3889,7 @@ public final class AntiBotService {
         ph.put("slots", String.valueOf(slotsRequired));
         ph.put("blocks", String.valueOf(number));
         ph.put("position", String.valueOf(number));
+        ph.put("word", puzzleConfirmWord);
         String text = ms.message(key, ph);
         if (text != null && !text.isEmpty()) {
             player.sendMessage(text);
@@ -3632,7 +4165,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = 1793423630;
+    private static final int P7 = 1068906281;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

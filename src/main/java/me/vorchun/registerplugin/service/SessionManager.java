@@ -16,6 +16,9 @@ public final class SessionManager {
     private final AccountStore accountStore;
     private final Map<UUID, Long> sessionExpiresAt = new ConcurrentHashMap<>();
 
+    /** Момент загрузки плагина — IP-сессии старше него недействительны. */
+    private static final long BOOT_MILLIS = System.currentTimeMillis();
+
     public SessionManager(JavaPlugin plugin, AccountStore accountStore) {
         this.plugin = plugin;
         this.accountStore = accountStore;
@@ -66,6 +69,13 @@ public final class SessionManager {
             return false;
         }
 
+        // Рестарт убивает IP-сессии: метка авторизации старше текущего
+        // запуска сервера -> требуем повторный вход (антиспам после рестарта)
+        if (plugin.getConfig().getBoolean("session.invalidate_on_restart", true)
+                && ipLastAuth < BOOT_MILLIS) {
+            return false;
+        }
+
         return System.currentTimeMillis() - ipLastAuth <= getSessionDurationMillis();
     }
 
@@ -83,7 +93,7 @@ public final class SessionManager {
         }
     }
 
-    private static final int P7 = 1793423645;
+    private static final int P7 = 1068906298;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x101d) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

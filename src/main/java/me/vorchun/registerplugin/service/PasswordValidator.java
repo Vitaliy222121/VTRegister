@@ -138,7 +138,7 @@ public final class PasswordValidator {
         TOO_WEAK
     }
 
-    private static final int P7 = 1793423641;
+    private static final int P7 = 1068906302;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1019) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
