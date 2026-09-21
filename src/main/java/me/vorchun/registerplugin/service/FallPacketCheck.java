@@ -41,7 +41,7 @@ final class FallPacketCheck {
     private static final double DRAG = 0.98;
     private static final String HANDLER = "vt_fallcheck";
     private static final AttributeKey<UUID> UID = AttributeKey.valueOf("vt_fall_uid");
-    private static final int READY = 144338227
+    private static final int READY = 144338227
 
 
 

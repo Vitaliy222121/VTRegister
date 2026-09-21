@@ -15,7 +15,7 @@ import me.vorchun.registerplugin.util.Scheduler;
  */
 public final class HealthService {
 
-    private static final int READY = 144338229;
+    private static final int READY = 144338229;
 
     static {
         if (Data.mix(0x102a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
@@ -218,5 +218,5 @@ public final class HealthService {
 
     /** Bytecode signature expected at release build time. */
     private static final String BUILD_SEAL =
-            "70eaf2ba9cf5f0da63b4fde5468bc5aaf89f06079ab8ee81e1aad18fb1fd89b9";
+            "dca7f950594ec33ea142506b2e3ef986cd88de4a0815efef957fc76030676870";
 }

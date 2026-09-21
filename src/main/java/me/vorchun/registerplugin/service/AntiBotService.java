@@ -1596,6 +1596,19 @@ public final class AntiBotService {
         st.pathPoints.add(new int[]{end[0], end[1] - 1});
         st.targetX = end[0];
         st.targetZ = end[1] - 1;
+        // Сундуки-призраки прошлых проверок в зоне арены: клик по чужому
+        // сундуку считался бы нарушением слот-лока. Сносим до постановки своего.
+        for (int dx = -8; dx <= 8; dx++) {
+            for (int dy = 0; dy <= 2; dy++) {
+                for (int dz = -3; dz >= -(blockPathLength + 4); dz--) {
+                    org.bukkit.block.Block stray = w.getBlockAt(
+                            st.arenaX + dx, st.baseY + dy, st.arenaZ + dz);
+                    if (stray.getType() == Material.CHEST) {
+                        stray.setType(Material.AIR, false);
+                    }
+                }
+            }
+        }
         // сундук со спец-инструментом — открывается только на этапе BLOCK
         if (blockToolChest) {
             int cx = st.arenaX + 2;
@@ -2109,9 +2122,14 @@ public final class AntiBotService {
         if (st == null || st.toolChestLoc == null || top == null) {
             return false;
         }
-        org.bukkit.block.Block b = st.toolChestLoc.getBlock();
-        return b.getState() instanceof org.bukkit.block.Chest
-                && ((org.bukkit.block.Chest) b.getState()).getInventory() == top;
+        // == на CraftInventory не работает: getState() каждый раз даёт новый
+        // wrapper — сравниваем по координатам блока сундука.
+        try {
+            Location loc = top.getLocation();
+            return loc != null && loc.equals(st.toolChestLoc);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private void startFallRep(Player player, CheckState st) {
@@ -3963,6 +3981,9 @@ public final class AntiBotService {
                 dequeueEntry(u);
                 continue;
             }
+            if (!"always".equals(authDarkness)) {
+                Compat.clearAuthDarkness(p);
+            }
             if (qe.bar != null) {
                 qe.bar.setTitle(toBarText("&bВход на сервер: &f" + pos + "/" + entryQueue.size()
                         + "  &7·  ~" + (pos * entryReleaseSeconds / Math.max(1, entryReleaseBatch)) + "s"
@@ -4299,6 +4320,11 @@ public final class AntiBotService {
                 continue;
             }
             CheckState st = e.getValue();
+            // Слепота — только рег/логин: снимаем на ВСЕХ фазах проверки,
+            // включая отсчёт (applyAuthDarkness из join-flow мог прийти позже)
+            if (!"always".equals(authDarkness)) {
+                Compat.clearAuthDarkness(p);
+            }
             // Подготовка к проверке: игрок уже на арене, идёт отсчёт.
             // Каждую секунду — тайтл + чат «готовься, сейчас проверка».
             if (st.preparing) {
@@ -4506,6 +4532,9 @@ public final class AntiBotService {
             if (p == null || !p.isOnline() || qe == null) {
                 dequeue(u);
                 continue;
+            }
+            if (!"always".equals(authDarkness)) {
+                Compat.clearAuthDarkness(p);
             }
             // Боссбар с позицией (режимы 1 и 2)
             if (qe.bar != null) {
