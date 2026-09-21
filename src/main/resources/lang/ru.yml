@@ -80,6 +80,7 @@ messages:
   antibot_stage_slots: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0переключи слот хотбара {slots} раз(а) (колёсико/цифры 1-9)"
   antibot_slots_force: "{prefix}&#FFFF66Теперь прокрути колесо мыши на ОДИН слот &#7F7F7F(проверка управления)"
   antibot_slots_retry: "{prefix}&#FF6666Не получилось. Прокрути колесо мыши ещё раз на один слот."
+  antibot_slots_other: "{prefix}&#FFFF66Переключись на ДРУГОЙ слот, не на тот что был — &#7F7F7Fантичит"
   antibot_stage_captcha: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: напиши в чат код &#A0FFA0{code}"
   antibot_stage_click: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0[НАЖМИ СЮДА] &#7F7F7Fдля завершения"
   antibot_stage_block: "{prefix}&#FFFFFFПроверка {stage_num}/{stage_total}: &#A0FFA0возьми инструмент из сундука, пройди по пути и сломай блок"

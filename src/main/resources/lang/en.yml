@@ -75,6 +75,7 @@ messages:
   antibot_stage_slots: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0switch your hotbar slot {slots} time(s)"
   antibot_slots_force: "{prefix}&#FFFF66Now scroll your mouse wheel by ONE slot &#7F7F7F(input check)"
   antibot_slots_retry: "{prefix}&#FF6666Not detected. Scroll your wheel one more slot."
+  antibot_slots_other: "{prefix}&#FFFF66Switch to a DIFFERENT slot, not the previous one &#7F7F7F(anti-cheat)"
   antibot_stage_captcha: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: type the code &#A0FFA0{code}"
   antibot_stage_click: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0[CLICK HERE] &#7F7F7Fto finish"
   antibot_stage_block: "{prefix}&#FFFFFFCheck {stage_num}/{stage_total}: &#A0FFA0take the tool from the chest, follow the path and break the block"

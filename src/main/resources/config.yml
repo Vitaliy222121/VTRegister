@@ -381,6 +381,14 @@ antibot:
   min_answer_ms: 400
   # Клик по кликабельному сообщению быстрее N мс после показа = бот (0 = выкл)
   min_click_ms: 100
+  # Молчание после принудительной смены слота дольше N мс = чит
+  # игнорирует серверный forced-слот (NoSlotChange). Повтор, затем кик.
+  slots_response_ms: 8000
+  # Возвратов на слот, стоявший до форса (re-lock чит), до кика
+  slot_relock_max: 4
+  # Камера: ПОДРЯД резкие повороты > N градусов за пакет = спин-бот
+  camera_snap_degrees: 60
+  camera_snap_max: 4
   slot_lock:
     enabled: true
     kick_after: 5

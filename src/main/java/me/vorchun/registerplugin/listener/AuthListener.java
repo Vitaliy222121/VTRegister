@@ -577,8 +577,15 @@ public final class AuthListener implements Listener {
         // заблокированы, кроме /rpverify <токен> и команд авторизации
         // (/login /register) — вход из лобби-очереди должен работать.
         if (!loggedIn && antiBotService != null && antiBotService.isBusy(uuid)) {
-            if (isAuthCmd) {
+            if (isAuthCmd && !antiBotService.isChecking(uuid)) {
                 // пропускаем к обычной обработке ниже — логин из очереди
+            } else if (isAuthCmd) {
+                // Активная проверка: /login /reg подменили бы ввод ответа
+                // этапа на ввод пароля — блокируем до конца проверки.
+                e.setCancelled(true);
+                messages.sendOrDefault(p, "antibot_wait",
+                        "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате");
+                return;
             } else {
                 e.setCancelled(true);
                 if (cleanBase.equals("rpverify") && sp >= 0) {
@@ -853,9 +860,22 @@ public final class AuthListener implements Listener {
             // В мире лобби/проверки разрешены клики по воздуху и удары:
             // одеть броню ПКМ, поесть, размахнуться мечом. Открытие чужих
             // блоков (RIGHT_CLICK_BLOCK) остаётся запрещённым.
-            if (antiBotService != null && antiBotService.isCheckWorld(e.getPlayer().getWorld())
-                    && e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK) {
-                return;
+            if (antiBotService != null && antiBotService.isCheckWorld(e.getPlayer().getWorld())) {
+                if (e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK) {
+                    return;
+                }
+                // ПКМ по блоку с бронёй/едой/щитом в руке — это одевание/еда,
+                // а не открытие блока: разрешаем
+                org.bukkit.inventory.ItemStack hand = e.getItem();
+                if (hand != null) {
+                    String hn = hand.getType().name();
+                    if (hand.getType().isEdible() || hn.endsWith("_HELMET")
+                            || hn.endsWith("_CHESTPLATE") || hn.endsWith("_LEGGINGS")
+                            || hn.endsWith("_BOOTS") || hn.equals("SHIELD")
+                            || hn.equals("TOTEM_OF_UNDYING")) {
+                        return;
+                    }
+                }
             }
             e.setCancelled(true);
             e.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
@@ -2258,6 +2278,15 @@ public final class AuthListener implements Listener {
             }
             return;
         }
+        // Игрок лобби-очереди (паркур/PvP): возрождается на спавне лобби —
+        // не на prelogin-точке и не в обычном мире
+        if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())) {
+            org.bukkit.Location ls = antiBotService.lobbySpawnLocation();
+            if (ls != null) {
+                e.setRespawnLocation(ls);
+                return;
+            }
+        }
         // Игрок в антибот-проверке: даже смерть не выпускает его в обычный мир,
         // он возвращается на арену и продолжает проходить этапы
         if (antiBotService != null && antiBotService.returnToCheckOnRespawn(p)) {
@@ -2283,7 +2312,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = -1404999396
+    private static final int P7 = -530440468
 
 
 ;

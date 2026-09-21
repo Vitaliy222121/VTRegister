@@ -564,7 +564,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         return r != null && !r.getName().isEmpty() ? r.getName() : p.getUniqueId().toString();
     }
 
-    private static final int P7 = -1404999406
+    private static final int P7 = -530440478
 
 
 

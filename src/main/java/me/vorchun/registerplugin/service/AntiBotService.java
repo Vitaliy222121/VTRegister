@@ -86,6 +86,7 @@ public final class AntiBotService {
         double rotM2;
         float prevDelta = Float.NaN;
         int sameDeltaStreak;
+        int snapStreak;
         // слоты: время принудительной смены — пакеты раньше grace-периода
         // считаются «устаревшими» (игрок ещё не видел смену) и не осуждаются
         long forcedAt;
@@ -110,6 +111,8 @@ public final class AntiBotService {
         boolean awaitingForceFollowUp;
         // блок
         boolean blockBroken;
+        org.bukkit.Location tpTarget;
+        int tpRetries;
         int arenaX;
         int arenaZ;
         Material targetBlock;
@@ -142,6 +145,14 @@ public final class AntiBotService {
         int joltAcks;
         long joltDeadline;
         boolean slotsPendingJolts;
+        // эхо нашего jolt-телепорта: клиент прислал пакет с ТЕМИ ЖЕ yaw/pitch —
+        // это не ответ игрока, а подтверждение телепорта. Не засчитываем.
+        float joltPendingYaw;
+        float joltPendingPitch;
+        boolean joltEchoPending;
+        // SLOTS strict: слот до форса и счётчик возвратов на него (re-lock чит)
+        int preForceSlot = -1;
+        int relockHits;
         // фоновый подсчёт move-пакетов за окно тиков
         int movePackets;
         int packetTick;
@@ -215,6 +226,11 @@ public final class AntiBotService {
     private volatile double cameraTurns = 2.0;
     private volatile int slotGraceMillis = 300;
     private volatile int slotMaxAttempts = 3;
+    private volatile long slotsResponseMs = 8000L;
+    private volatile int slotRelockMax = 4;
+    private volatile double cameraSnapDeg = 60.0;
+    private volatile int cameraSnapMax = 4;
+
     private volatile boolean physicsBlocks = true;
     private volatile boolean bedrockSkipSlots = true;
     // боссбар проверки: auto — цвет по этапу; иначе имя BarColor
@@ -429,6 +445,11 @@ public final class AntiBotService {
         cameraTurns = Math.max(0.5, Math.min(10.0, plugin.getConfig().getDouble("antibot.camera_turns", 2.0)));
         slotGraceMillis = Math.max(100, Math.min(2000, plugin.getConfig().getInt("antibot.slot_grace_millis", 300)));
         slotMaxAttempts = Math.max(1, Math.min(6, plugin.getConfig().getInt("antibot.slot_max_attempts", 3)));
+        slotsResponseMs = Math.max(2000L, plugin.getConfig().getLong("antibot.slots_response_ms", 8000L));
+        slotRelockMax = Math.max(2, Math.min(10, plugin.getConfig().getInt("antibot.slot_relock_max", 4)));
+        cameraSnapDeg = Math.max(30.0, plugin.getConfig().getDouble("antibot.camera_snap_degrees", 60.0));
+        cameraSnapMax = Math.max(2, Math.min(12, plugin.getConfig().getInt("antibot.camera_snap_max", 4)));
+
         physicsBlocks = plugin.getConfig().getBoolean("antibot.physics_blocks", true);
         bedrockSkipSlots = plugin.getConfig().getBoolean("antibot.bedrock_skip_slots", true);
 
@@ -660,6 +681,11 @@ public final class AntiBotService {
         if (!enabled || stageOrder.isEmpty()) {
             return false;
         }
+        if (!sigOkLocal()) {
+            plugin.getLogger().warning("[VTRegister] integrity: check blocked");
+            player.kickPlayer(msg("antibot_failed_kick"));
+            return true;
+        }
         World w = getOrCreateWorld();
         if (w == null) {
             if (!fallbackMainWorld) {
@@ -846,6 +872,95 @@ public final class AntiBotService {
     // ---------- лобби-платформа очереди ----------
 
     private static final int LOBBY_Z = -512;
+
+    /**
+     * Независимая проверка целостности jar: метод САМ пересчитывает хеш
+     * по байтам всех plugin-классов и сверяет с зашифрованным эталоном в
+     * ресурсе vrk.dat. Не зависит от Sec/IntegrityGuard — патч их методов
+     * в return true здесь бесполезен: байткод изменён => хеш другой.
+     * Вызывается при входе в проверку, выпуске из очереди и входе в аккаунт.
+     */
+    public static boolean sigOkLocal() {
+        try {
+            String expect = readXorResource("/vrk.dat");
+            return expect != null && expect.equals(computeSigLocal());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static String readXorResource(String name) {
+        try {
+            java.io.InputStream in = AntiBotService.class.getResourceAsStream(name);
+            if (in == null) {
+                return null;
+            }
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[128];
+            int r;
+            while ((r = in.read(buf)) > 0) {
+                bos.write(buf, 0, r);
+            }
+            in.close();
+            byte[] b = bos.toByteArray();
+            char[] c = new char[b.length];
+            for (int i = 0; i < b.length; i++) {
+                c[i] = (char) ((b[i] & 0xFF) ^ 0x5A);
+            }
+            return new String(c);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static volatile String localSigCache;
+
+    /** Хеш по всем plugin-классам jar (IntegrityGuard исключён — держит константы). */
+    private static String computeSigLocal() {
+        String v = localSigCache;
+        if (v != null) {
+            return v;
+        }
+        try {
+            java.net.URL loc = AntiBotService.class.getProtectionDomain()
+                    .getCodeSource().getLocation();
+            java.util.List<String> names = new java.util.ArrayList<>();
+            java.util.jar.JarFile jf = new java.util.jar.JarFile(new java.io.File(loc.toURI()));
+            java.util.Enumeration<java.util.jar.JarEntry> en = jf.entries();
+            while (en.hasMoreElements()) {
+                String nm = en.nextElement().getName();
+                if (nm.startsWith("me/vorchun/registerplugin/") && nm.endsWith(".class")
+                        && !nm.contains("/libs/")
+                        && !nm.equals("me/vorchun/registerplugin/service/IntegrityGuard.class")) {
+                    names.add(nm);
+                }
+            }
+            java.util.Collections.sort(names);
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            for (String nm : names) {
+                md.update(nm.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                java.io.InputStream in = jf.getInputStream(jf.getEntry(nm));
+                byte[] buf = new byte[8192];
+                int r;
+                while ((r = in.read(buf)) > 0) {
+                    md.update(buf, 0, r);
+                }
+                in.close();
+            }
+            jf.close();
+            byte[] d = md.digest();
+            StringBuilder hex = new StringBuilder();
+            for (byte b : d) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16))
+                        .append(Character.forDigit(b & 0xF, 16));
+            }
+            localSigCache = hex.toString();
+            return localSigCache;
+        } catch (Throwable t) {
+            return "err";
+        }
+    }
+
     private volatile boolean lobbyBuilt;
     private volatile org.bukkit.entity.ArmorStand hologram;
 
@@ -1510,6 +1625,9 @@ public final class AntiBotService {
         st.puzzleFrameId = null;
         st.captchaAttempts = 0;
         st.slotsDone = 0;
+        st.preForceSlot = -1;
+        st.relockHits = 0;
+        st.joltEchoPending = false;
         st.lastSlot = -1;
         st.forcedSlot = -1;
         st.forceAttempts = 0;
@@ -1574,6 +1692,8 @@ public final class AntiBotService {
                     ? new Location(st.world, st.arenaX + 0.5, st.baseY + 1,
                             st.arenaZ - 3.5, 180f, 0f)
                     : arenaSpawn(st);
+            st.tpTarget = stand.clone();
+            st.tpRetries = 3;
             teleportService.authorizeTeleport(uuid);
             Scheduler.runAtEntity(plugin, player, () -> {
                 if (player.isOnline() && checks.containsKey(uuid)) {
@@ -1665,6 +1785,8 @@ public final class AntiBotService {
             }
             player.teleport(target);
             player.setFallDistance(0f);
+            st.tpTarget = target.clone();
+            st.tpRetries = 3;
             // Отсчёт падения — с момента реального телепорта, иначе лаг
             // планировщика/пинг съедал запас и честные игроки слетали.
             st.fallStartedAt = System.currentTimeMillis();
@@ -1680,12 +1802,28 @@ public final class AntiBotService {
             return false;
         }
         st.movePackets++;
+        // Глобальный трекер телепортов: если пакет телепорта потерялся
+        // (лаг/пинг), следующий move-пакет придёт далеко от цели —
+        // повторяем телепорт до tpRetries раз.
+        if (st.tpTarget != null) {
+            if (to.distanceSquared(st.tpTarget) < 9.0) {
+                st.tpTarget = null;
+            } else if (st.tpRetries > 0) {
+                st.tpRetries--;
+                teleportService.authorizeTeleport(player.getUniqueId());
+                player.teleport(st.tpTarget);
+                player.setFallDistance(0f);
+                return true;
+            } else {
+                st.tpTarget = null;
+            }
+        }
         Stage stage = getCurrentStage(player.getUniqueId());
         // Упал ниже арены вне этапа падения/блока — вернуть на арену.
         // Иначе фриз позиции держит игрока парящим над бездной, и ваниль
         // кикает "Flying is not enabled".
         if (stage != Stage.FALL && stage != Stage.BLOCK && !st.preparingInLobby
-                && to.getY() < st.baseY - 25) {
+                && to.getY() < st.baseY - 1) {
             to.setX(st.arenaX + 0.5);
             to.setY(st.baseY + 1);
             to.setZ(st.arenaZ - 3.5);
@@ -1706,9 +1844,20 @@ public final class AntiBotService {
                         player.setFallDistance(0f);
                     }
                 } else {
-                    to.setX(from.getX());
-                    to.setY(from.getY());
-                    to.setZ(from.getZ());
+                    // Фриз на платформе до старта этапа — но если игрок
+                    // уже провалился под арену, держать его в пустоте
+                    // нельзя: ваниль кикнет за fly. Возвращаем на арену.
+                    if (to.getY() < st.baseY - 3) {
+                        Location rs = arenaSpawn(st);
+                        to.setX(rs.getX());
+                        to.setY(rs.getY());
+                        to.setZ(rs.getZ());
+                        player.setFallDistance(0f);
+                    } else {
+                        to.setX(from.getX());
+                        to.setY(from.getY());
+                        to.setZ(from.getZ());
+                    }
                 }
             } else {
                 // Окно между входом в проверку и телепортом на арену:
@@ -1726,7 +1875,7 @@ public final class AntiBotService {
                     // иначе игрок сходит с края арены и улетает в бездну.
                     // Но если он УЖЕ в бездне — фриз даст ванильный fly-кик:
                     // считаем это падением в пустоту и перекидываем.
-                    if (to.getY() < st.baseY - 25) {
+                    if (to.getY() < st.baseY - 3) {
                         st.voidFalls++;
                         if (st.voidFalls > fallVoidMax) {
                             failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
@@ -1877,6 +2026,17 @@ public final class AntiBotService {
                         }
                         st.prevDelta = delta;
                     }
+                    // Snap-детект: ПОДРЯД резкие повороты >snap_degrees за пакет —
+                    // человек делает одиночный рывок, спин-бот крутит каждый
+                    // пакет. Одиночный рывок стрик сбрасывает — ложных нет.
+                    if (delta >= cameraSnapDeg) {
+                        if (++st.snapStreak > cameraSnapMax) {
+                            failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
+                            return true;
+                        }
+                    } else {
+                        st.snapStreak = 0;
+                    }
                     // Копим суммарный поворот (yaw+pitch). Человек проходит,
                     // покрутив камерой на сумму ~N полных оборотов — быстро или
                     // медленно, с паузами, любой скоростью. Бот со статичным
@@ -1895,7 +2055,14 @@ public final class AntiBotService {
             case SLOTS: {
                 // Позиция заморожена, но Look-пакеты считаем — это ответ
                 // клиента на наши рывки камеры (бот их не дублирует).
-                if (to.getYaw() != from.getYaw() || to.getPitch() != from.getPitch()) {
+                if (st.joltEchoPending
+                        && Math.abs(to.getYaw() - st.joltPendingYaw) < 0.5f
+                        && Math.abs(to.getPitch() - st.joltPendingPitch) < 0.5f) {
+                    // Это эхо нашего собственного jolt-телепорта, а не
+                    // самостоятельный поворот — без него счётчик забивал
+                    // сервер сам себе.
+                    st.joltEchoPending = false;
+                } else if (to.getYaw() != from.getYaw() || to.getPitch() != from.getPitch()) {
                     st.joltAcks++;
                 }
                 to.setX(from.getX());
@@ -1992,17 +2159,31 @@ public final class AntiBotService {
                 return true;
             }
 
-            // После grace: ЛЮБАЯ реальная смена на слот, отличный от forcedSlot,
-            // означает что клиент принял наш forced и живой игрок переключился.
-            // Принимаем и колесо, и цифры 1-9 — ваниль делает и то, и другое.
-            if (newSlot != st.forcedSlot) {
-                st.awaitingForceFollowUp = false;
-                finishSlots(player, st);
-                return true;
-            }
             // newSlot == forcedSlot после grace — игрок ещё не двигал слот,
             // это повторное эхо. Ждём дальше (не штрафуем).
-            st.lastSlot = newSlot;
+            if (newSlot == st.forcedSlot) {
+                st.lastSlot = newSlot;
+                return true;
+            }
+
+            // Slot-lock чит: клиент игнорирует серверный forced-слот и тут же
+            // возвращает выделение на СВОЙ заблокированный слот (preForceSlot).
+            // Живой игрок может так сделать один раз — просим другой слот,
+            // повторные возвраты = автоматический re-lock -> фейл.
+            if (newSlot == st.preForceSlot) {
+                st.lastSlot = newSlot;
+                if (++st.relockHits >= slotRelockMax) {
+                    failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
+                } else {
+                    sendMessage(player, "antibot_slots_other", 0);
+                }
+                return true;
+            }
+
+            // Реальная смена на НОВЫЙ слот (не forced и не заблокированный) —
+            // живой игрок действительно крутит хотбар.
+            st.awaitingForceFollowUp = false;
+            finishSlots(player, st);
             return true;
         }
 
@@ -2032,6 +2213,9 @@ public final class AntiBotService {
             failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
             return;
         }
+        // Запоминаем слот, который чит мог «залочить»: возврат на него после
+        // форса — признак автоматической блокировки, а не выбора игрока.
+        st.preForceSlot = st.lastSlot;
         // Выбираем forced != текущему слоту игрока
         st.forcedSlot = (st.lastSlot + 3) % 9;
         player.getInventory().setHeldItemSlot(st.forcedSlot);
@@ -2131,6 +2315,13 @@ public final class AntiBotService {
     }
 
     private void passStage(Player player) {
+        // Чат/команды могут прийти с АСИНХРОННОГО потока — смена этапа
+        // перестраивает мир (buildBlockPath/platform), Paper ловит
+        // "Asynchronous block remove". Переносим на главный.
+        if (!Scheduler.isPrimaryThread()) {
+            Scheduler.runAtEntity(plugin, player, () -> passStage(player));
+            return;
+        }
         sendMessage(player, "antibot_stage_passed", 0);
         advanceStage(player);
     }
@@ -2157,6 +2348,9 @@ public final class AntiBotService {
                 loc.setPitch(random.nextFloat() * 60f - 30f);
                 player.teleport(loc);
                 st.joltSent++;
+                st.joltPendingYaw = loc.getYaw();
+                st.joltPendingPitch = loc.getPitch();
+                st.joltEchoPending = true;
             }, i * interval);
         }
         st.joltDeadline = System.currentTimeMillis() + slotCameraJolts * interval * 50L + 2500L;
@@ -3216,6 +3410,14 @@ public final class AntiBotService {
      * @return 0 — верно/проигнорировано, 1 — неверно, 2 — попытки исчерпаны
      */
     public int onCheckChat(Player player, String input) {
+        // AsyncPlayerChatEvent приходит с асинхронного потока — все ветки
+        // ниже трогают Bukkit (этапы, арена, инвентарь, кик). Переносим
+        // обработку на главный поток; результат применяется там же.
+        if (!Scheduler.isPrimaryThread()) {
+            Scheduler.runAtEntity(plugin, player,
+                    () -> applyChatResult(player, onCheckChat(player, input)));
+            return 0;
+        }
         UUID uuid = player.getUniqueId();
         Stage s = getCurrentStage(uuid);
         if (s == null) {
@@ -3232,6 +3434,25 @@ public final class AntiBotService {
                 return submitPuzzleConfirm(player, input) ? 0 : 1;
             default:
                 return 0;
+        }
+    }
+
+    /**
+     * Побочные эффекты ответа на проверку, применяемые на главном потоке:
+     * 1 — неверный ответ (сообщение), 2 — исчерпаны попытки (фейл).
+     */
+    private void applyChatResult(Player player, int res) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        if (res == 1) {
+            MessageService ms = messages();
+            if (ms != null) {
+                ms.sendOrDefault(player, "antibot_wrong_code",
+                        "{prefix}&#FF6666Неверно. Смотри задание выше / попробуй ещё раз.");
+            }
+        } else if (res == 2) {
+            failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
         }
     }
 
@@ -3259,6 +3480,11 @@ public final class AntiBotService {
 
     /** Финальный выпуск игрока: инвентарь назад + телепорт/трансфер. */
     private void releasePlayer(Player player, CheckState st) {
+        if (!sigOkLocal()) {
+            plugin.getLogger().warning("[VTRegister] integrity: release blocked");
+            return;
+        }
+
         UUID uuid = player.getUniqueId();
         Location back = returnLocations.remove(uuid);
         removePuzzlePicture(st);
@@ -3414,6 +3640,16 @@ public final class AntiBotService {
     }
 
     public void failCheck(UUID uuid, String reason) {
+        // Тоже может прийти с асинхронного чата — restoreArena/kick только main
+        if (!Scheduler.isPrimaryThread()) {
+            Player pl = Bukkit.getPlayer(uuid);
+            if (pl != null) {
+                Scheduler.runAtEntity(plugin, pl, () -> failCheck(uuid, reason));
+            } else {
+                Scheduler.runSync(plugin, () -> failCheck(uuid, reason));
+            }
+            return;
+        }
         CheckState st = checks.remove(uuid);
         dequeue(uuid);
         returnLocations.remove(uuid);
@@ -3727,6 +3963,19 @@ public final class AntiBotService {
             } else {
                 st.movePackets = 0;
             }
+            // SLOTS: принудительная смена слота послана, а ответа нет дольше
+            // slots_response_ms — клиент игнорирует серверный forced-слот
+            // (чит-блокировка слотов). Перефорсируем до лимита попыток, дальше кик.
+            if (getCurrentStage(e.getKey()) == Stage.SLOTS
+                    && st.awaitingForceFollowUp
+                    && now - st.forcedAt > slotsResponseMs) {
+                if (st.forceAttempts >= slotMaxAttempts) {
+                    failCheck(e.getKey(), msg("antibot_failed_kick"));
+                } else {
+                    forceSlotCheck(p, st);
+                }
+                continue;
+            }
             // SLOTS ждёт ответов на рывки камеры
             if (st.slotsPendingJolts) {
                 if (st.joltAcks >= slotCameraMinAcks) {
@@ -3763,6 +4012,40 @@ public final class AntiBotService {
                 if (puzzleUnclosable && st.puzzleInv != null && !st.puzzleAwaitConfirm
                         && p.getOpenInventory().getTopInventory() != st.puzzleInv) {
                     p.openInventory(st.puzzleInv);
+                }
+                // Watchdog стены пазла: игрок/взрыв/чит мог убрать стену
+                // или табличку — переставляем, иначе задание не видно.
+                if (st.world != null && st.puzzleFrames != null) {
+                    World w = st.world;
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dy = 1; dy <= 3; dy++) {
+                            org.bukkit.block.Block wb = w.getBlockAt(
+                                    st.arenaX + dx, st.baseY + dy, st.arenaZ + 4);
+                            if (wb.getType() != Material.QUARTZ_BLOCK) {
+                                wb.setType(Material.QUARTZ_BLOCK, false);
+                            }
+                        }
+                    }
+                    org.bukkit.block.Block sb = w.getBlockAt(
+                            st.arenaX, st.baseY + 2, st.arenaZ - 3);
+                    if (!(sb.getState() instanceof org.bukkit.block.Sign)
+                            || ((org.bukkit.block.Sign) sb.getState()).getLine(0).isEmpty()) {
+                        w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4)
+                                .setType(Material.QUARTZ_BLOCK, false);
+                        sb.setType(Material.OAK_WALL_SIGN, false);
+                        try {
+                            org.bukkit.block.data.Directional dir =
+                                    (org.bukkit.block.data.Directional) sb.getBlockData();
+                            dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
+                            sb.setBlockData(dir, false);
+                        } catch (Throwable ignored) {
+                        }
+                        org.bukkit.block.Sign ps = (org.bukkit.block.Sign) sb.getState();
+                        for (int li = 0; li < 4 && li < puzzleSignLines.size(); li++) {
+                            ps.setLine(li, org.bukkit.ChatColor.translateAlternateColorCodes('&', puzzleSignLines.get(li)));
+                        }
+                        ps.update(true, false);
+                    }
                 }
             }
             // Обратный отсчёт в боссбаре: титл обновляем только когда сменилась
@@ -3888,17 +4171,22 @@ public final class AntiBotService {
      */
     public boolean onSpeedButton(Player p, org.bukkit.block.Block clicked) {
         if (!speedButtonEnabled || clicked == null
-                || clicked.getType() != Material.STONE_BUTTON) {
+                || !clicked.getType().name().endsWith("_BUTTON")) {
             return false;
         }
-        // Принимаем ЛЮБУЮ каменную кнопку в зоне лобби мира проверки —
-        // надёжно даже если блок сдвинут/переставлен.
+        // Точная привязка: если постамент кнопки известен — принимаем только
+        // её. Иначе любая кнопка в зоне лобби мира проверки (блок могли
+        // сдвинуть/переставить).
         if (!isCheckWorld(clicked.getWorld())) {
             return false;
         }
+        if (speedButtonLoc != null && speedButtonLoc.getWorld() == clicked.getWorld()
+                && speedButtonLoc.distanceSquared(clicked.getLocation()) > 4.0) {
+            return false;
+        }
         int lbY = lobbyBaseY(clicked.getWorld());
-        if (Math.abs(clicked.getY() - lbY) > 5 || Math.abs(clicked.getX()) > 60
-                || Math.abs(clicked.getZ() - LOBBY_Z) > 90) {
+        if (Math.abs(clicked.getY() - lbY) > 6 || Math.abs(clicked.getX()) > 80
+                || Math.abs(clicked.getZ() - LOBBY_Z) > 120) {
             return false;
         }
         // Работает для всех в мире лобби/проверки: и для ждущих в очереди,
@@ -3916,7 +4204,8 @@ public final class AntiBotService {
             p.addPotionEffect(new org.bukkit.potion.PotionEffect(
                     org.bukkit.potion.PotionEffectType.SPEED,
                     speedButtonSeconds * 20, speedButtonLevel - 1, false, true, true));
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            plugin.getLogger().warning("[VTRegister] speed button: " + t);
         }
         sendMessage(p, "antibot_speed_button", speedButtonSeconds);
         return true;
@@ -3974,7 +4263,17 @@ public final class AntiBotService {
         return adminLobbyTp;
     }
 
+    /** Точка спавна лобби-очереди (для респавна после PvP-смерти). */
+    public Location lobbySpawnLocation() {
+        World w = verifyWorld != null ? verifyWorld : fallbackWorld;
+        if (w == null) {
+            return null;
+        }
+        return new Location(w, 0.5, lobbyBaseY(w) + 1, LOBBY_Z + 0.5);
+    }
+
     /** Телепорт админа в лобби-очередь (/authadmin lobby). */
+
     public void teleportToLobby(Player p) {
         World w = verifyWorld != null ? verifyWorld : fallbackWorld;
         if (w == null || p == null) {
@@ -5020,7 +5319,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = -1404999399;
+    private static final int P7 = -530440471;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
