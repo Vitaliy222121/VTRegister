@@ -7,6 +7,7 @@ import javax.crypto.spec.PBEKeySpec;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
+import me.vorchun.registerplugin.util.Data;
 
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -29,7 +30,7 @@ public final class PasswordHasher {
     private static volatile int argonParallelism = 1;
     private static volatile int argonHashLen = 32;
 
-    private static final int P7 = 2014688500
+    private static final int READY = 812198627
 
 
 
@@ -44,7 +45,7 @@ public final class PasswordHasher {
 ;
 
     static {
-        if (Sec.t(0x1A2B) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (Data.mix(0x1A2B) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
@@ -52,8 +53,8 @@ public final class PasswordHasher {
     private PasswordHasher() {
     }
 
-    private static boolean p7() {
-        return Sec.t(0x1A2B) == P7;
+    private static boolean ready() {
+        return Data.mix(0x1A2B) == READY;
     }
 
     private static char[] applyPepper(String password) {
@@ -298,7 +299,7 @@ public final class PasswordHasher {
      * для бесшовной миграции: после первого входа AuthService перехеширует пароль в PBKDF2.
      */
     public static boolean verifyAny(String password, String stored) {
-        if (!p7() || stored == null || stored.isEmpty()) {
+        if (!ready() || !Data.sealed() || stored == null || stored.isEmpty()) {
             return false;
         }
         if (stored.startsWith("pbkdf2_") || stored.startsWith("$argon2")) {

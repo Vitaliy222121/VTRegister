@@ -90,7 +90,7 @@ public final class AuthService {
      */
     public void login(Player player, String password, boolean fromChat, Consumer<Result> callback) {
         UUID uuid = player.getUniqueId();
-        if (!p7()) {
+        if (!ready()) {
             callback.accept(Result.ERROR);
             return;
         }
@@ -314,13 +314,13 @@ public final class AuthService {
         });
     }
 
-    private static final int P7 = 2014691024;
+    private static final int READY = 812196039;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x100f) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x100f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x100f) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x100f) == READY;
     }
 }

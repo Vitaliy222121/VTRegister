@@ -211,13 +211,13 @@ public final class AccountRecord {
         dirty = false;
     }
 
-    private static final int P7 = 2014691027;
+    private static final int READY = 812196036;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x100c) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x100c) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x100c) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x100c) == READY;
     }
 }

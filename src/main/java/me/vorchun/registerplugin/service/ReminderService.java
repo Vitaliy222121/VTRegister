@@ -166,13 +166,13 @@ public final class ReminderService {
         }
     }
 
-    private static final int P7 = 2014691012;
+    private static final int READY = 812196051;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x101b) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x101b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x101b) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x101b) == READY;
     }
 }

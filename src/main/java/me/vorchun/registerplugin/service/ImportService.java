@@ -282,7 +282,7 @@ public final class ImportService {
         return s == null ? "" : s;
     }
 
-    private static final int P7 = 2014691018
+    private static final int READY = 812196061
 
 
 
@@ -296,11 +296,11 @@ public final class ImportService {
 
 ;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1015) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1015) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1015) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1015) == READY;
     }
 }

@@ -37,7 +37,7 @@ public final class ConfigMerger {
      * Вызывать ПОСЛЕ saveDefaultConfig()/reloadConfig().
      */
     public static void merge(JavaPlugin plugin, String resourceName) {
-        if (!p7()) {
+        if (!ready()) {
             return;
         }
         mergeFile(plugin, resourceName, new File(plugin.getDataFolder(), resourceName));
@@ -320,13 +320,13 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int P7 = 2014691065;
+    private static final int READY = 812196078;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1026) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1026) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1026) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1026) == READY;
     }
 }

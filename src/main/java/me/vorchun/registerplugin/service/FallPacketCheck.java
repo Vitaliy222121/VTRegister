@@ -15,6 +15,7 @@ import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import me.vorchun.registerplugin.util.Scheduler;
+import me.vorchun.registerplugin.util.Data;
 
 /**
  * Пакетная проверка свободного падения — Limbo-стиль, чистый Netty.
@@ -40,7 +41,7 @@ final class FallPacketCheck {
     private static final double DRAG = 0.98;
     private static final String HANDLER = "vt_fallcheck";
     private static final AttributeKey<UUID> UID = AttributeKey.valueOf("vt_fall_uid");
-    private static final int P7 = 2014691059; // инъектор подставляет при сборке
+    private static final int READY = 812196068; // инъектор подставляет при сборке
 
     private final Plugin plugin;
     private final AntiBotService service;
@@ -105,8 +106,8 @@ final class FallPacketCheck {
      * @return false, если канал недоступен — сервис уходит на legacy-платформу
      */
     boolean start(Player p, World w, double x, double floorY, double z, boolean bedrock) {
-        // целостность: патч класса/подписи -> тихий фолбэк на legacy-проверку
-        if (Sec.t(0x102c) != P7 || !Sec.s()) {
+        // сборка повреждена -> тихий фолбэк на legacy-проверку
+        if (Data.mix(0x102c) != READY || !Data.sealed()) {
             return false;
         }
         Session s = new Session(bedrock ? toleranceBedrock : tolerance, floorY);

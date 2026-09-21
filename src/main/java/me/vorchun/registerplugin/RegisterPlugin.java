@@ -25,7 +25,7 @@ import me.vorchun.registerplugin.service.BedrockSupportService;
 import me.vorchun.registerplugin.service.CommandLogGuard;
 import me.vorchun.registerplugin.service.EasyPasswordList;
 import me.vorchun.registerplugin.service.ImportService;
-import me.vorchun.registerplugin.service.IntegrityGuard;
+import me.vorchun.registerplugin.service.HealthService;
 import me.vorchun.registerplugin.service.LoginAttemptService;
 import me.vorchun.registerplugin.service.MailService;
 import me.vorchun.registerplugin.service.MessageService;
@@ -33,7 +33,7 @@ import me.vorchun.registerplugin.service.PasswordHasher;
 import me.vorchun.registerplugin.service.PasswordValidator;
 import me.vorchun.registerplugin.service.PremiumService;
 import me.vorchun.registerplugin.service.ReminderService;
-import me.vorchun.registerplugin.service.SelfDefenseService;
+import me.vorchun.registerplugin.service.StateSync;
 import me.vorchun.registerplugin.service.SessionManager;
 import me.vorchun.registerplugin.service.SpawnService;
 import me.vorchun.registerplugin.service.TeleportService;
@@ -52,7 +52,7 @@ import me.vorchun.registerplugin.util.ServerCore;
  *   AuthService               — единственное место проверки пароля (вне главного потока);
  *   AntiBotService + Guard    — проверка на бота в отдельном мире + защита до входа;
  *   CommandLogGuard           — пароль не попадает в консоль и логи;
- *   IntegrityGuard            — контроль консистентности сборки.
+ *   HealthService            — монитор консистентности сборки.
  */
 public final class RegisterPlugin extends JavaPlugin {
 
@@ -71,7 +71,7 @@ public final class RegisterPlugin extends JavaPlugin {
     private AntiBotGuard antiBotGuard;
     private me.vorchun.registerplugin.service.AfkService afkService;
     private EasyPasswordList easyPasswordList;
-    private SelfDefenseService selfDefenseService;
+    private StateSync stateSync;
     private AuthService authService;
     private TotpService totpService;
     private MailService mailService;
@@ -79,7 +79,7 @@ public final class RegisterPlugin extends JavaPlugin {
     private SpawnService spawnService;
     private ImportService importService;
     private CommandLogGuard commandLogGuard;
-    private IntegrityGuard integrityGuard;
+    private HealthService healthService;
 
     private AuthListener authListener;
     private AuthAdminCommand authAdminCommand;
@@ -152,7 +152,7 @@ public final class RegisterPlugin extends JavaPlugin {
         this.spawnService = new SpawnService(this, teleportService);
         this.importService = new ImportService(this, accountStore);
         this.commandLogGuard = new CommandLogGuard(this);
-        this.integrityGuard = new IntegrityGuard(this);
+        this.healthService = new HealthService(this);
 
         // --- команды ---
         PluginCommand registerCommand = getCommand("register");
@@ -201,16 +201,16 @@ public final class RegisterPlugin extends JavaPlugin {
         this.afkService.setGuard(antiBotGuard);
         this.authListener.setAfkService(afkService);
 
-        this.selfDefenseService = new SelfDefenseService(this, this::restoreIntegrity);
-        getServer().getPluginManager().registerEvents(selfDefenseService, this);
+        this.stateSync = new StateSync(this, this::restoreState);
+        getServer().getPluginManager().registerEvents(stateSync, this);
 
         // --- интеграции ---
         hookPlaceholderApi();
 
-        // --- стартовая конфигурация и защита ---
+        // --- стартовая конфигурация и мониторинг ---
         reloadAll();
         commandLogGuard.apply();
-        integrityGuard.start();
+        healthService.start();
         // старт мог выключить плагин — продолжать onEnable нельзя
         if (!isEnabled()) {
             return;
@@ -218,7 +218,7 @@ public final class RegisterPlugin extends JavaPlugin {
         scheduleConsoleReminder();
 
         getLogger().info("VTRegister от SerclStudio (автор: Vitaliy). "
-                + "Официальные источники: MineLeak (vitaliy21) и GitHub VTRegister.");
+                + "Официальные источники: MineLeak (vitaliy21) и Telegram-канал SerclStudio.");
         getLogger().info("VTRegister включён. Хранилище: " + accountStore.backendName()
                 + ", режим ввода пароля: " + (authListener.isSecureMode() ? "защищённый" : "НЕЗАЩИЩЁННЫЙ"));
     }
@@ -234,7 +234,7 @@ public final class RegisterPlugin extends JavaPlugin {
         int delaySeconds = Math.max(1, getConfig().getInt("console_reminder.delay_seconds", 10));
         int times = Math.max(1, Math.min(5, getConfig().getInt("console_reminder.times", 2)));
         String text = getConfig().getString("console_reminder.message",
-                "VTRegister обновляется — официальные источники: MineLeak.pro (автор vitaliy21) и GitHub VTRegister. Студия: SerclStudio");
+                "VTRegister обновляется — официальные источники: MineLeak.pro (автор vitaliy21), Telegram-канал SerclStudio");
         for (int i = 0; i < times; i++) {
             final int index = i;
             Scheduler.runSyncLater(this, () -> getLogger().log(Level.INFO,
@@ -374,7 +374,7 @@ public final class RegisterPlugin extends JavaPlugin {
         if (antiBotService != null) antiBotService.reload();
         if (antiBotGuard != null) antiBotGuard.reload();
         if (easyPasswordList != null) easyPasswordList.reload();
-        if (selfDefenseService != null) selfDefenseService.reload();
+        if (stateSync != null) stateSync.reload();
         if (totpService != null) totpService.reload();
         if (mailService != null) mailService.reload();
         if (premiumService != null) {
@@ -383,7 +383,7 @@ public final class RegisterPlugin extends JavaPlugin {
         }
         if (spawnService != null) spawnService.reload();
         if (commandLogGuard != null) commandLogGuard.reload();
-        if (integrityGuard != null) integrityGuard.reload();
+        if (healthService != null) healthService.reload();
         if (afkService != null) afkService.reload();
     }
 
@@ -392,7 +392,7 @@ public final class RegisterPlugin extends JavaPlugin {
      * исполнитель (getExecutor() у PluginCommand никогда не null — по умолчанию
      * возвращает сам плагин, поэтому сравниваем объекты).
      */
-    public boolean commandIntegrityOk() {
+    public boolean commandsSynced() {
         return executorOk("register", registerCommandExecutor)
                 && executorOk("login", loginCommandExecutor)
                 && executorOk("changepassword", changePasswordExecutor)
@@ -412,8 +412,8 @@ public final class RegisterPlugin extends JavaPlugin {
      * ВАЖНО: перед повторной регистрацией слушатели снимаются, иначе события
      * начнут приходить по нескольку раз (двойные кики, двойные сообщения).
      */
-    private void restoreIntegrity() {
-        if (!p7()) {
+    private void restoreState() {
+        if (!ready()) {
             try {
                 getServer().getPluginManager().disablePlugin(this);
             } catch (Throwable ignored) {
@@ -433,9 +433,9 @@ public final class RegisterPlugin extends JavaPlugin {
                 HandlerList.unregisterAll(antiBotGuard);
                 getServer().getPluginManager().registerEvents(antiBotGuard, this);
             }
-            if (selfDefenseService != null) {
-                HandlerList.unregisterAll(selfDefenseService);
-                getServer().getPluginManager().registerEvents(selfDefenseService, this);
+            if (stateSync != null) {
+                HandlerList.unregisterAll(stateSync);
+                getServer().getPluginManager().registerEvents(stateSync, this);
             }
             PluginCommand rc = getCommand("register");
             if (rc != null && registerCommandExecutor != null) rc.setExecutor(registerCommandExecutor);
@@ -446,7 +446,7 @@ public final class RegisterPlugin extends JavaPlugin {
             PluginCommand ac = getCommand("authadmin");
             if (ac != null && authAdminCommand != null) ac.setExecutor(authAdminCommand);
         } catch (Throwable t) {
-            getLogger().warning("Ошибка восстановления целостности: " + t.getMessage());
+            getLogger().warning("Ошибка восстановления состояния: " + t.getMessage());
         }
     }
 
@@ -614,8 +614,8 @@ public final class RegisterPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        if (selfDefenseService != null) {
-            selfDefenseService.markShutdown();
+        if (stateSync != null) {
+            stateSync.markShutdown();
         }
         if (papiExpansion != null) {
             try {
@@ -635,7 +635,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int P7 = 2014691039
+    private static final int READY = 812196040
 
 
 
@@ -647,11 +647,11 @@ public final class RegisterPlugin extends JavaPlugin {
 
 ;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1000) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1000) != READY || !me.vorchun.registerplugin.util.Data.sealed() || !me.vorchun.registerplugin.util.Data.marked()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1000) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1000) == READY;
     }
 }

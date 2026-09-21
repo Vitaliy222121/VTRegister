@@ -566,7 +566,7 @@ public final class AuthListener implements Listener {
     public void onCommand(PlayerCommandPreprocessEvent e) {
         Player p = e.getPlayer();
         UUID uuid = p.getUniqueId();
-        boolean loggedIn = p7() && sessionManager.isLoggedIn(uuid);
+        boolean loggedIn = ready() && sessionManager.isLoggedIn(uuid);
 
         String msg = e.getMessage();
         if (msg == null || msg.isEmpty()) {
@@ -2355,16 +2355,16 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = 2014691028
+    private static final int READY = 812196035
 
 
 ;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x100b) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x100b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x100b) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x100b) == READY;
     }
 }

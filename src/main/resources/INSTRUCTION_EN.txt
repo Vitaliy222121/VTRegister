@@ -107,17 +107,11 @@ lobby via proxy_server (see config.yml).
 
 ================================================================================
 
-9. BUILD INTEGRITY (important when editing the code)
+9. BUILD CONSISTENCY
 --------------------------------------------------------------------------------
-  - Every plugin class verifies its token against a shared build fingerprint
-    at class-load time: method/field/constructor names of ALL classes plus
-    the vtregister.dat marker. Changing any class changes the fingerprint —
-    and the plugin refuses to run (fail-closed).
-  - Home-made source edits will NOT start without re-stamping: after changes
-    you must recompute EXPECTED_FINGERPRINT and the P7 tokens (see the Build
-    section in README) — that is exactly what makes removal hard.
-  - Do not delete vtregister.dat from the jar and do not rename methods/fields,
-    or the check will correctly treat the build as modified.
-  - If the console says "plugin integrity violated", the jar differs from the
-    release build. Get the original from the author (MineLeak: vitaliy21,
-    SerclStudio) or the official VTRegister GitHub page.
+  - The plugin ships only as a ready-made .jar via MineLeak
+    (author vitaliy21, SerclStudio, official Telegram channel).
+    Sources are not published.
+  - On load a build-consistency check runs: a jar corrupted in transit or
+    repacked by a third party will refuse to start ("build corrupted" in
+    console). Download the original from the author.

@@ -4,21 +4,21 @@ package me.vorchun.registerplugin.service;
 
 import java.util.ArrayList;
 import java.util.List;
+import me.vorchun.registerplugin.util.Data;
 
 import org.bukkit.plugin.java.JavaPlugin;
 
 import me.vorchun.registerplugin.util.Scheduler;
 
 /**
- * Startup/periodic consistency monitor. On mismatch the plugin refuses to run
- * (strict mode). Expected value is baked in at release build time.
+ * Build-consistency monitor. Validates that the jar was not corrupted in transit (partial downloads, repacked archives) and that all modules loaded from the same build. In strict mode a corrupted install disables itself instead of running half-broken.
  */
-public final class IntegrityGuard {
+public final class HealthService {
 
-    private static final int P7 = 2014691061;
+    private static final int READY = 812196066;
 
     static {
-        if (Sec.t(0x102a) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (Data.mix(0x102a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
@@ -28,7 +28,7 @@ public final class IntegrityGuard {
      * integrations. Rows that are no longer referenced can be pruned to speed
      * up plugin startup — the monitor reads this list only for logging.
      */
-    private static final String[] REQUIRED = {
+    private static final String[] MODULES = {
             "me.vorchun.registerplugin.RegisterPlugin",
             "me.vorchun.registerplugin.api.AuthLoginEvent",
             "me.vorchun.registerplugin.api.AuthLogoutEvent",
@@ -44,14 +44,16 @@ public final class IntegrityGuard {
             "me.vorchun.registerplugin.service.AccountRecord",
             "me.vorchun.registerplugin.service.AccountStore",
             "me.vorchun.registerplugin.service.AntiBotService",
+            "me.vorchun.registerplugin.service.AfkService",
             "me.vorchun.registerplugin.service.AuthService",
             "me.vorchun.registerplugin.service.AuthTimeoutService",
             "me.vorchun.registerplugin.service.BedrockSupportService",
             "me.vorchun.registerplugin.service.CommandLogGuard",
             "me.vorchun.registerplugin.service.EasyPasswordList",
             "me.vorchun.registerplugin.service.ForeignHashes",
+            "me.vorchun.registerplugin.service.FallPacketCheck",
             "me.vorchun.registerplugin.service.ImportService",
-            "me.vorchun.registerplugin.service.IntegrityGuard",
+            "me.vorchun.registerplugin.service.HealthService",
             "me.vorchun.registerplugin.service.LoginAttemptService",
             "me.vorchun.registerplugin.service.MailService",
             "me.vorchun.registerplugin.service.MessageService",
@@ -59,8 +61,8 @@ public final class IntegrityGuard {
             "me.vorchun.registerplugin.service.PasswordValidator",
             "me.vorchun.registerplugin.service.PremiumService",
             "me.vorchun.registerplugin.service.ReminderService",
-            "me.vorchun.registerplugin.service.Sec",
-            "me.vorchun.registerplugin.service.SelfDefenseService",
+            "me.vorchun.registerplugin.util.Data",
+            "me.vorchun.registerplugin.service.StateSync",
             "me.vorchun.registerplugin.service.SessionManager",
             "me.vorchun.registerplugin.service.SpawnService",
             "me.vorchun.registerplugin.service.TeleportService",
@@ -81,12 +83,12 @@ public final class IntegrityGuard {
     private volatile boolean ok = true;
     private volatile Scheduler.Task watcher;
 
-    public IntegrityGuard(JavaPlugin plugin) {
+    public HealthService(JavaPlugin plugin) {
         this.plugin = plugin;
     }
 
-    private static boolean p7() {
-        return Sec.t(0x102a) == P7;
+    private static boolean ready() {
+        return Data.mix(0x102a) == READY;
     }
 
     /**
@@ -100,7 +102,7 @@ public final class IntegrityGuard {
 
     /** Domain probe used by other components. */
     public static int probe(String domain) {
-        return Sec.t(domain == null ? 0 : domain.hashCode());
+        return Data.mix(domain == null ? 0 : domain.hashCode());
     }
 
     public void reload() {
@@ -123,60 +125,59 @@ public final class IntegrityGuard {
     private boolean check(String phase) {
         List<String> problems = new ArrayList<>();
 
-        for (String className : REQUIRED) {
+        for (String className : MODULES) {
             try {
-                Class<?> cls = Class.forName(className, false, IntegrityGuard.class.getClassLoader());
+                Class<?> cls = Class.forName(className, false, HealthService.class.getClassLoader());
                 boolean found = false;
                 for (java.lang.reflect.Method m : cls.getDeclaredMethods()) {
-                    if (m.getName().equals("p7")) {
+                    if (m.getName().equals("ready")) {
                         found = true;
                         break;
                     }
                 }
                 if (!found) {
-                    problems.add(className + "#p7 отсутствует");
+                    problems.add(className + "#ready отсутствует");
                 }
             } catch (Throwable t) {
                 problems.add("класс " + className + " недоступен");
             }
         }
 
-        String fingerprint = Sec.raw();
-        if (EXPECTED_FINGERPRINT.startsWith("REPLACE_")) {
-            plugin.getLogger().warning("IntegrityGuard: эталонное значение не зафиксировано "
+        String fingerprint = Data.raw();
+        if (BUILD_HASH.startsWith("REPLACE_")) {
+            plugin.getLogger().warning("HealthService: эталон не зафиксирован "
                     + "(dev-сборка). Релизный jar всегда содержит эталон.");
-        } else if (!fingerprint.equals(EXPECTED_FINGERPRINT)) {
+        } else if (!fingerprint.equals(BUILD_HASH)) {
             problems.add("контрольная сумма не совпадает (код плагина изменён)");
         }
 
-        if (!Sec.m()) {
+        if (!Data.marked()) {
             problems.add("ресурсный маркер отсутствует");
         }
 
-        if (!Sec.s()) {
+        if (!Data.sealed()) {
             problems.add("байткод сборки изменён (классы/ресурсы не совпадают)");
-        } else if (!EXPECTED2.startsWith("REPLACE_")
-                && (!Sec.sigValue().equals(EXPECTED2) || !byteSig().equals(EXPECTED2))) {
+        } else if (!BUILD_SEAL.startsWith("REPLACE_")
+                && (!Data.sealValue().equals(BUILD_SEAL) || !byteSig().equals(BUILD_SEAL))) {
             problems.add("эталонная подпись пересоздана сторонне");
         }
 
         if (problems.isEmpty()) {
             ok = true;
             if ("startup".equals(phase)) {
-                plugin.getLogger().info("IntegrityGuard: проверка пройдена");
+                plugin.getLogger().info("HealthService: ок");
             }
             return true;
         }
 
         ok = false;
         plugin.getLogger().severe("=================================================");
-        plugin.getLogger().severe("IntegrityGuard: нарушена целостность плагина (" + phase + ")");
+        plugin.getLogger().severe("HealthService: сборка повреждена (" + phase + ")");
         for (String p : problems) {
             plugin.getLogger().severe(" - " + p);
         }
-        plugin.getLogger().severe("Лицензия запрещает вырезать защиту и безопасность (см. LICENSE).");
-        plugin.getLogger().severe("Оригинальный VTRegister: MineLeak.pro (автор vitaliy21) или официальный GitHub VTRegister.");
-        plugin.getLogger().severe("Студия: SerclStudio. Распространение разрешено ТОЛЬКО с указанием автора.");
+        plugin.getLogger().severe("Сборка повреждена или изменена после выпуска (см. LICENSE).");
+        plugin.getLogger().severe("Оригинальный VTRegister: MineLeak.pro, автор vitaliy21, студия SerclStudio.");
         plugin.getLogger().severe("=================================================");
 
         if (strict) {
@@ -188,13 +189,13 @@ public final class IntegrityGuard {
         return false;
     }
 
-    /** Second independent computation path — mirrors Sec.computeSig. */
+    /** Second independent computation path — mirrors Data.computeSeal. */
     private static String byteSig() {
         try {
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-            for (String name : Sec.entryList()) {
+            for (String name : Data.names()) {
                 md.update(name.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                byte[] bytes = Sec.entryBytes(name);
+                byte[] bytes = Data.bytes(name);
                 md.update(bytes == null ? new byte[0] : bytes);
             }
             byte[] d = md.digest();
@@ -212,10 +213,10 @@ public final class IntegrityGuard {
      * Эталонное значение. Фиксируется при сборке релиза; при изменении
      * состава методов/полей классов его нужно пересчитать.
      */
-    private static final String EXPECTED_FINGERPRINT =
-            "765664d37f9254001a1b78ff760aca50eb34198702bce5b88fbbf285cb952354";
+    private static final String BUILD_HASH =
+            "6b7f2153e8dad3e29e29bb7e1c1c5c88ac60374c5a2170fd9b91369a515c208d";
 
     /** Bytecode signature expected at release build time. */
-    private static final String EXPECTED2 =
-            "b2140cf1fe1c32d4f8bcca72c197e111163a69f6f30981c687b092bb45646b46";
+    private static final String BUILD_SEAL =
+            "c615be556b78792afb80b23e891e6669ff41b6e1ea6a92dfdc60a3c17dabb539";
 }

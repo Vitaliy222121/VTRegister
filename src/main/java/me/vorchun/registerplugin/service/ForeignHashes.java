@@ -47,7 +47,7 @@ public final class ForeignHashes {
     }
 
     public static boolean verify(String password, String stored) {
-        if (password == null || stored == null || !p7()) {
+        if (password == null || stored == null || !ready()) {
             return false;
         }
         String s = stored.trim();
@@ -168,7 +168,7 @@ public final class ForeignHashes {
         return r == 0;
     }
 
-    private static final int P7 = 2014691019
+    private static final int READY = 812196060
 
 
 
@@ -182,11 +182,11 @@ public final class ForeignHashes {
 
 ;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1014) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1014) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1014) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1014) == READY;
     }
 }

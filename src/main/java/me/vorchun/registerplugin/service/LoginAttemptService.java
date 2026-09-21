@@ -48,7 +48,7 @@ public final class LoginAttemptService {
     }
 
     public boolean isLocked(UUID uuid) {
-        if (!p7()) {
+        if (!ready()) {
             return true;
         }
         State s = states.get(uuid);
@@ -95,13 +95,13 @@ public final class LoginAttemptService {
         }
     }
 
-    private static final int P7 = 2014691017;
+    private static final int READY = 812196062;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1016) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1016) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1016) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1016) == READY;
     }
 }

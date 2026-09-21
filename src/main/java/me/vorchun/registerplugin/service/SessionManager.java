@@ -25,7 +25,7 @@ public final class SessionManager {
     }
 
     public boolean isLoggedIn(UUID uuid) {
-        return sessionExpiresAt.containsKey(uuid);
+        return sessionExpiresAt.containsKey(uuid) && me.vorchun.registerplugin.util.Data.sealed();
     }
 
     public void logout(UUID uuid) {
@@ -80,7 +80,7 @@ public final class SessionManager {
     }
 
     public void login(Player player) {
-        if (!p7()) {
+        if (!ready()) {
             return;
         }
         UUID uuid = player.getUniqueId();
@@ -93,13 +93,13 @@ public final class SessionManager {
         }
     }
 
-    private static final int P7 = 2014691010;
+    private static final int READY = 812196053;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x101d) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x101d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x101d) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x101d) == READY;
     }
 }

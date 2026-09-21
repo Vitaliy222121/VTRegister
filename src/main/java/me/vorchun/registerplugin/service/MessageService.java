@@ -116,7 +116,7 @@ public final class MessageService {
     // ---------- публичное API (совместимо с 1.0.x) ----------
 
     public void send(CommandSender to, String key) {
-        if (!p7()) {
+        if (!ready()) {
             return;
         }
         send(to, key, new HashMap<>());
@@ -288,13 +288,13 @@ public final class MessageService {
         return sb.toString();
     }
 
-    private static final int P7 = 2014691015;
+    private static final int READY = 812196048;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1018) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1018) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1018) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1018) == READY;
     }
 }

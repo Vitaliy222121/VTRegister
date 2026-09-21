@@ -19,7 +19,7 @@ public final class PasswordValidator {
      */
     public static ValidationResult validate(String password, int minLength, int maxLength,
                                             boolean enforceStrength, Set<String> easyAllowed) {
-        if (!p7()) {
+        if (!ready()) {
             return ValidationResult.INVALID_NULL;
         }
         if (password == null) {
@@ -138,13 +138,13 @@ public final class PasswordValidator {
         TOO_WEAK
     }
 
-    private static final int P7 = 2014691014;
+    private static final int READY = 812196049;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1019) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1019) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1019) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1019) == READY;
     }
 }

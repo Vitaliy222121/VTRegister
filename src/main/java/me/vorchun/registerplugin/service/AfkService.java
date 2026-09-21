@@ -68,6 +68,8 @@ public final class AfkService implements Listener {
     private volatile boolean enabled;
     private volatile long graceMs, timeoutMs, queueIdleMs, ipBanMs;
     private volatile boolean ipBanOnKick;
+    private volatile int ipBanStrikes;
+    private final Map<String, long[]> ipStrikes = new ConcurrentHashMap<>();
     private volatile double moveDeltaSq, camEps, camMinMean, bedrockMult;
     private volatile int camWindow, camStrikes;
     private volatile boolean siegeEnabled;
@@ -78,6 +80,8 @@ public final class AfkService implements Listener {
     private volatile BarColor infoColor;
     private volatile List<String> infoMsgs = new ArrayList<>();
     private volatile boolean afkBarEnabled;
+    private volatile boolean specEnabled;
+    private volatile long specTimeoutMs;
 
     private static final class Tr {
         final UUID uuid;
@@ -86,6 +90,9 @@ public final class AfkService implements Listener {
         final float[] dPitch;
         int bufIdx, bufCount, strikes;
         boolean bedrock;
+        volatile boolean spectating;
+        volatile long specSince;
+        volatile org.bukkit.GameMode prevMode;
         BossBar afkBar, infoBar;
 
         Tr(UUID uuid, int window, boolean bedrock) {
@@ -126,6 +133,9 @@ public final class AfkService implements Listener {
         bedrockMult = Math.max(1.0, plugin.getConfig().getDouble("afk.bedrock_multiplier", 3.0));
         ipBanMs = Math.max(0, plugin.getConfig().getInt("afk.ip_ban_minutes", 15)) * 60_000L;
         ipBanOnKick = plugin.getConfig().getBoolean("afk.ip_ban_on_kick", true);
+        ipBanStrikes = Math.max(1, plugin.getConfig().getInt("afk.ip_ban_strikes", 2));
+        specEnabled = plugin.getConfig().getBoolean("afk.spectator_grace.enabled", true);
+        specTimeoutMs = Math.max(10, plugin.getConfig().getInt("afk.spectator_grace.timeout_seconds", 60)) * 1000L;
         afkBarEnabled = plugin.getConfig().getBoolean("afk.bossbar", true);
 
         siegeEnabled = plugin.getConfig().getBoolean("afk.siege.enabled", true);
@@ -191,6 +201,17 @@ public final class AfkService implements Listener {
     public void onQuit(UUID uuid) {
         Tr t = tracked.remove(uuid);
         if (t != null) {
+            if (t.spectating) {
+                Player p = Bukkit.getPlayer(uuid);
+                org.bukkit.GameMode back = t.prevMode != null ? t.prevMode : org.bukkit.GameMode.SURVIVAL;
+                if (p != null && p.isOnline()) {
+                    Scheduler.runAtEntity(plugin, p, () -> {
+                        if (p.isOnline() && p.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                            p.setGameMode(back);
+                        }
+                    });
+                }
+            }
             removeBars(t);
         }
     }
@@ -233,6 +254,16 @@ public final class AfkService implements Listener {
         double dz = e.getTo().getZ() - e.getFrom().getZ();
         if (dx * dx + dz * dz >= moveDeltaSq) {
             t.lastActive = System.currentTimeMillis();
+        }
+        if (t.spectating) {
+            float sdy = wrapAngle(e.getTo().getYaw() - e.getFrom().getYaw());
+            float sdp = e.getTo().getPitch() - e.getFrom().getPitch();
+            double sdx = e.getTo().getX() - e.getFrom().getX();
+            double sdz = e.getTo().getZ() - e.getFrom().getZ();
+            if (Math.abs(sdy) + Math.abs(sdp) > LOOK_EPS || sdx * sdx + sdz * sdz >= moveDeltaSq) {
+                exitSpectate(p, t);
+            }
+            return;
         }
         // Линейный аим: собираем дельты поворота; прыжок на месте сюда не попадает
         float dy = wrapAngle(e.getTo().getYaw() - e.getFrom().getYaw());
@@ -315,7 +346,22 @@ public final class AfkService implements Listener {
                     && (antiBot.isBusy(uuid) || antiBot.isInQueueLobby(uuid));
             long idle = now - t.lastActive;
             if (inQueue) {
+                // Режим очереди-лобби: вместо мгновенного кика переводим в
+                // spectator с боссбаром — живой игрок шевельнёт камерой и
+                // вернётся, бот без активности отлетит по второму таймауту.
+                if (t.spectating) {
+                    if (now - t.specSince >= specTimeoutMs) {
+                        tracked.remove(uuid);
+                        kick(p, msg("afk_queue_kick",
+                                "&cAFK в очереди: ты не проявлял активность слишком долго."), false);
+                    }
+                    continue;
+                }
                 if (idle >= queueIdleMs) {
+                    if (specEnabled && antiBot.isInQueueLobby(uuid)) {
+                        enterSpectate(p, t);
+                        continue;
+                    }
                     tracked.remove(uuid);
                     kick(p, msg("afk_queue_kick",
                             "&cAFK в очереди: ты не проявлял активность слишком долго."), false);
@@ -437,9 +483,12 @@ public final class AfkService implements Listener {
         synchronized (recentKicks) {
             recentKicks.addLast(now);
         }
-        if (ipBanOnKick && ipBanMs > 0 && guard != null) {
-            String ip = IpUtil.getIp(plugin, p);
-            if (ip != null && !ip.isEmpty()) {
+        String ip = IpUtil.getIp(plugin, p);
+        // Бан по IP: подтверждённый бот (макрос/линейный аим) — сразу;
+        // обычный AFK — только со 2-го нарушения (afk.ip_ban_strikes).
+        if (ip != null && !ip.isEmpty() && ipBanOnKick && ipBanMs > 0 && guard != null) {
+            int strikes = bot ? ipBanStrikes : (int) bumpIpStrikes(ip);
+            if (strikes >= ipBanStrikes) {
                 guard.banIp(ip, ipBanMs, msg("afk_ip_ban",
                         "&cНаша система зафиксировала очень подозрительное поведение, "
                                 + "к сожалению возвращайтесь позже."));
@@ -449,6 +498,65 @@ public final class AfkService implements Listener {
         Scheduler.runAtEntity(plugin, p, () -> {
             if (p.isOnline()) {
                 p.kickPlayer(message);
+            }
+        });
+    }
+
+    private long bumpIpStrikes(String ip) {
+        long now = System.currentTimeMillis();
+        long[] st = ipStrikes.computeIfAbsent(ip, k -> new long[2]);
+        if (now - st[1] > Math.max(queueIdleMs, timeoutMs) * 4L) {
+            st[0] = 0;
+        }
+        st[0]++;
+        st[1] = now;
+        if (ipStrikes.size() > 512) {
+            ipStrikes.entrySet().removeIf(e -> now - e.getValue()[1] > 3_600_000L);
+        }
+        return st[0];
+    }
+
+    /** Перевод AFK-игрока очереди-лобби в spectator: бар + таймер. */
+    private void enterSpectate(Player p, Tr t) {
+        t.spectating = true;
+        t.specSince = System.currentTimeMillis();
+        Scheduler.runAtEntity(plugin, p, () -> {
+            if (!p.isOnline()) {
+                return;
+            }
+            t.prevMode = p.getGameMode();
+            p.setGameMode(org.bukkit.GameMode.SPECTATOR);
+            p.sendMessage(msg("afk_spectator_msg",
+                    "&eТы переведён в режим наблюдателя. Двигай камерой или летай, чтобы вернуться!"));
+            if (afkBarEnabled) {
+                if (t.afkBar == null) {
+                    try {
+                        t.afkBar = Bukkit.createBossBar("", BarColor.YELLOW, BarStyle.SOLID);
+                        t.afkBar.addPlayer(p);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (t.afkBar != null) {
+                    try {
+                        t.afkBar.setTitle(msg("afk_spectator_bar",
+                                "&eНаблюдатель: шевели камерой, иначе кик"));
+                        t.afkBar.setProgress(1.0);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        });
+    }
+
+    /** Игрок проявил активность в spectator — возвращаем в очередь. */
+    private void exitSpectate(Player p, Tr t) {
+        t.spectating = false;
+        t.lastActive = System.currentTimeMillis();
+        hideAfkBar(t);
+        org.bukkit.GameMode back = t.prevMode != null ? t.prevMode : org.bukkit.GameMode.SURVIVAL;
+        Scheduler.runAtEntity(plugin, p, () -> {
+            if (p.isOnline() && p.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                p.setGameMode(back);
             }
         });
     }
@@ -501,15 +609,15 @@ public final class AfkService implements Listener {
         return a;
     }
 
-    private static final int P7 = 2014691058
+    private static final int READY = 812196069
 
     ;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x102d) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x102d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x102d) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x102d) == READY;
     }
 }

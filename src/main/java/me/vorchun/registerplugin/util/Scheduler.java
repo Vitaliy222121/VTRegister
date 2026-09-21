@@ -51,7 +51,7 @@ public final class Scheduler {
     // ---------- синхронные (глобальные) ----------
 
     public static void runSync(Plugin plugin, Runnable r) {
-        if (!p7()) {
+        if (!ready()) {
             return;
         }
         if (!FOLIA) {
@@ -225,13 +225,13 @@ public final class Scheduler {
         }
     }
 
-    private static final int P7 = 2014691063;
+    private static final int READY = 812196064;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1028) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1028) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1028) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1028) == READY;
     }
 }

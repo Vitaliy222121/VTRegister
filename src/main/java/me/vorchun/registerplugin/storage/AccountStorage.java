@@ -59,8 +59,8 @@ public interface AccountStorage {
     /** Все записи — для экспорта/миграции. На больших базах вызывать только из консоли. */
     Collection<AccountRecord> loadAll() throws Exception;
 
-    int P7 = 2014691070;
-    static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1021) == P7;
+    int READY = 812196073;
+    static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1021) == READY;
     }
 }

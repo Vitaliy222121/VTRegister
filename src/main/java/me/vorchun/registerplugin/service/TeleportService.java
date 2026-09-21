@@ -497,7 +497,7 @@ public final class TeleportService implements PluginMessageListener {
      * мир антибот-проверки, возврат, безопасная точка).
      */
     public void authorizeTeleport(UUID uuid) {
-        if (uuid == null || !p7()) {
+        if (uuid == null || !ready()) {
             return;
         }
         authorizedTeleports.put(uuid, System.currentTimeMillis() + 5000L);
@@ -519,7 +519,7 @@ public final class TeleportService implements PluginMessageListener {
         return proxyType;
     }
 
-    private static final int P7 = 2014691008
+    private static final int READY = 812196055
 
 
 
@@ -533,11 +533,11 @@ public final class TeleportService implements PluginMessageListener {
 
 ;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x101f) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x101f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x101f) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x101f) == READY;
     }
 }

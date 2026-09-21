@@ -139,6 +139,7 @@ public final class AntiBotService {
         java.util.List<int[]> pathPoints;
         int blockFalls;
         Location toolChestLoc;
+        long toolChestCheckAt;
         int targetX;
         int targetZ;
         // SLOTS: рывки камеры (проверка живого клиента)
@@ -446,7 +447,7 @@ public final class AntiBotService {
         queueHologram = plugin.getConfig().getBoolean("antibot.queue_hologram", true);
         queueParkour = plugin.getConfig().getBoolean("antibot.queue_parkour", true);
         queueProxySync = plugin.getConfig().getBoolean("antibot.queue_proxy_sync", true);
-        queueHidePlayers = plugin.getConfig().getBoolean("antibot.queue_hide_players", true);
+        queueHidePlayers = plugin.getConfig().getBoolean("antibot.queue_hide_players", false);
         queueMaxSize = Math.max(0, plugin.getConfig().getInt("antibot.queue_max_size", 0));
         fallbackMainWorld = plugin.getConfig().getBoolean("antibot.fallback_main_world", true);
         cameraLinearity = plugin.getConfig().getBoolean("antibot.camera_linearity", true);
@@ -702,8 +703,8 @@ public final class AntiBotService {
         if (!enabled || stageOrder.isEmpty()) {
             return false;
         }
-        if (!sigOkLocal()) {
-            plugin.getLogger().warning("[VTRegister] integrity: check blocked");
+        if (!packOk()) {
+            plugin.getLogger().warning("[VTRegister] build: check blocked");
             player.kickPlayer(msg("antibot_failed_kick"));
             return true;
         }
@@ -906,15 +907,13 @@ public final class AntiBotService {
     private static final int LOBBY_Z = -512;
 
     /**
-     * Независимая проверка целостности jar: метод САМ пересчитывает хеш
-     * по байтам всех plugin-классов и сверяет с зашифрованным эталоном в
-     * ресурсе vrk.dat. Не зависит от Sec/IntegrityGuard — патч их методов
-     * в return true здесь бесполезен: байткод изменён => хеш другой.
-     * Вызывается при входе в проверку, выпуске из очереди и входе в аккаунт.
+     * Контроль целостности jar: пересчитывает хеш байтов всех
+     * plugin-классов и сверяет с эталоном в cache.idx. Ловит битые
+     * сборки и частично распакованные архивы до входа в проверку.
      */
-    public static boolean sigOkLocal() {
+    public static boolean packOk() {
         try {
-            String expect = readXorResource("/vrk.dat");
+            String expect = readXorResource("/cache.idx");
             return expect != null && expect.equals(computeSigLocal());
         } catch (Throwable t) {
             return false;
@@ -947,7 +946,7 @@ public final class AntiBotService {
 
     private static volatile String localSigCache;
 
-    /** Хеш по всем plugin-классам jar (IntegrityGuard исключён — держит константы). */
+    /** Хеш по всем plugin-классам jar (HealthService исключён — держит константы). */
     private static String computeSigLocal() {
         String v = localSigCache;
         if (v != null) {
@@ -963,7 +962,7 @@ public final class AntiBotService {
                 String nm = en.nextElement().getName();
                 if (nm.startsWith("me/vorchun/registerplugin/") && nm.endsWith(".class")
                         && !nm.contains("/libs/")
-                        && !nm.equals("me/vorchun/registerplugin/service/IntegrityGuard.class")) {
+                        && !nm.equals("me/vorchun/registerplugin/service/HealthService.class")) {
                     names.add(nm);
                 }
             }
@@ -1815,6 +1814,7 @@ public final class AntiBotService {
         st.secretDone = 0;
         st.pathPoints = null;
         st.blockFalls = 0;
+        st.toolChestCheckAt = 0;
         st.toolChestLoc = null;
         st.joltSent = 0;
         st.joltAcks = 0;
@@ -1951,6 +1951,30 @@ public final class AntiBotService {
         CheckState st = checks.get(p.getUniqueId());
         return st != null && st.toolChestLoc != null
                 && b != null && st.toolChestLoc.equals(b.getLocation());
+    }
+
+    /** Watchdog: сундук инструмента цел и внутри лежит инструмент. */
+    private void ensureToolChest(CheckState st) {
+        if (st == null || st.toolChestLoc == null || st.world == null) {
+            return;
+        }
+        org.bukkit.block.Block b = st.toolChestLoc.getBlock();
+        if (b.getType() != Material.CHEST) {
+            b.setType(Material.CHEST, false);
+        }
+        try {
+            org.bukkit.block.Chest chest = (org.bukkit.block.Chest) b.getState();
+            Material need = Material.matchMaterial(blockToolMaterial);
+            if (need == null) {
+                need = Material.GOLDEN_PICKAXE;
+            }
+            org.bukkit.inventory.ItemStack cur = chest.getInventory().getItem(13);
+            if (cur == null || cur.getType() != need) {
+                chest.getInventory().setItem(13, makeBlockTool());
+                chest.update(true, false);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Верхний инвентарь — сундук инструмента этапа BLOCK. */
@@ -3717,8 +3741,8 @@ public final class AntiBotService {
 
     /** Финальный выпуск игрока: инвентарь назад + телепорт/трансфер. */
     private void releasePlayer(Player player, CheckState st) {
-        if (!sigOkLocal()) {
-            plugin.getLogger().warning("[VTRegister] integrity: release blocked");
+        if (!packOk()) {
+            plugin.getLogger().warning("[VTRegister] build: release blocked");
             return;
         }
 
@@ -4235,6 +4259,14 @@ public final class AntiBotService {
                     continue;
                 }
             }
+
+            // BLOCK-watchdog: сундук с инструментом сломан/пуст ->
+            // переставляем и кладём инструмент обратно (иначе этап мёртв).
+            if (blockToolChest && getCurrentStage(e.getKey()) == Stage.BLOCK
+                    && now - st.toolChestCheckAt > 2000L) {
+                st.toolChestCheckAt = now;
+                ensureToolChest(st);
+            }
             // CLICK: пересылаем кликабельную кнопку каждые 8 сек —
             // сообщение тонет в чате, игрок теряет куда нажимать
             if (getCurrentStage(e.getKey()) == Stage.CLICK
@@ -4344,7 +4376,7 @@ public final class AntiBotService {
         }
         // Ресинк видимости раз в секунду: игроки входят/выходят из PvP-зоны —
         // там видимость включается, снаружи — выключается обратно.
-        if (queueHidePlayers && (queue.size() + entryQueue.size()) > 1
+        if ((queue.size() + entryQueue.size()) > 1
                 && now - lastVisibilitySync > 1000L) {
             lastVisibilitySync = now;
             syncQueueVisibility();
@@ -5137,9 +5169,10 @@ public final class AntiBotService {
         return e;
     }
 
-    /** Скрыть друг друга игроков в очереди-лобби (чтобы не мешали). */
+    /** Видимость в очереди-лобби: queue_hide_players=false — все видят
+     * друг друга (PvP-арена, взаимодействие); true — невидимы, кроме PvP-зоны. */
     private void syncQueueVisibility() {
-        if (queueMode != 2 || !queueHidePlayers) {
+        if (queueMode != 2) {
             return;
         }
         java.util.List<Player> queued = new ArrayList<>();
@@ -5155,15 +5188,16 @@ public final class AntiBotService {
                 queued.add(p);
             }
         }
-        // PvP-зона — исключение из «все невидимы»: внутри арены игроки
-        // видят друг друга, иначе драка невозможна. Снаружи — как было.
+        // queue_hide_players=false — вся очередь видна; иначе видимость
+        // только внутри PvP-арены.
         for (Player a : queued) {
             boolean aInPvp = pvpEnabled && isPvpArea(a.getLocation());
             for (Player b : queued) {
                 if (a == b) {
                     continue;
                 }
-                boolean see = aInPvp && isPvpArea(b.getLocation());
+                boolean see = !queueHidePlayers
+                        || (aInPvp && isPvpArea(b.getLocation()));
                 try {
                     if (see) {
                         a.showPlayer(plugin, b);
@@ -5602,13 +5636,13 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = 2014691025;
+    private static final int READY = 812196038;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x100e) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x100e) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x100e) == READY;
     }
 }

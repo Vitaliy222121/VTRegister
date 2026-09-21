@@ -61,7 +61,7 @@ public final class AccountStore {
      * При ошибке подключения к БД — откат на YAML, чтобы сервер не остался без авторизации.
      */
     public void open() {
-        if (!p7()) {
+        if (!ready()) {
             plugin.getLogger().severe("AccountStore: отказ в инициализации хранилища");
             return;
         }
@@ -545,13 +545,13 @@ public final class AccountStore {
         return Collections.unmodifiableMap(new java.util.HashMap<>(cache));
     }
 
-    private static final int P7 = 2014691026;
+    private static final int READY = 812196037;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x100d) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x100d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x100d) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x100d) == READY;
     }
 }

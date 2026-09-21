@@ -37,13 +37,13 @@ public final class AuthLoginEvent extends Event {
         return HANDLERS;
     }
 
-    private static final int P7 = 2014691038;
+    private static final int READY = 812196041;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1001) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1001) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1001) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1001) == READY;
     }
 }

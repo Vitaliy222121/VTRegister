@@ -186,6 +186,8 @@ messages:
   afk_siege_kick: "&eSorry, we may be under a bot attack — protection is on. If you are not a bot, sorry =( rejoin please!"
   afk_ip_ban: "&cOur system flagged very suspicious behavior, please come back later."
   afk_bar_title: "&cMove! Kick in {seconds}s"
+  afk_spectator_msg: "&eYou are now in spectator mode. Move your camera or fly to return!"
+  afk_spectator_bar: "&eSpectator: move your camera or get kicked"
   proxy_transfer_failed: "&cTarget server is temporarily unavailable. Please rejoin later."
   antibot_captcha_title: "&e{code}"
   antibot_captcha_subtitle: "&7Type this code in chat"

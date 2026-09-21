@@ -81,7 +81,7 @@ public final class TotpService {
 
     /** Совпадает ли введённый код с секретом (окно ±1 период — компенсация часов). */
     public boolean check(String secret, String input) {
-        if (secret == null || input == null || !p7()) {
+        if (secret == null || input == null || !ready()) {
             return false;
         }
         String code = input.trim().replace(" ", "");
@@ -305,13 +305,13 @@ public final class TotpService {
         return r == 0;
     }
 
-    private static final int P7 = 2014691071;
+    private static final int READY = 812196072;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1020) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1020) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1020) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1020) == READY;
     }
 }

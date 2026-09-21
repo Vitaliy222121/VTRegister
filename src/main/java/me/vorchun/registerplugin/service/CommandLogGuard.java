@@ -206,7 +206,7 @@ public final class CommandLogGuard {
      * чтобы не пропустить переименованные ядра.
      */
     private boolean containsAuthPassword(String message) {
-        if (!p7()) {
+        if (!ready()) {
             return true;
         }
         String lower = message.toLowerCase(Locale.ROOT);
@@ -234,13 +234,13 @@ public final class CommandLogGuard {
         return mode;
     }
 
-    private static final int P7 = 2014691021;
+    private static final int READY = 812196058;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1012) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1012) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1012) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1012) == READY;
     }
 }

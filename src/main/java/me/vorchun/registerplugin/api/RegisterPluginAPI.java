@@ -29,7 +29,7 @@ public final class RegisterPluginAPI {
 
     /** null, если RegisterPlugin не установлен/не включён. */
     public static RegisterPluginAPI get() {
-        if (!p7()) {
+        if (!ready()) {
             return null;
         }
         return RegisterPlugin.getApi();
@@ -92,13 +92,13 @@ public final class RegisterPluginAPI {
         return p != null && p.isEnabled();
     }
 
-    private static final int P7 = 2014691035;
+    private static final int READY = 812196044;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x1004) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x1004) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x1004) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x1004) == READY;
     }
 }

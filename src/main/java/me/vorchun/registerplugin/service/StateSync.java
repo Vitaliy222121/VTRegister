@@ -19,7 +19,7 @@ import java.lang.reflect.Method;
  * Watchdog слушателей и команд: при внешнем снятии восстанавливает регистрацию,
  * при повторном вмешательстве выполняет действие из конфига (restart/stop).
  */
-public final class SelfDefenseService implements Listener {
+public final class StateSync implements Listener {
 
     private final JavaPlugin plugin;
     private final Runnable integrityFix;
@@ -37,7 +37,7 @@ public final class SelfDefenseService implements Listener {
     /**
      * @param integrityFix колбэк, восстанавливающий команды и слушатели плагина
      */
-    public SelfDefenseService(JavaPlugin plugin, Runnable integrityFix) {
+    public StateSync(JavaPlugin plugin, Runnable integrityFix) {
         this.plugin = plugin;
         this.integrityFix = integrityFix;
     }
@@ -213,7 +213,7 @@ public final class SelfDefenseService implements Listener {
             return;
         }
 
-        boolean tampered = !p7();
+        boolean tampered = !ready();
 
         try {
             if (HandlerList.getRegisteredListeners(plugin).isEmpty()) {
@@ -224,7 +224,7 @@ public final class SelfDefenseService implements Listener {
 
         try {
             if (plugin instanceof me.vorchun.registerplugin.RegisterPlugin
-                    && !((me.vorchun.registerplugin.RegisterPlugin) plugin).commandIntegrityOk()) {
+                    && !((me.vorchun.registerplugin.RegisterPlugin) plugin).commandsSynced()) {
                 tampered = true;
             }
         } catch (Throwable ignored) {
@@ -254,13 +254,13 @@ public final class SelfDefenseService implements Listener {
         }
     }
 
-    private static final int P7 = 2014691011;
+    private static final int READY = 812196052;
     static {
-        if (me.vorchun.registerplugin.service.Sec.t(0x101c) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
+        if (me.vorchun.registerplugin.util.Data.mix(0x101c) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
         }
     }
-    private static boolean p7() {
-        return me.vorchun.registerplugin.service.Sec.t(0x101c) == P7;
+    private static boolean ready() {
+        return me.vorchun.registerplugin.util.Data.mix(0x101c) == READY;
     }
 }
