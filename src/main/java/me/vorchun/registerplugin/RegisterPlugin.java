@@ -632,13 +632,21 @@ public final class RegisterPlugin extends JavaPlugin {
         if (antiBotService != null) {
             antiBotService.shutdown();
         }
+        if (teleportService != null) {
+            teleportService.cancelAllWaits();
+        }
         if (accountStore != null) {
             accountStore.shutdown();
         }
         instance = null;
     }
 
-    private static final int READY = -779908245
+    private static final int READY = 846328683
+
+
+
+
+
 
 
 

@@ -41,7 +41,7 @@ final class FallPacketCheck {
     private static final double DRAG = 0.98;
     private static final String HANDLER = "vt_fallcheck";
     private static final AttributeKey<UUID> UID = AttributeKey.valueOf("vt_fall_uid");
-    private static final int READY = -779908281; // инъектор подставляет при сборке
+    private static final int READY = 846328647; // инъектор подставляет при сборке
 
     private static boolean ready() {
         return Data.mix(0x102c) == READY;
@@ -79,8 +79,8 @@ final class FallPacketCheck {
         requiredTicks = Math.max(2, Math.min(20, c.getInt("antibot.fall_ticks", 4)));
         maxViolations = Math.max(1, c.getInt("antibot.fall_max_violations", 3));
         airHeight = Math.max(6, Math.min(80, c.getInt("antibot.fall_height", 12)));
-        tolerance = Math.max(0.0005, c.getDouble("antibot.fall_tolerance", 0.005));
-        toleranceBedrock = Math.max(tolerance, c.getDouble("antibot.fall_tolerance_bedrock", 0.03));
+        tolerance = Math.max(0.0005, c.getDouble("antibot.fall_tolerance", 0.01));
+        toleranceBedrock = Math.max(tolerance, c.getDouble("antibot.fall_tolerance_bedrock", 0.05));
     }
 
     /** Состояние одной проверки падения — без локов, только volatile. */
@@ -258,9 +258,21 @@ final class FallPacketCheck {
         }
         double dy = s.prevY - y; // > 0 при падении
         s.prevY = y;
-        // эталон ванили: v = (v - 0.08) * 0.98; ожидаемый сдвиг = -v
-        s.vel = (s.vel - GRAVITY) * DRAG;
-        double expect = -s.vel;
+        // Приземлился на пол арены до конца замера — падение было
+        // реальным, проверка пройдена.
+        if (ground && y <= s.floorY + 1.0) {
+            finish(uuid, true, "landed");
+            return;
+        }
+        // Самокалибрующаяся цепочка: ваниль v = (v - 0.08) * 0.98, значит
+        // dy_next = dy * 0.98 + 0.0784 — работает с ЛЮБОЙ начальной
+        // скоростью (телепорт в прыжке/падении не даёт ложный фейл).
+        if (Double.isNaN(s.lastDy)) {
+            s.lastDy = dy;
+            s.ticks++;
+            return;
+        }
+        double expect = s.lastDy * DRAG + GRAVITY * DRAG;
         if (Math.abs(dy - expect) > s.tol
                 && ++s.violStreak >= maxViolations) {
             finish(uuid, false, "physics-mismatch");

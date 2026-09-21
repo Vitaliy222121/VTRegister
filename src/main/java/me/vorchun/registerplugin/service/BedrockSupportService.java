@@ -89,7 +89,7 @@ public final class BedrockSupportService {
         plugin.getLogger().warning("Bedrock-поддержка включена, но Floodgate не найден. Bedrock bypass авторизации отключён.");
     }
 
-    private static final int READY = -779908230;
+    private static final int READY = 846328698;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1011) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

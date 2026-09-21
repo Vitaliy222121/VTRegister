@@ -347,6 +347,8 @@ public final class AntiBotService {
     /** Сколько раз можно урониться в бездну на FALL до кика. */
     private volatile int fallVoidMax = 3;
     private volatile long lastStructCheckAt;
+    private volatile long lastItemCleanAt;
+    private volatile int lobbyItemCleanS = 60;
     // PUZZLE blocks-режим: рамки 3x3, на каждой 1 картинка-животное
     private volatile String puzzleMode = "both";
     private volatile List<String> puzzleTileNames = Collections.emptyList();
@@ -471,6 +473,7 @@ public final class AntiBotService {
         queueFlight = plugin.getConfig().getBoolean("antibot.queue_flight", false);
         queueKickFlyers = plugin.getConfig().getBoolean("antibot.queue_kick_flyers", true);
         queueBuildLobby = plugin.getConfig().getBoolean("antibot.queue_build_lobby", true);
+        lobbyItemCleanS = Math.max(0, plugin.getConfig().getInt("antibot.lobby_item_clean_seconds", 60));
         pvpEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.enabled", true);
         pvpX1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_x", 21);
         pvpZ1 = plugin.getConfig().getInt("antibot.queue_pvp.corner1_z", -484);
@@ -848,6 +851,15 @@ public final class AntiBotService {
         ensureTicker();
 
         sendMessage(player, "antibot_queue", queuePosition(uuid));
+        // темнота/blindness — только экран рег/логин, в очереди не нужна
+        if (!"always".equals(authDarkness)) {
+            final Player fp0 = player;
+            Scheduler.runAtEntity(plugin, fp0, () -> {
+                if (fp0.isOnline()) {
+                    Compat.clearAuthDarkness(fp0);
+                }
+            });
+        }
 
         if (queueMode == 1 && bossbarEnabled) {
             qe.bar = Bukkit.createBossBar("", org.bukkit.boss.BarColor.YELLOW,
@@ -1126,6 +1138,26 @@ public final class AntiBotService {
                 fix(w, pvpChestX + 1, y + 1, pvpChestZ, Material.CHEST);
                 if (speedButtonEnabled) {
                     fix(w, pvpChestX + 4, y, pvpChestZ, Material.POLISHED_BLACKSTONE);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** Удаляет дропнутые предметы в границах лобби (арены проверок не трогаем). */
+    private void cleanLobbyItems(World w) {
+        if (w == null) {
+            return;
+        }
+        try {
+            for (org.bukkit.entity.Entity e : w.getEntities()) {
+                if (!(e instanceof org.bukkit.entity.Item)) {
+                    continue;
+                }
+                Location l = e.getLocation();
+                if (Math.abs(l.getBlockX()) <= 50
+                        && Math.abs(l.getBlockZ() - LOBBY_Z) <= 60) {
+                    e.remove();
                 }
             }
         } catch (Throwable ignored) {
@@ -1458,7 +1490,7 @@ public final class AntiBotService {
         if (watchdog != null) {
             return;
         }
-        watchdog = Scheduler.runSyncTimer(plugin, this::watchdogTick, 1200L, 1200L);
+        watchdog = Scheduler.runSyncTimer(plugin, this::watchdogTick, 60L, 1200L);
     }
 
     private void stopWatchdog() {
@@ -1665,6 +1697,9 @@ public final class AntiBotService {
         player.setFlying(false);
         player.setFallDistance(0f);
         player.setVelocity(player.getVelocity().zero());
+        if (!"always".equals(authDarkness)) {
+            Compat.clearAuthDarkness(player);
+        }
         // В мире проверки игрок должен быть «пустым»: ни предметов, ни опыта.
         // Всё сохраняем и вернём после проверки (или при выходе/кике).
         if (plugin.getConfig().getBoolean("antibot.empty_inventory", true) && !st.inventorySaved) {
@@ -4400,6 +4435,14 @@ public final class AntiBotService {
             verifyLobbyIntegrity(verifyWorld != null ? verifyWorld : fallbackWorld);
         }
 
+        // Чистка дропов в лобби: раз в lobby_item_clean_seconds, один
+        // проход по сущностям мира — Item в границах лобби удаляем.
+        if (queueBuildLobby && lobbyBuilt && lobbyItemCleanS > 0
+                && now - lastItemCleanAt >= lobbyItemCleanS * 1000L) {
+            lastItemCleanAt = now;
+            cleanLobbyItems(verifyWorld != null ? verifyWorld : fallbackWorld);
+        }
+
         if (fallPackets != null) {
             fallPackets.tick();
         }
@@ -5673,7 +5716,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = -779908251;
+    private static final int READY = 846328677;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100e) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

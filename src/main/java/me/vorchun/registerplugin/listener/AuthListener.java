@@ -528,6 +528,7 @@ public final class AuthListener implements Listener {
         }
         sessionManager.logout(uuid);
         teleportService.clearSavedLocation(uuid);
+        teleportService.cancelWait(uuid);
         // На всякий случай раскрываем игрока, чтобы не остался невидимкой
         if (hideDuringAuth) {
             for (Player other : Bukkit.getOnlinePlayers()) {
@@ -2360,7 +2361,21 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = -779908256
+    private static final int READY = 846328672
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ;

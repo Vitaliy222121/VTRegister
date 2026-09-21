@@ -30,7 +30,7 @@ public final class PasswordHasher {
     private static volatile int argonParallelism = 1;
     private static volatile int argonHashLen = 32;
 
-    private static final int READY = -779910848
+    private static final int READY = 846330176
 
 
 

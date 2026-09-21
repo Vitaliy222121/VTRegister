@@ -42,6 +42,22 @@ public final class TeleportService implements PluginMessageListener {
     private final java.util.List<String> knownServers = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Map<String, String> serverAddresses = new ConcurrentHashMap<>();
 
+    // --- ожидание включения целевого сервера (proxy_server.wait_for_server) ---
+    private boolean waitEnabled = false;
+    private String waitHost = "";
+    private int waitPort = 25565;
+    private long waitTimeoutMs = 15 * 60_000L;
+    private long waitCheckMs = 10_000L;
+    private boolean waitBarEnabled = true;
+    private final Map<UUID, Waiter> waiters = new ConcurrentHashMap<>();
+
+    private static final class Waiter {
+        String server;
+        long deadline;
+        org.bukkit.boss.BossBar bar;
+        volatile me.vorchun.registerplugin.util.Scheduler.Task task;
+    }
+
     public TeleportService(JavaPlugin plugin, SessionManager sessionManager) {
         this.plugin = plugin;
         this.sessionManager = sessionManager;
@@ -203,6 +219,13 @@ public final class TeleportService implements PluginMessageListener {
         safeTransfer = plugin.getConfig().getBoolean("proxy_server.safe_transfer", true);
         fallbackToLobbyLocation = plugin.getConfig().getBoolean("proxy_server.fallback_to_lobby_location", true);
         retrySeconds = Math.max(1, plugin.getConfig().getInt("proxy_server.retry_seconds", 3));
+
+        waitEnabled = plugin.getConfig().getBoolean("proxy_server.wait_for_server.enabled", false);
+        waitHost = plugin.getConfig().getString("proxy_server.wait_for_server.host", "");
+        waitPort = Math.max(1, plugin.getConfig().getInt("proxy_server.wait_for_server.port", 25565));
+        waitTimeoutMs = Math.max(30, plugin.getConfig().getInt("proxy_server.wait_for_server.timeout_minutes", 15)) * 60_000L;
+        waitCheckMs = Math.max(3, plugin.getConfig().getInt("proxy_server.wait_for_server.check_interval_seconds", 10)) * 1000L;
+        waitBarEnabled = plugin.getConfig().getBoolean("proxy_server.wait_for_server.bossbar", true);
 
         proxySecurityConfigured = plugin.getConfig().getBoolean("proxy_security.enabled", false);
         if (proxySecurityConfigured) {
@@ -390,6 +413,22 @@ public final class TeleportService implements PluginMessageListener {
         player.sendMessage(text);
     }
 
+    private String msg(String key, String def) {
+        String text = null;
+        try {
+            if (plugin instanceof RegisterPlugin
+                    && ((RegisterPlugin) plugin).getMessageService() != null) {
+                text = ((RegisterPlugin) plugin).getMessageService().message(key);
+            }
+        } catch (Throwable ignored) {
+        }
+        return text == null || text.isEmpty() ? def : text;
+    }
+
+    private static String colorize(String s) {
+        return org.bukkit.ChatColor.translateAlternateColorCodes('&', s == null ? "" : s);
+    }
+
     /** Одна отправка Connect на оба канала прокси (BungeeCord + Velocity-legacy). */
     private void sendConnect(Player player, String serverName) {
         try {
@@ -448,8 +487,165 @@ public final class TeleportService implements PluginMessageListener {
             plugin.getLogger().warning("transferToServer('" + serverName + "') вызван при выключенном прокси-режиме — игрок остаётся здесь");
             return;
         }
+        if (waitEnabled && waitHost != null && !waitHost.isEmpty()) {
+            probeThenConnect(player, serverName);
+            return;
+        }
         connectWithRetry(player, serverName);
     }
+
+    // ---------- ожидание включения целевого сервера ----------
+
+    /** Асинхронный TCP-проб хоста; если сервер выключен — ждём в лобби. */
+    private void probeThenConnect(Player player, String serverName) {
+        final UUID uuid = player.getUniqueId();
+        me.vorchun.registerplugin.util.Scheduler.runAsync(plugin, () -> {
+            boolean up = pingServer();
+            me.vorchun.registerplugin.util.Scheduler.runAtEntity(plugin, player, () -> {
+                if (!player.isOnline()) {
+                    return;
+                }
+                if (up) {
+                    connectWithRetry(player, serverName);
+                } else {
+                    startWait(player, serverName);
+                }
+            });
+        });
+    }
+
+    /** TCP-коннект к waitHost:waitPort — 3с таймаут, без протокола. */
+    private boolean pingServer() {
+        try (java.net.Socket sock = new java.net.Socket()) {
+            sock.connect(new java.net.InetSocketAddress(waitHost, waitPort), 3000);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void startWait(Player player, String serverName) {
+        final UUID uuid = player.getUniqueId();
+        cancelWait(uuid);
+        Waiter w = new Waiter();
+        w.server = serverName;
+        w.deadline = System.currentTimeMillis() + waitTimeoutMs;
+        if (waitBarEnabled) {
+            try {
+                w.bar = Bukkit.createBossBar("", org.bukkit.boss.BarColor.YELLOW,
+                        org.bukkit.boss.BarStyle.SOLID);
+                w.bar.addPlayer(player);
+            } catch (Throwable ignored) {
+            }
+        }
+        // Парковка в лобби-очереди (там же ждут проверки) или fallback-точке
+        Location waitLoc = waitLocation();
+        if (waitLoc != null && waitLoc.getWorld() != null) {
+            authorizeTeleport(uuid);
+            player.teleport(waitLoc);
+        }
+        player.sendMessage(colorize(msg("proxy_wait_start",
+                "&eСервер &f%server% &eсейчас недоступен — жди включения, я перекину автоматически.")
+                .replace("%server%", serverName)));
+        waiters.put(uuid, w);
+        w.task = me.vorchun.registerplugin.util.Scheduler.runSyncTimer(plugin,
+                () -> tickWait(uuid), waitCheckMs / 50L, waitCheckMs / 50L);
+    }
+
+    private void tickWait(UUID uuid) {
+        Waiter w = waiters.get(uuid);
+        if (w == null) {
+            return;
+        }
+        Player p = Bukkit.getPlayer(uuid);
+        if (p == null || !p.isOnline()) {
+            cancelWait(uuid);
+            return;
+        }
+        long left = w.deadline - System.currentTimeMillis();
+        if (left <= 0) {
+            cancelWait(uuid);
+            String msg = msg("proxy_wait_timeout_kick",
+                    "&cЦелевой сервер так и не включился за 15 минут — тебя кикнуло.");
+            p.kickPlayer(msg);
+            return;
+        }
+        if (w.bar != null) {
+            try {
+                long sec = left / 1000L;
+                w.bar.setTitle(colorize(msg("proxy_wait_bar",
+                        "&eЖдём сервер… осталось %mm%:%ss%"))
+                        .replace("%mm%", String.format("%02d", sec / 60))
+                        .replace("%ss%", String.format("%02d", sec % 60)));
+                w.bar.setProgress(Math.max(0.0, Math.min(1.0,
+                        (double) left / (double) waitTimeoutMs)));
+            } catch (Throwable ignored) {
+            }
+        }
+        me.vorchun.registerplugin.util.Scheduler.runAsync(plugin, () -> {
+            boolean up = pingServer();
+            if (!up) {
+                return;
+            }
+            me.vorchun.registerplugin.util.Scheduler.runAtEntity(plugin, p, () -> {
+                Waiter cur = waiters.get(uuid);
+                if (cur == null || !p.isOnline()) {
+                    return;
+                }
+                String srv = cur.server;
+                cancelWait(uuid);
+                sendMessage(p, "proxy_wait_online",
+                        "&aСервер включился — переношу тебя!");
+                connectWithRetry(p, srv);
+            });
+        });
+    }
+
+    /** Снять ожидание: бар + таймер (выход, успешный трансфер, отключение). */
+    public void cancelWait(UUID uuid) {
+        Waiter w = waiters.remove(uuid);
+        if (w == null) {
+            return;
+        }
+        if (w.task != null) {
+            try {
+                w.task.cancel();
+            } catch (Throwable ignored) {
+            }
+        }
+        if (w.bar != null) {
+            try {
+                w.bar.removeAll();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** Выключение плагина: снять все ожидания и их таймеры/бары. */
+    public void cancelAllWaits() {
+        for (UUID u : new java.util.ArrayList<>(waiters.keySet())) {
+            cancelWait(u);
+        }
+    }
+
+    /** Точка ожидания: лобби очереди антибота, иначе lobby.*, иначе на месте. */
+    private Location waitLocation() {
+        try {
+            if (plugin instanceof me.vorchun.registerplugin.RegisterPlugin) {
+                me.vorchun.registerplugin.service.AntiBotService ab =
+                        ((me.vorchun.registerplugin.RegisterPlugin) plugin).getAntiBotService();
+                if (ab != null) {
+                    Location l = ab.lobbySpawnLocation();
+                    if (l != null) {
+                        return l;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return lobbyLocation;
+    }
+
 
     public void checkVoidFall(Player player) {
         if (sessionManager.isLoggedIn(player.getUniqueId())) {
@@ -519,7 +715,12 @@ public final class TeleportService implements PluginMessageListener {
         return proxyType;
     }
 
-    private static final int READY = -779908236
+    private static final int READY = 846328692
+
+
+
+
+
 
 
 
