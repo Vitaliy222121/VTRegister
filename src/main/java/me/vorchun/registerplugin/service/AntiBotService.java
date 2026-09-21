@@ -4488,19 +4488,25 @@ public final class AntiBotService {
 
         // Лобби-watchdog: табличка/сундук/кнопка сломаны -> восстановить.
         // Снаружи per-player цикла: работает и когда проверяемых нет.
-        // Сломанные структуры лобби чиним раз в ~3 секунды
-        if (queueBuildLobby && lobbyBuilt && now - lastStructCheckAt > 3000L) {
+        // Сломанные структуры лобби чиним раз в ~3 секунды — ТОЛЬКО когда в
+        // проверочном мире есть игроки. Иначе getBlockAt() на выгруженных
+        // чанках (keepSpawnInMemory=false) грузил бы их с диска каждые 3с.
+        World lw = verifyWorld != null ? verifyWorld : fallbackWorld;
+        boolean lobbyActive = lw != null && !lw.getPlayers().isEmpty();
+        if (lobbyActive && queueBuildLobby && lobbyBuilt
+                && now - lastStructCheckAt > 3000L) {
             lastStructCheckAt = now;
             restoreLobbyStructures();
-            verifyLobbyIntegrity(verifyWorld != null ? verifyWorld : fallbackWorld);
+            verifyLobbyIntegrity(lw);
         }
 
         // Чистка дропов в лобби: раз в lobby_item_clean_seconds, один
         // проход по сущностям мира — Item в границах лобби удаляем.
-        if (queueBuildLobby && lobbyBuilt && lobbyItemCleanS > 0
+        // В пустом мире дропов не бывает — пропускаем.
+        if (lobbyActive && queueBuildLobby && lobbyBuilt && lobbyItemCleanS > 0
                 && now - lastItemCleanAt >= lobbyItemCleanS * 1000L) {
             lastItemCleanAt = now;
-            cleanLobbyItems(verifyWorld != null ? verifyWorld : fallbackWorld);
+            cleanLobbyItems(lw);
         }
 
         if (fallPackets != null) {
@@ -5704,8 +5710,13 @@ public final class AntiBotService {
             view.getRenderers().forEach(view::removeRenderer);
             final String code = st.code;
             view.addRenderer(new org.bukkit.map.MapRenderer() {
+                private boolean drawn;
                 @Override
                 public void render(org.bukkit.map.MapView mapView, org.bukkit.map.MapCanvas canvas, Player p) {
+                    if (drawn) {
+                        return;
+                    }
+                    drawn = true;
                     canvas.drawText(8, 8, org.bukkit.map.MinecraftFont.Font, "КОД:");
                     canvas.drawText(8, 24, org.bukkit.map.MinecraftFont.Font, code);
                 }

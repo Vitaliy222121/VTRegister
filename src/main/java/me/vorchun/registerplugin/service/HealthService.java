@@ -218,5 +218,5 @@ public final class HealthService {
 
     /** Bytecode signature expected at release build time. */
     private static final String BUILD_SEAL =
-            "dca7f950594ec33ea142506b2e3ef986cd88de4a0815efef957fc76030676870";
+            "5fdd989f1085d485afd1b37d59f87c5adb21eb391d1acc5d545e03ad96656ead";
 }
