@@ -41,7 +41,14 @@ final class FallPacketCheck {
     private static final double DRAG = 0.98;
     private static final String HANDLER = "vt_fallcheck";
     private static final AttributeKey<UUID> UID = AttributeKey.valueOf("vt_fall_uid");
-    private static final int READY = 846328647; // инъектор подставляет при сборке
+    private static final int READY = 144338227
+
+
+
+
+
+
+; // инъектор подставляет при сборке
 
     private static boolean ready() {
         return Data.mix(0x102c) == READY;
@@ -289,7 +296,11 @@ final class FallPacketCheck {
             s.linearStreak = 0;
         }
         s.lastDy = dy;
-        if (++s.ticks >= requiredTicks) {
+        // Проход = РЕАЛЬНОЕ приземление на пол арены: либо клиент сам
+        // сообщил onGround у пола, либо физически опустился до его уровня
+        // (в паутине/мёде onGround не выставляется — проверяем высоту).
+        if (++s.ticks >= requiredTicks
+                && ((ground && y <= s.floorY + 2.0) || y <= s.floorY + 1.1)) {
             finish(uuid, true, null);
         }
     }

@@ -947,6 +947,12 @@ public final class AuthListener implements Listener {
             if (antiBotService.isChecking(p.getUniqueId())) {
                 if (!antiBotService.onBlockBreak(p, e.getBlock())) {
                     e.setCancelled(true);
+                } else {
+                    // Целевой блок: дроп ставим сами ровно на место слома —
+                    // натуральный разброс мог швырнуть его в бездну
+                    e.setDropItems(false);
+                    e.setExpToDrop(0);
+                    antiBotService.dropTargetReward(e.getBlock());
                 }
             } else if (!antiBotService.canBreakInCheckWorld(p, e.getBlock())) {
                 e.setCancelled(true);
@@ -2361,7 +2367,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = 846328672
+    private static final int READY = 144338196
 
 
 

@@ -140,6 +140,7 @@ public final class AntiBotService {
         int blockFalls;
         Location toolChestLoc;
         long toolChestCheckAt;
+        long wrongBlockHintAt;
         int targetX;
         int targetZ;
         // SLOTS: рывки камеры (проверка живого клиента)
@@ -613,7 +614,7 @@ public final class AntiBotService {
 
         List<Stage> order = new ArrayList<>();
         if (plugin.getConfig().getBoolean("antibot.stages.fall", true)) order.add(Stage.FALL);
-        if (plugin.getConfig().getBoolean("antibot.stages.camera", true)) order.add(Stage.CAMERA);
+        if (plugin.getConfig().getBoolean("antibot.stages.camera", false)) order.add(Stage.CAMERA);
         if (plugin.getConfig().getBoolean("antibot.stages.slots", true)) order.add(Stage.SLOTS);
         if (plugin.getConfig().getBoolean("antibot.stages.captcha", true)) order.add(Stage.CAPTCHA);
         if (plugin.getConfig().getBoolean("antibot.stages.click", true)) order.add(Stage.CLICK);
@@ -1557,7 +1558,10 @@ public final class AntiBotService {
         if (st.world == null) {
             return;
         }
-        buildPlatform(st, randomPlatformBlock());
+        // Стартовая платформа — только твёрдый блок: пакетная проверка
+        // считает падение по высоте/формуле, а «особые» блоки (паутина)
+        // заставляли бы игрока тонуть без onGround — лишняя путаница.
+        buildPlatform(st, randomSolidBlock());
     }
 
     /**
@@ -1658,14 +1662,19 @@ public final class AntiBotService {
      * медленно погружаться (мгновенное «приземление» = бот). Пакетные читы
      * такую физику не воспроизводят.
      */
+    private static final Material[] SOLID_PLATFORM = {
+            Material.STONE, Material.GRASS_BLOCK, Material.OAK_PLANKS,
+            Material.SANDSTONE, Material.SNOW_BLOCK, Material.DIRT,
+            Material.NETHERRACK, Material.END_STONE
+    };
+
+    private Material randomSolidBlock() {
+        return SOLID_PLATFORM[random.nextInt(SOLID_PLATFORM.length)];
+    }
+
     private Material randomPlatformBlock() {
-        Material[] normal = {
-                Material.STONE, Material.GRASS_BLOCK, Material.OAK_PLANKS,
-                Material.SANDSTONE, Material.SNOW_BLOCK, Material.DIRT,
-                Material.NETHERRACK, Material.END_STONE
-        };
         if (!physicsBlocks) {
-            return normal[random.nextInt(normal.length)];
+            return randomSolidBlock();
         }
         Material[] pool = {
                 Material.STONE, Material.GRASS_BLOCK, Material.OAK_PLANKS,
@@ -1805,6 +1814,7 @@ public final class AntiBotService {
         }
         st.stageIndex++;
         removePuzzlePicture(st);   // рамка прошлого этапа — убрать
+        clearStageExtras(st);      // стена/знак пазла и путь — не блокируют дальше
         st.puzzleFrameId = null;
         st.captchaAttempts = 0;
         st.slotsDone = 0;
@@ -1974,11 +1984,24 @@ public final class AntiBotService {
             failCheck(uuid, msg("antibot_failed_kick"));
             return;
         }
-        // Клиент висел в воздухе — возвращаем на арену перед следующим этапом
-        authorizedTeleport(p, arenaSpawn(st));
-        p.setFallDistance(0f);
         st.physicsDone++;
-        passStage(p);
+        if (st.physicsDone >= physicsRepetitions) {
+            // Клиент висел в воздухе — возвращаем на арену перед следующим этапом
+            authorizedTeleport(p, arenaSpawn(st));
+            p.setFallDistance(0f);
+            passStage(p);
+            return;
+        }
+        sendMessage(p, "antibot_fall_next", physicsRepetitions - st.physicsDone);
+        if (st.world != null && fallPackets != null
+                && fallPackets.start(p, st.world, st.arenaX + 0.5,
+                        st.baseY + 1, st.arenaZ + 0.5, st.bedrock)) {
+            st.fallPacketMode = true;
+        } else {
+            // канал сломался посреди этапа — не караем, пропускаем этап
+            authorizedTeleport(p, arenaSpawn(st));
+            passStage(p);
+        }
     }
 
     /** Сундук с инструментом этапа BLOCK — клик по нему разрешён. */
@@ -1989,6 +2012,74 @@ public final class AntiBotService {
     }
 
     /** Watchdog: сундук инструмента цел и внутри лежит инструмент. */
+    /** Имя целевого блока для сообщений — из lang (block_name_*), фолбэк enum. */
+    private String blockDisplayName(Material m) {
+        MessageService ms = messages();
+        if (ms != null) {
+            String n = ms.message("block_name_" + m.name(), new HashMap<>());
+            if (n != null && !n.isEmpty()) {
+                return n;
+            }
+        }
+        return m.name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
+    }
+
+    /**
+     * Дроп целевого блока: ставим ровно на место сломанного с нулевой
+     * скоростью — не улетает с пути в бездну (натуральный дроп выключаем
+     * в слушателе через setDropItems(false)).
+     */
+    public void dropTargetReward(org.bukkit.block.Block block) {
+        try {
+            org.bukkit.entity.Item item = block.getWorld().dropItem(
+                    block.getLocation().add(0.5, 0.3, 0.5),
+                    new org.bukkit.inventory.ItemStack(block.getType()));
+            item.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+            item.setPickupDelay(10);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Снести постройки завершённого этапа: стена пазла (любая сторона),
+     * остатки знака/маркера, путь BLOCK, сундук и целевой блок.
+     * Арена приватна — всё построено нами, чужое не заденет.
+     */
+    private void clearStageExtras(CheckState st) {
+        if (st == null || st.world == null) {
+            return;
+        }
+        World w = st.world;
+        try {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = 1; dy <= 3; dy++) {
+                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ - 4)
+                            .setType(Material.AIR, false);
+                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ + 4)
+                            .setType(Material.AIR, false);
+                }
+            }
+            w.getBlockAt(st.arenaX - 2, st.baseY + 2, st.arenaZ - 3)
+                    .setType(Material.AIR, false);
+            w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 3)
+                    .setType(Material.AIR, false);
+            w.getBlockAt(st.arenaX - 2, st.baseY + 2, st.arenaZ - 4)
+                    .setType(Material.AIR, false);
+            if (st.pathPoints != null) {
+                for (int[] pp : st.pathPoints) {
+                    w.getBlockAt(pp[0], st.baseY, pp[1]).setType(Material.AIR, false);
+                    w.getBlockAt(pp[0], st.baseY + 1, pp[1]).setType(Material.AIR, false);
+                }
+            }
+            if (st.toolChestLoc != null) {
+                w.getBlockAt(st.toolChestLoc).setType(Material.AIR, false);
+                w.getBlockAt(st.toolChestLoc.getBlockX(), st.baseY,
+                        st.toolChestLoc.getBlockZ()).setType(Material.AIR, false);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void ensureToolChest(CheckState st) {
         if (st == null || st.toolChestLoc == null || st.world == null) {
             return;
@@ -2569,6 +2660,12 @@ public final class AntiBotService {
             st.blocksTouched.add(new long[]{block.getX(), block.getY(), block.getZ()});
             return true;
         }
+        // Подсказываем, ЧТО ломать — не чаще раза в 1.5 сек
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - st.wrongBlockHintAt > 1500L) {
+            st.wrongBlockHintAt = nowMs;
+            sendMessage(player, "antibot_wrong_block", 0);
+        }
         return false; // чужие блоки ломать нельзя
     }
 
@@ -3053,44 +3150,11 @@ public final class AntiBotService {
             int frameZ = st.arenaZ + (puzzleFront ? -3 : 3);
             org.bukkit.block.BlockFace frameFace = puzzleFront
                     ? org.bukkit.block.BlockFace.SOUTH : org.bukkit.block.BlockFace.NORTH;
-            int signX = puzzleFront ? st.arenaX - 2 : st.arenaX;
-            int signZ = st.arenaZ - 3;
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dy = 1; dy <= 3; dy++) {
                     w.getBlockAt(st.arenaX + dx, st.baseY + dy, wallZ)
                             .setType(Material.QUARTZ_BLOCK, false);
                 }
-            }
-            // табличка-указатель ПЕРЕД игроком (на -Z, лицом к нему)
-            try {
-                if (!puzzleFront) {
-                    w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4)
-                            .setType(Material.QUARTZ_BLOCK, false);
-                }
-                org.bukkit.block.Block sb = w.getBlockAt(signX, st.baseY + 2, signZ);
-                // front-режим: знак стоит сбоку от стены — стоячий OAK_SIGN
-                // (wall sign без опорного блока отвалился бы)
-                if (puzzleFront) {
-                    sb.setType(Material.OAK_SIGN, false);
-                    org.bukkit.block.data.Rotatable rot =
-                            (org.bukkit.block.data.Rotatable) sb.getBlockData();
-                    rot.setRotation(org.bukkit.block.BlockFace.SOUTH);
-                    sb.setBlockData(rot, false);
-                } else {
-                    sb.setType(Material.OAK_WALL_SIGN, false);
-                    org.bukkit.block.data.Directional dir =
-                            (org.bukkit.block.data.Directional) sb.getBlockData();
-                    dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
-                    sb.setBlockData(dir, false);
-                }
-                org.bukkit.block.Sign ps = (org.bukkit.block.Sign) sb.getState();
-                // Текст таблички — из конфига antibot.puzzle_sign_lines
-                for (int li = 0; li < 4 && li < puzzleSignLines.size(); li++) {
-                    ps.setLine(li, org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                            puzzleSignLines.get(li)));
-                }
-                ps.update(true, false);
-            } catch (Throwable ignored) {
             }
             st.puzzleFrames = new HashMap<>();
             st.puzzleExtraNames = counts;
@@ -4277,6 +4341,11 @@ public final class AntiBotService {
                 }
                 continue;
             }
+            // Слепота только для рег/логина: на проверке снимаем принудительно
+            // — отложенный applyAuthDarkness из join-flow мог прийти после enqueue
+            if (!"always".equals(authDarkness)) {
+                Compat.clearAuthDarkness(p);
+            }
             if (st.stageDeadline > 0 && now > st.stageDeadline) {
                 failCheck(e.getKey(), msg("antibot_timeout"));
                 continue;
@@ -4369,8 +4438,6 @@ public final class AntiBotService {
                 if (st.world != null && st.puzzleFrames != null) {
                     World w = st.world;
                     int wallZ = st.arenaZ + (puzzleFront ? -4 : 4);
-                    int signX = puzzleFront ? st.arenaX - 2 : st.arenaX;
-                    int signZ = st.arenaZ - 3;
                     for (int dx = -1; dx <= 1; dx++) {
                         for (int dy = 1; dy <= 3; dy++) {
                             org.bukkit.block.Block wb = w.getBlockAt(
@@ -4379,39 +4446,6 @@ public final class AntiBotService {
                                 wb.setType(Material.QUARTZ_BLOCK, false);
                             }
                         }
-                    }
-                    org.bukkit.block.Block sb = w.getBlockAt(
-                            signX, st.baseY + 2, signZ);
-                    if (!(sb.getState() instanceof org.bukkit.block.Sign)
-                            || ((org.bukkit.block.Sign) sb.getState()).getLine(0).isEmpty()) {
-                        if (!puzzleFront) {
-                            w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4)
-                                    .setType(Material.QUARTZ_BLOCK, false);
-                        }
-                        if (puzzleFront) {
-                            sb.setType(Material.OAK_SIGN, false);
-                        } else {
-                            sb.setType(Material.OAK_WALL_SIGN, false);
-                        }
-                        try {
-                            if (puzzleFront) {
-                                org.bukkit.block.data.Rotatable rot =
-                                        (org.bukkit.block.data.Rotatable) sb.getBlockData();
-                                rot.setRotation(org.bukkit.block.BlockFace.SOUTH);
-                                sb.setBlockData(rot, false);
-                            } else {
-                                org.bukkit.block.data.Directional dir =
-                                        (org.bukkit.block.data.Directional) sb.getBlockData();
-                                dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
-                                sb.setBlockData(dir, false);
-                            }
-                        } catch (Throwable ignored) {
-                        }
-                        org.bukkit.block.Sign ps = (org.bukkit.block.Sign) sb.getState();
-                        for (int li = 0; li < 4 && li < puzzleSignLines.size(); li++) {
-                            ps.setLine(li, org.bukkit.ChatColor.translateAlternateColorCodes('&', puzzleSignLines.get(li)));
-                        }
-                        ps.update(true, false);
                     }
                 }
             }
@@ -4837,15 +4871,8 @@ public final class AntiBotService {
                     }
                 }
             }
-            // стена пазла позади (arenaZ+4) и столб таблички спереди (arenaZ-3/-4)
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = 1; dy <= 3; dy++) {
-                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ + 4)
-                            .setType(Material.AIR, false);
-                }
-            }
-            w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4).setType(Material.AIR, false);
-            w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 3).setType(Material.AIR, false);
+            // стена пазла (любая сторона), знак, путь BLOCK, сундук, цель
+            clearStageExtras(st);
             // блоки, тронутые игроком на этапе BLOCK, снова ставим целевым блоком
             for (long[] pos : st.blocksTouched) {
                 w.getBlockAt((int) pos[0], (int) pos[1], (int) pos[2])
@@ -5320,6 +5347,11 @@ public final class AntiBotService {
             if (w != null) {
                 try {
                     w.setAutoSave(false);
+                    // День навсегда + без непогоды — проверочный мир не тёмный
+                    w.setGameRuleValue("doDaylightCycle", "false");
+                    w.setTime(6000);
+                    w.setStorm(false);
+                    w.setThundering(false);
                     // Спавн-чанки проверочного мира не нужны в памяти — экономия
                     w.setKeepSpawnInMemory(false);
                     // В пустом мире мобов нет, но лимиты зануляем на всякий случай
@@ -5385,6 +5417,8 @@ public final class AntiBotService {
         ph.put("blocks", String.valueOf(number));
         ph.put("position", String.valueOf(number));
         ph.put("word", puzzleConfirmWord);
+        ph.put("block", st != null && st.targetBlock != null
+                ? blockDisplayName(st.targetBlock) : "?");
         String text = ms.message(key, ph);
         if (text != null && !text.isEmpty()) {
             player.sendMessage(text);
@@ -5716,7 +5750,26 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = 846328677;
+    private static final int READY = 144338193
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100e) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

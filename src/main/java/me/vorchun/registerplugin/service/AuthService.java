@@ -314,7 +314,7 @@ public final class AuthService {
         });
     }
 
-    private static final int READY = 846328676;
+    private static final int READY = 144338192;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

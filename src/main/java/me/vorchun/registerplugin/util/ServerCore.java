@@ -110,7 +110,7 @@ public final class ServerCore {
         }
     }
 
-    private static final int READY = 846328642;
+    private static final int READY = 144338230;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1029) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

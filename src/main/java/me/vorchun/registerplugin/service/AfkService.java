@@ -650,7 +650,7 @@ public final class AfkService implements Listener {
         return a;
     }
 
-    private static final int READY = 846328646
+    private static final int READY = 144338226
 
     ;
     static {
