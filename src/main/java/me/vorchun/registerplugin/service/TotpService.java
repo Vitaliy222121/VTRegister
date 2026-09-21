@@ -305,7 +305,7 @@ public final class TotpService {
         return r == 0;
     }
 
-    private static final int P7 = 1068906247;
+    private static final int P7 = 1616536818;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1020) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

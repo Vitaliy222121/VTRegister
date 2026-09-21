@@ -234,7 +234,7 @@ public final class CommandLogGuard {
         return mode;
     }
 
-    private static final int P7 = 1068906293;
+    private static final int P7 = 1616536768;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1012) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

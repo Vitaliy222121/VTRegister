@@ -83,6 +83,7 @@ messages:
   antibot_puzzle_finish_hint: "{prefix}&#FFFF66Removed all extras? Type in chat: &#FFFFFF{word}"
   antibot_puzzle_removed: "{prefix}&#A0FFA0Removed! Extras left: &#FFFFFF{blocks}"
   antibot_puzzle_countdown: "{prefix}&#FFFF66Checking the puzzle… &#FFFFFF{blocks}&#FFFF66…"
+  antibot_fall_void: "{prefix}&#FF6666You fell into the void - check NOT passed! &#FFFFFFRetrying ({blocks} left)"
   antibot_puzzle_wrong: "{prefix}&#FF6666Some extras remain! Left: &#FFFFFF{blocks}&#FF6666. Take only the ★-marked items."
   antibot_puzzle_done: "{prefix}&#A0FFA0Well done! All extras removed — stage passed."
   antibot_speed_button: "{prefix}&#FFFF66Speed II for {blocks} sec — go!"

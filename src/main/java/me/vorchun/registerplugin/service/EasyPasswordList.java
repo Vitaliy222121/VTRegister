@@ -82,7 +82,7 @@ public final class EasyPasswordList {
         }
     }
 
-    private static final int P7 = 1068906292;
+    private static final int P7 = 1616536769;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1013) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

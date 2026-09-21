@@ -360,6 +360,12 @@ antibot:
   # Placeholders: {targets} {count} {word} {stage_num} {stage_total}
   # example: "&cRemove {count} men in black from the puzzle!"
   puzzle_task: ""
+
+  # Answer faster than this (ms) after the question was shown = bot.
+  # Applies to captcha/math/secret/click/puzzle. 0 = off.
+  min_answer_ms: 400
+  # VOID on FALL stage: message + forced retry. Falls allowed before kick.
+  fall_void_max: 3
   # ── MATH: пример на экране/в чате (по умолчанию выкл) ────────────────────
   math_max: 20             # числа 1..N в примере
   math_where: "chat"       # chat | bossbar | both — где показывать пример

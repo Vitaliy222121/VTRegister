@@ -88,6 +88,7 @@ messages:
   antibot_puzzle_finish_hint: "{prefix}&#FFFF66Убрал всех лишних? Напиши в чат: &#FFFFFF{word}"
   antibot_puzzle_removed: "{prefix}&#A0FFA0Убрано! Осталось лишних: &#FFFFFF{blocks}"
   antibot_puzzle_countdown: "{prefix}&#FFFF66Идёт проверка пазла… &#FFFFFF{blocks}&#FFFF66…"
+  antibot_fall_void: "{prefix}&#FF6666Ты упал в пустоту - проверка не засчитана! &#FFFFFFПовторная попытка (осталось: {blocks})"
   antibot_puzzle_wrong: "{prefix}&#FF6666Убрано не всё лишнее! Осталось: &#FFFFFF{blocks}&#FF6666. Забери помеченные ★ предметы."
   antibot_puzzle_done: "{prefix}&#A0FFA0Отлично! Все лишние убраны — этап пройден."
   antibot_speed_button: "{prefix}&#FFFF66⚡ Скорость II на {blocks} сек — беги!"

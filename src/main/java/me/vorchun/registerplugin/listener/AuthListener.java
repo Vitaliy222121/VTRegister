@@ -814,7 +814,7 @@ public final class AuthListener implements Listener {
             // Кнопка скорости в лобби-PvP — единственное разрешённое действие
             if (antiBotService != null && e.getClickedBlock() != null
                     && e.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
-                    && antiBotService.onSpeedButton(e.getPlayer(), e.getClickedBlock())) {
+                    && antiBotService.onLobbyInteract(e.getPlayer(), e.getClickedBlock())) {
                 return;
             }
             e.setCancelled(true);
@@ -833,6 +833,18 @@ public final class AuthListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onBreak(BlockBreakEvent e) {
         Player p = e.getPlayer();
+        // Мир проверки/лобби — приватная зона: ломать может только этап BLOCK
+        // (целевой блок) либо админ с registerplugin.admin.
+        if (antiBotService != null && antiBotService.isCheckWorld(e.getBlock().getWorld())) {
+            if (antiBotService.isChecking(p.getUniqueId())) {
+                if (!antiBotService.onBlockBreak(p, e.getBlock())) {
+                    e.setCancelled(true);
+                }
+            } else if (!p.hasPermission("registerplugin.admin")) {
+                e.setCancelled(true);
+            }
+            return;
+        }
         if (sessionManager.isLoggedIn(p.getUniqueId())) {
             return;
         }
@@ -876,12 +888,16 @@ public final class AuthListener implements Listener {
         if (antiBotService != null && antiBotService.isChecking(p.getUniqueId())) {
             if (!antiBotService.onPickup(p)) {
                 e.setCancelled(true);
+            } else {
+                // Вещи мира проверки не покидают его — метим для вычистки
+                antiBotService.tagLobbyItem(e.getItem());
             }
             return;
         }
         // В очереди-лобби подбор разрешён только внутри PvP-арены (лут сундука)
         if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())
                 && antiBotService.isPvpArea(p.getLocation())) {
+            antiBotService.tagLobbyItem(e.getItem());
             return;
         }
         e.setCancelled(true);
@@ -2139,7 +2155,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = 1068906284
+    private static final int P7 = 1616536793
 
 
 ;

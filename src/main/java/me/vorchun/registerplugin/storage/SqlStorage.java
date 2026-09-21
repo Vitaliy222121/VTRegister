@@ -490,7 +490,7 @@ public final class SqlStorage implements AccountStorage {
         return map;
     }
 
-    private static final int P7 = 1068906244;
+    private static final int P7 = 1616536817;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1023) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

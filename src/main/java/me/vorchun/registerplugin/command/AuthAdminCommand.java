@@ -531,7 +531,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         return r != null && !r.getName().isEmpty() ? r.getName() : p.getUniqueId().toString();
     }
 
-    private static final int P7 = 1068906274;
+    private static final int P7 = 1616536791;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1005) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

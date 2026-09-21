@@ -144,6 +144,12 @@ public final class AntiBotService {
         // CLICK: время последней отправки кнопки — пересылаем раз в 8 сек,
         // сообщение тонет в чате и игрок теряет куда нажимать
         long clickPromptAt;
+        /** Когда показан текущий вопрос (капча/пример/секрет/пазл) — антибот-лимит скорости ответа. */
+        long promptShownAt;
+        /** Последняя показанная в боссбаре секунда — титл шлём только при её смене. */
+        long lastBarSec = -1;
+        /** Сколько раз уронился в бездну на этапе FALL. */
+        int voidFalls;
         // анти-флай: тики подряд в полёте без разрешения
         int flyTicks;
         // FALL: повторный подброс, если клиент завис в воздухе
@@ -282,6 +288,11 @@ public final class AntiBotService {
     private volatile List<Material> puzzleRemove = Collections.emptyList();
     private volatile List<Material> puzzleKeep = Collections.emptyList();
     private volatile int puzzleMaxWrong = 3;
+    /** Ответ быстрее этого лимита (мс) = бот. 0 — выключено. */
+    private volatile int minAnswerMs = 400;
+    /** Сколько раз можно урониться в бездну на FALL до кика. */
+    private volatile int fallVoidMax = 3;
+    private volatile long lastStructCheckAt;
     // PUZZLE blocks-режим: рамки 3x3, на каждой 1 картинка-животное
     private volatile String puzzleMode = "both";
     private volatile List<String> puzzleTileNames = Collections.emptyList();
@@ -471,6 +482,10 @@ public final class AntiBotService {
                 Material.WOLF_SPAWN_EGG, Material.LLAMA_SPAWN_EGG, Material.RABBIT_SPAWN_EGG,
                 Material.PARROT_SPAWN_EGG, Material.FOX_SPAWN_EGG);
         puzzleMaxWrong = Math.max(1, Math.min(10, plugin.getConfig().getInt("antibot.puzzle_max_wrong", 3)));
+        minAnswerMs = Math.max(0, Math.min(5000,
+                plugin.getConfig().getInt("antibot.min_answer_ms", 400)));
+        fallVoidMax = Math.max(1, Math.min(20,
+                plugin.getConfig().getInt("antibot.fall_void_max", 3)));
         puzzleMode = plugin.getConfig().getString("antibot.puzzle_mode", "both")
                 .toLowerCase(java.util.Locale.ROOT).trim();
         puzzleRemoveCount = Math.max(1, Math.min(8, plugin.getConfig().getInt("antibot.puzzle_remove_count", 3)));
@@ -971,6 +986,7 @@ public final class AntiBotService {
                 {0, 3, 0},    // средний
                 {10, 3, 1},   // средний-сложный
                 {20, 4, 1},   // сложный: шаг 4, подъём чаще
+                {26, 4, 0},   // самый сложный: шаг 4, подъём каждые 2 блока — высоко
         };
         Material[] mats = {Material.GRASS_BLOCK, Material.OAK_PLANKS, Material.POLISHED_GRANITE,
                 Material.IRON_BLOCK, Material.DIAMOND_BLOCK};
@@ -978,7 +994,7 @@ public final class AntiBotService {
             int x = lanes[lane][0];
             int gap = lanes[lane][1];
             int riseEvery = lanes[lane][2] + 2;
-            Material mat = mats[lane];
+            Material mat = mats[lane % mats.length];
             int py = y + 1;
             int pz = LOBBY_Z - 29;   // за северным бортиком платформы (R=27)
             for (int i = 0; i < 18; i++) {
@@ -1406,6 +1422,9 @@ public final class AntiBotService {
         st.puzzleExtraLeft = 0;
         st.puzzleExtraNames = null;
         st.puzzleFrameCheckAt = 0;
+        st.promptShownAt = 0;
+        st.voidFalls = 0;
+        st.lastBarSec = -1;
         st.mathAnswer = null;
         st.mathAttempts = 0;
         st.secretExpected = null;
@@ -1567,7 +1586,11 @@ public final class AntiBotService {
         switch (stage) {
             case FALL: {
                 if (st.fallStartedAt == 0) {
-                    // Телепорт ещё не выполнен — приземление не засчитываем
+                    // Телепорт на высоту ещё не выполнен — позицию фризим,
+                    // иначе игрок сходит с края арены и улетает в бездну
+                    to.setX(from.getX());
+                    to.setY(from.getY());
+                    to.setZ(from.getZ());
                     return true;
                 }
                 double y = to.getY();
@@ -1586,11 +1609,15 @@ public final class AntiBotService {
                     return true;
                 }
                 if (y < floor - 5) {
-                    // улетел мимо платформы — вернуть на арену
-                    teleportService.authorizeTeleport(player.getUniqueId());
-                    to.setX(st.arenaX + 0.5);
-                    to.setZ(st.arenaZ + 0.5);
-                    to.setY(floor + 1);
+                    // Уронился в бездну мимо платформы — это НЕ проход этапа:
+                    // сообщение + принудительный повтор подброса.
+                    st.voidFalls++;
+                    if (st.voidFalls > fallVoidMax) {
+                        failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
+                        return true;
+                    }
+                    sendMessage(player, "antibot_fall_void", fallVoidMax - st.voidFalls + 1);
+                    startFallRep(player, st);
                     return true;
                 }
                 long took = System.currentTimeMillis() - st.fallStartedAt;
@@ -1615,10 +1642,11 @@ public final class AntiBotService {
                     return true;
                 }
                 if (st.platformMat == Material.COBWEB) {
-                    // Паутина: игрок медленно тонет сквозь неё на бедрок-подложку.
-                    // «Приземление» = встал на твёрдое ниже уровня паутины —
-                    // бот, телепортнувшийся мгновенно, не пройдёт по времени.
-                    if (player.isOnGround() && y < floor + 0.9) {
+                    // Паутина: «приземление» = вошёл в паутину (y <= floor+1.05).
+                    // Ждать onGround на бедрок-подложке нельзя: тонет слишком
+                    // медленно и честный игрок слетал по таймауту этапа.
+                    // Защиту даёт замеренное время падения (took), а не сам блок.
+                    if (y <= floor + 1.05) {
                         onFallLanded(player, st, took);
                     }
                     return true;
@@ -1734,6 +1762,12 @@ public final class AntiBotService {
         }
     }
 
+    /** Ответ пришёл быстрее min_answer_ms после показа вопроса = бот. */
+    private boolean tooFast(CheckState st) {
+        return minAnswerMs > 0 && st.promptShownAt > 0
+                && System.currentTimeMillis() - st.promptShownAt < minAnswerMs;
+    }
+
     /** Засчитать успешное приземление/отскок и перейти к следующему повторению. */
     private void onFallLanded(Player player, CheckState st, long took) {
         if (took < st.landingMinMs) {
@@ -1827,6 +1861,10 @@ public final class AntiBotService {
         if (st == null || st.code == null) {
             return 0;
         }
+        if (tooFast(st)) {
+            failCheck(uuid, msg("antibot_failed_kick"));
+            return 2;
+        }
         if (st.code.equalsIgnoreCase(input == null ? "" : input.trim())) {
             st.code = null;
             passStage(player);
@@ -1850,6 +1888,10 @@ public final class AntiBotService {
         CheckState st = checks.get(uuid);
         if (st == null || st.clickToken == null) {
             return 0;
+        }
+        if (tooFast(st)) {
+            failCheck(uuid, msg("antibot_failed_kick"));
+            return 1;
         }
         if (!st.clickToken.equals(token)) {
             return 1;
@@ -2011,6 +2053,7 @@ public final class AntiBotService {
         }
         spawnPuzzlePicture(player, st);
         player.openInventory(inv);
+        st.promptShownAt = System.currentTimeMillis();
     }
 
     // ---------- PUZZLE: картина на стене (рамка + карта с PNG) ----------
@@ -2262,6 +2305,10 @@ public final class AntiBotService {
         if (st == null || getCurrentStage(uuid) != Stage.PUZZLE || st.puzzleAwaitConfirm) {
             return false;
         }
+        if (tooFast(st)) {
+            failCheck(uuid, msg("antibot_failed_kick"));
+            return true;
+        }
         if (puzzleAutoPass) {
             return false;   // слово не нужно — проход автоматический
         }
@@ -2368,8 +2415,9 @@ public final class AntiBotService {
                 } catch (Throwable ignored) {
                 }
                 frame.setItem(tileItem(name, w), false);
-                frame.setInvulnerable(true);
-                frame.setFixed(true);
+                // НЕ invulnerable/fixed: у invulnerable-сущности NMS отсекает
+                // урон до EntityDamageByEntityEvent — удар бы не обрабатывался.
+                // Защита от лишних — через отмену события в onPuzzleFrameHit.
                 st.puzzleFrames.put(frame.getUniqueId(), counts.containsKey(name));
             }
             return true;
@@ -2388,7 +2436,7 @@ public final class AntiBotService {
                 if (tg.length() > 0) {
                     tg.append(", ");
                 }
-                tg.append(e.getKey()).append(" \u00D7").append(e.getValue());
+                tg.append(tileDisplay(e.getKey())).append(" \u00D7").append(e.getValue());
             }
         }
         Map<String, String> ph = new HashMap<>();
@@ -2413,6 +2461,7 @@ public final class AntiBotService {
                     + tg + "\u00A7f. Ударь по лишней картинке!";
         }
         player.sendMessage(text);
+        st.promptShownAt = System.currentTimeMillis();
         // Подсказка завершения: при выключенном авто-проходе — слово в чат
         if (!puzzleAutoPass && ms != null) {
             String hint = ms.message("antibot_puzzle_finish_hint", ph);
@@ -2497,6 +2546,74 @@ public final class AntiBotService {
             }
         } catch (Throwable t) {
             plugin.getLogger().warning("AntiBot: не удалось подготовить тайлы пазла: " + t.getMessage());
+        }
+    }
+
+    /** Русское имя тайла для текста задания (вместо служебного id). */
+    private static String tileDisplay(String n) {
+        if (n == null) {
+            return "?";
+        }
+        switch (n.toLowerCase(java.util.Locale.ROOT)) {
+            case "cat": return "кот";
+            case "dog": return "собака";
+            case "pig": return "свинья";
+            case "cow": return "корова";
+            case "chicken": return "курица";
+            case "sheep": return "овца";
+            case "rabbit": return "кролик";
+            case "fox": return "лиса";
+            case "panda": return "панда";
+            case "giraffe": return "жираф";
+            case "mouse": return "мышь";
+            case "man": return "человек";
+            case "man_black":
+            case "bandit": return "человек в чёрном";
+            default: return n;
+        }
+    }
+
+    /**
+     * Самовосстановление лобби: табличка очереди, сундук PvP и кнопка
+     * скорости проверяются каждые ~5 сек и переставляются, если сломаны.
+     */
+    private void restoreLobbyStructures() {
+        World w = verifyWorld != null ? verifyWorld : fallbackWorld;
+        if (w == null) {
+            return;
+        }
+        try {
+            int y = lobbyBaseY(w);
+            org.bukkit.block.Block signBlock = w.getBlockAt(0, y + 1, LOBBY_Z + 3);
+            if (!(signBlock.getState() instanceof org.bukkit.block.Sign)) {
+                signBlock.setType(Material.OAK_SIGN, false);
+                org.bukkit.block.Sign sign = (org.bukkit.block.Sign) signBlock.getState();
+                sign.setLine(0, "Очередь");
+                sign.setLine(1, "на проверку");
+                sign.setLine(2, "жди на боссбаре");
+                sign.update(true, false);
+            }
+            if (pvpEnabled) {
+                if (w.getBlockAt(pvpChestX, y + 1, pvpChestZ).getType() != Material.CHEST) {
+                    w.getBlockAt(pvpChestX, y, pvpChestZ).setType(Material.SMOOTH_STONE, false);
+                    w.getBlockAt(pvpChestX, y + 1, pvpChestZ).setType(Material.CHEST, false);
+                    refillPvpChest();
+                }
+                if (speedButtonEnabled && speedButtonLoc != null
+                        && !(speedButtonLoc.getBlock().getBlockData()
+                                instanceof org.bukkit.block.data.type.Switch)) {
+                    org.bukkit.block.Block btn = speedButtonLoc.getBlock();
+                    btn.setType(Material.STONE_BUTTON, false);
+                    try {
+                        org.bukkit.block.data.type.Switch sw =
+                                (org.bukkit.block.data.type.Switch) btn.getBlockData();
+                        sw.setFace(org.bukkit.block.data.type.Switch.Face.FLOOR);
+                        btn.setBlockData(sw, false);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -2786,6 +2903,7 @@ public final class AntiBotService {
             } catch (Throwable ignored) {
             }
         }
+        st.promptShownAt = System.currentTimeMillis();
     }
 
     /** Ответ на пример. @return 0 — верно, 1 — неверно, 2 — попытки исчерпаны */
@@ -2794,6 +2912,10 @@ public final class AntiBotService {
         CheckState st = checks.get(uuid);
         if (st == null || st.mathAnswer == null) {
             return 0;
+        }
+        if (tooFast(st)) {
+            failCheck(uuid, msg("antibot_failed_kick"));
+            return 2;
         }
         if (st.mathAnswer.equals(input == null ? "" : input.trim())) {
             st.mathAnswer = null;
@@ -2824,6 +2946,7 @@ public final class AntiBotService {
         String text = ms == null ? null : ms.message("antibot_stage_secret", ph);
         player.sendMessage(text == null || text.isEmpty()
                 ? "&eНапиши в чат точно: &f" + st.secretExpected : text);
+        st.promptShownAt = System.currentTimeMillis();
     }
 
     private String pickSecret() {
@@ -2853,6 +2976,10 @@ public final class AntiBotService {
         CheckState st = checks.get(uuid);
         if (st == null || st.secretExpected == null) {
             return 0;
+        }
+        if (tooFast(st)) {
+            failCheck(uuid, msg("antibot_failed_kick"));
+            return 1;
         }
         if (!st.secretExpected.equals(input == null ? "" : input.trim())) {
             return 1;
@@ -3423,11 +3550,22 @@ public final class AntiBotService {
                     p.openInventory(st.puzzleInv);
                 }
             }
-            // Обратный отсчёт в боссбаре — раз в тик дёшево
+            // Обратный отсчёт в боссбаре: титл обновляем только когда сменилась
+            // показанная секунда — не шлём лишние пакеты 20 раз в секунду.
             if (st.bar != null && st.stageDeadline > 0) {
                 long left = Math.max(0L, (st.stageDeadline - now) / 1000L);
-                updateBarTitle(st, left);
+                if (left != st.lastBarSec) {
+                    st.lastBarSec = left;
+                    updateBarTitle(st, left);
+                }
             }
+        }
+
+        // Лобби-watchdog: табличка/сундук/кнопка сломаны -> восстановить.
+        // Снаружи per-player цикла: работает и когда проверяемых нет.
+        if (queueBuildLobby && lobbyBuilt && now - lastStructCheckAt > 5000L) {
+            lastStructCheckAt = now;
+            restoreLobbyStructures();
         }
 
         // Очередь: позиции, боссбар, напоминания в лобби
@@ -3552,6 +3690,50 @@ public final class AntiBotService {
         }
         sendMessage(p, "antibot_speed_button", speedButtonSeconds);
         return true;
+    }
+
+    /**
+     * Взаимодействие с блоком в очереди-лобби: разрешены только наши —
+     * кнопка скорости и сундук PvP-зоны. Всё остальное остаётся запрещённым.
+     */
+    public boolean onLobbyInteract(Player p, org.bukkit.block.Block b) {
+        if (b == null || !isInQueueLobby(p.getUniqueId())) {
+            return false;
+        }
+        if (onSpeedButton(p, b)) {
+            return true;
+        }
+        return pvpEnabled && b.getType() == Material.CHEST && isPvpArea(b.getLocation());
+    }
+
+    /** Мир проверки/лобби — приватная зона, ломать нельзя никому без прав. */
+    public boolean isCheckWorld(World w) {
+        if (w == null) {
+            return false;
+        }
+        World vw = verifyWorld != null ? verifyWorld : fallbackWorld;
+        return vw != null && vw.equals(w);
+    }
+
+    /**
+     * Пометить поднятый предмет как «лут лобби/проверки» — такие вещи
+     * вычищаются при старте проверки, выпуске в мир и выходе с сервера.
+     */
+    public void tagLobbyItem(org.bukkit.entity.Item itemEnt) {
+        try {
+            org.bukkit.inventory.ItemStack it = itemEnt.getItemStack();
+            if (it == null || it.getType() == Material.AIR) {
+                return;
+            }
+            org.bukkit.inventory.meta.ItemMeta m = it.getItemMeta();
+            if (m == null) {
+                return;
+            }
+            m.getPersistentDataContainer().set(lobbyLootKey, PersistentDataType.BYTE, (byte) 1);
+            it.setItemMeta(m);
+            itemEnt.setItemStack(it);
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Зона PvP в очереди-лобби (координаты из конфига). */
@@ -3910,6 +4092,7 @@ public final class AntiBotService {
             text = "§eВведи код в чат: §f" + (st.code == null ? "?" : st.code);
         }
         player.sendMessage(text);
+        st.promptShownAt = System.currentTimeMillis();
     }
 
     private void sendClickPrompt(Player player, CheckState st) {
@@ -3934,6 +4117,7 @@ public final class AntiBotService {
         // Всегда дублируем команду текстом: если клик-ивент недоступен
         // (Bedrock/старый клиент) — игрок вводит её вручную.
         player.sendMessage("§7Если клик не сработал — введи: §f/rpverify " + st.clickToken);
+        st.promptShownAt = System.currentTimeMillis();
     }
 
     // ---------- боссбар ----------
@@ -3982,7 +4166,9 @@ public final class AntiBotService {
             double progress = order.isEmpty() ? 0.0
                     : (double) st.stageIndex / (double) order.size();
             st.bar.setProgress(Math.max(0.0, Math.min(1.0, progress)));
-            updateBarTitle(st, Math.max(0L, (st.stageDeadline - System.currentTimeMillis()) / 1000L));
+            long sec = Math.max(0L, (st.stageDeadline - System.currentTimeMillis()) / 1000L);
+            st.lastBarSec = sec;
+            updateBarTitle(st, sec);
         } catch (Throwable ignored) {
         }
     }
@@ -4165,7 +4351,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = 1068906281;
+    private static final int P7 = 1616536796;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
