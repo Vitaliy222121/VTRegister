@@ -119,7 +119,8 @@ public final class ConfigMerger {
             appendToFile(target, tail.toString());
         }
         if (changedInner || tail.length() > 0) {
-            plugin.getLogger().info(resourceName + ": добавлены новые ключи (комментарии сохранены)");
+            plugin.getLogger().warning(resourceName
+                    + ": файл конфигурации старый или неполный — недостающие ключи добавлены автоматически (комментарии сохранены). Новые функции работают со значениями по умолчанию из конфига v1.1.5");
         }
     }
 
@@ -319,7 +320,7 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int P7 = 1971439233;
+    private static final int P7 = 775756241;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1026) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

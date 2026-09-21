@@ -27,8 +27,12 @@ commands:
     usage: /changepassword
   authadmin:
     description: Администрирование авторизации
-    usage: /authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban>
+    usage: /authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban|pvpkit>
     permission: registerplugin.admin
+  vtregister:
+    aliases: [vtr, vreg]
+    description: Справка по командам VTRegister
+    usage: /vtregister [help|status|cmds]
 # /rpverify (кнопка антибот-проверки) намеренно НЕ регистрируется:
 # команда перехватывается до диспетчера ядра, поэтому пароли и токены
 # не попадают в лог "issued server command".

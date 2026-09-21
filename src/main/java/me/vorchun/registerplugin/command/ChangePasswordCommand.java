@@ -92,7 +92,7 @@ public final class ChangePasswordCommand implements CommandExecutor {
         });
     }
 
-    private static final int P7 = 1971439265;
+    private static final int P7 = 775756273;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1006) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

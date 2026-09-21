@@ -75,6 +75,9 @@ public final class AntiBotService {
         boolean awaitingBounce;      // SLIME: ждём отскок вверх
         long bounceDeadline;
         boolean enteredCobweb;       // COBWEB: зафиксировали вход в паутину
+        // Трекер изменённых игроком блоков арены (этап BLOCK) —
+        // восстанавливаем после проверки, арена уходит следующему игроку целой.
+        final java.util.List<long[]> blocksTouched = new java.util.ArrayList<>();
         // камера: накопленные градусы поворота + статистика линейности (Welford)
         double rotAccum;
         int rotSamples;
@@ -299,6 +302,18 @@ public final class AntiBotService {
     private final Map<UUID, org.bukkit.inventory.Inventory> kitEditors = new ConcurrentHashMap<>();
     private final Map<UUID, Long> speedCooldown = new ConcurrentHashMap<>();
     private final List<org.bukkit.entity.ArmorStand> zoneHolos = new ArrayList<>();
+    private final java.util.Set<UUID> bootPassed = ConcurrentHashMap.newKeySet();
+    private volatile boolean recheckOnRestart = true;
+    private volatile long slimeExtraMs = 8000L;
+    private volatile List<String> puzzleSignLines = new ArrayList<>();
+    // чат-фильтр лобби
+    private volatile boolean chatFilterEnabled = true;
+    private volatile long chatCooldownMs = 1500L;
+    private volatile int chatMaxWords = 12;
+    private volatile boolean chatBlockLinks = true;
+    private volatile boolean chatBlockRepeat = true;
+    private final Map<UUID, Long> chatLastAt = new ConcurrentHashMap<>();
+    private final Map<UUID, String> chatLastMsg = new ConcurrentHashMap<>();
     /** Сколько раз можно урониться в бездну на FALL до кика. */
     private volatile int fallVoidMax = 3;
     private volatile long lastStructCheckAt;
@@ -500,6 +515,21 @@ public final class AntiBotService {
         kitEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.kit_enabled", true);
         kitCooldownMs = Math.max(1L, plugin.getConfig().getInt("antibot.queue_pvp.kit_cooldown_seconds", 30)) * 1000L;
         loadKit();
+        recheckOnRestart = plugin.getConfig().getBoolean("antibot.recheck_on_restart", true);
+        slimeExtraMs = Math.max(0L, plugin.getConfig().getInt("antibot.slime_extra_seconds", 8)) * 1000L;
+        puzzleSignLines = plugin.getConfig().getStringList("antibot.puzzle_sign_lines");
+        if (puzzleSignLines == null || puzzleSignLines.isEmpty()) {
+            puzzleSignLines = java.util.Arrays.asList(
+                    "&6&l\u041e\u0411\u0415\u0420\u041d\u0418\u0421\u042c!",
+                    "\u043f\u0430\u0437\u043b &c\u0417\u0410 \u0421\u041f\u0418\u041d\u041e\u0419",
+                    "\u0440\u0430\u0437\u0432\u0435\u0440\u043d\u0438\u0441\u044c \u043d\u0430 180\u00b0",
+                    "&a\u21161 \u043f\u0440\u043e\u0442\u0438\u0432 \u0431\u043e\u0442\u043e\u0432 =)");
+        }
+        chatFilterEnabled = plugin.getConfig().getBoolean("antibot.queue_chat_filter.enabled", true);
+        chatCooldownMs = Math.max(0L, plugin.getConfig().getInt("antibot.queue_chat_filter.cooldown_ms", 1500));
+        chatMaxWords = Math.max(1, plugin.getConfig().getInt("antibot.queue_chat_filter.max_words", 12));
+        chatBlockLinks = plugin.getConfig().getBoolean("antibot.queue_chat_filter.block_links", true);
+        chatBlockRepeat = plugin.getConfig().getBoolean("antibot.queue_chat_filter.block_repeat", true);
         puzzleMode = plugin.getConfig().getString("antibot.puzzle_mode", "both")
                 .toLowerCase(java.util.Locale.ROOT).trim();
         puzzleRemoveCount = Math.max(1, Math.min(8, plugin.getConfig().getInt("antibot.puzzle_remove_count", 3)));
@@ -588,6 +618,11 @@ public final class AntiBotService {
 
     private static String nonEmpty(String s, String def) {
         return s == null || s.trim().isEmpty() ? def : s.trim();
+    }
+
+    /** После рестарта сервера все игроки обязаны пройти проверку заново. */
+    public boolean requiresRestartRecheck(UUID uuid) {
+        return recheckOnRestart && !bootPassed.contains(uuid);
     }
 
     public boolean isEnabled() {
@@ -818,6 +853,25 @@ public final class AntiBotService {
         buildLobby(w);
     }
 
+    /**
+     * Проверка целостности лобби: если платформа "не та" (мир старый,
+     * схематика сломана, кто-то снёс пол) — принудительная перестройка.
+     */
+    private void verifyLobbyIntegrity(World w) {
+        if (w == null || !queueBuildLobby) {
+            return;
+        }
+        int y = lobbyBaseY(w);
+        org.bukkit.block.Block center = w.getBlockAt(0, y, LOBBY_Z);
+        Material t = center.getType();
+        if (t != Material.GOLD_BLOCK) {
+            plugin.getLogger().warning("AntiBot: лобби повреждено (центр = " + t
+                    + ") — принудительная перестройка");
+            lobbyBuilt = false;
+            buildLobby(w);
+        }
+    }
+
     private void buildLobby(World w) {
         if (w == null) {
             return;
@@ -841,6 +895,13 @@ public final class AntiBotService {
                 if (Math.abs(dx) == R || Math.abs(dz) == R) {
                     // Ворота на PvP-арену: в южной стене проход шириной 5
                     boolean gate = pvpEnabled && dz == R && Math.abs(dx) <= 2;
+                    // Проёмы к полосам паркура в северной стене (иначе полосы
+                    // оказываются замурованными за стеклом — до них нельзя дойти)
+                    if (dz == -R && (Math.abs(dx + 20) <= 1 || Math.abs(dx + 10) <= 1
+                            || Math.abs(dx) <= 1 || Math.abs(dx - 10) <= 1
+                            || Math.abs(dx - 20) <= 1 || Math.abs(dx - 26) <= 1)) {
+                        gate = true;
+                    }
                     if (!gate) {
                         w.getBlockAt(dx, y + 1, LOBBY_Z + dz).setType(Material.GLASS, false);
                         w.getBlockAt(dx, y + 2, LOBBY_Z + dz).setType(Material.GLASS, false);
@@ -1055,6 +1116,17 @@ public final class AntiBotService {
                 hologram = null;
             }
             Location loc = new Location(w, 0.5, y + 3.0, LOBBY_Z + 0.5);
+            // Убираем дублёров: старые стойки-голограммы рядом (мигрированные/
+            // оставшиеся от прошлой сборки лобби) — иначе текст наезжает друг на друга
+            for (org.bukkit.entity.Entity near : w.getNearbyEntities(loc, 2.0, 3.0, 2.0)) {
+                if (near instanceof org.bukkit.entity.ArmorStand
+                        && ((org.bukkit.entity.ArmorStand) near).isMarker()) {
+                    try {
+                        near.remove();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
             org.bukkit.entity.ArmorStand as = w.spawn(loc, org.bukkit.entity.ArmorStand.class);
             as.setVisible(false);
             as.setGravity(false);
@@ -1670,10 +1742,11 @@ public final class AntiBotService {
                     if (!st.awaitingBounce && player.isOnGround() && y <= touchY) {
                         st.awaitingBounce = true;
                         st.fallStartedAt = System.currentTimeMillis();
-                        // Отскок вверх занимает меньше времени, чем падение:
-                        // минимум для фазы отскока — общий min_fall_millis,
-                        // иначе честный отскок «слишком быстрый» = ложный кик
-                        st.landingMinMs = minFallMillis;
+                        // Отскок: min-время маленькое (физику уже доказало падение),
+                        // а общий дедлайн этапа продлеваем — игроку нужно время
+                        // взлететь, упасть и остановиться (учитываем пинг/лаг).
+                        st.landingMinMs = Math.min(minFallMillis, 150L);
+                        st.stageDeadline += slimeExtraMs;
                         return true;
                     }
                     if (st.awaitingBounce && !player.isOnGround() && y > touchY + 0.6) {
@@ -1965,6 +2038,7 @@ public final class AntiBotService {
                 }
             }
             st.blockBroken = true;
+            st.blocksTouched.add(new long[]{block.getX(), block.getY(), block.getZ()});
             return true;
         }
         return false; // чужие блоки ломать нельзя
@@ -2453,10 +2527,11 @@ public final class AntiBotService {
                 dir.setFacing(org.bukkit.block.BlockFace.SOUTH);
                 sb.setBlockData(dir, false);
                 org.bukkit.block.Sign ps = (org.bukkit.block.Sign) sb.getState();
-                ps.setLine(0, "\u00A76\u00A7lОБЕРНИСЬ!");
-                ps.setLine(1, "пазл \u00A7cЗА СПИНОЙ");
-                ps.setLine(2, "развернись на 180\u00B0");
-                ps.setLine(3, "\u00A7a\u21161 против ботов =)");
+                // Текст таблички — из конфига antibot.puzzle_sign_lines
+                for (int li = 0; li < 4 && li < puzzleSignLines.size(); li++) {
+                    ps.setLine(li, org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                            puzzleSignLines.get(li)));
+                }
                 ps.update(true, false);
             } catch (Throwable ignored) {
             }
@@ -3100,6 +3175,7 @@ public final class AntiBotService {
             return;
         }
         releasePlayer(player, st);
+        bootPassed.add(uuid);
         processQueue();
         if (checks.isEmpty()) {
             stopTicker();
@@ -3111,6 +3187,7 @@ public final class AntiBotService {
         UUID uuid = player.getUniqueId();
         Location back = returnLocations.remove(uuid);
         removePuzzlePicture(st);
+        restoreArena(st);
         restorePlayer(player, st);
         stripLobbyLoot(player);
         // Прокси: если задан целевой сервер — отправляем туда через
@@ -3267,6 +3344,7 @@ public final class AntiBotService {
         returnLocations.remove(uuid);
         removeBar(st);
         removePuzzlePicture(st);
+        restoreArena(st);
         Player p = Bukkit.getPlayer(uuid);
         if (p != null && p.isOnline()) {
             restorePlayer(p, st);
@@ -3283,6 +3361,7 @@ public final class AntiBotService {
 
     public void cancelCheck(UUID uuid, boolean teleportBack) {
         CheckState st = checks.remove(uuid);
+        restoreArena(st);
         // Игрок мог быть в очереди входа — его инвентарь лежит в entryStates
         if (st == null) {
             st = entryStates.get(uuid);
@@ -3624,9 +3703,11 @@ public final class AntiBotService {
 
         // Лобби-watchdog: табличка/сундук/кнопка сломаны -> восстановить.
         // Снаружи per-player цикла: работает и когда проверяемых нет.
-        if (queueBuildLobby && lobbyBuilt && now - lastStructCheckAt > 5000L) {
+        // Сломанные структуры лобби чиним раз в ~3 секунды
+        if (queueBuildLobby && lobbyBuilt && now - lastStructCheckAt > 3000L) {
             lastStructCheckAt = now;
             restoreLobbyStructures();
+            verifyLobbyIntegrity(verifyWorld != null ? verifyWorld : fallbackWorld);
         }
 
         // Очередь: позиции, боссбар, напоминания в лобби
@@ -3816,6 +3897,79 @@ public final class AntiBotService {
                 && loc.getBlockZ() >= minZ && loc.getBlockZ() <= maxZ;
     }
 
+    /**
+     * Фильтр чата очереди-лобби: анти-реклама, КД, лимит слов, анти-повтор.
+     * Всё настраивается в antibot.queue_chat_filter.
+     * @return null если сообщение пропускаем; иначе ключ причины
+     */
+    public String filterLobbyChat(Player p, String message) {
+        if (!chatFilterEnabled || !isInQueueLobby(p.getUniqueId())) {
+            return null;
+        }
+        UUID uuid = p.getUniqueId();
+        long now = System.currentTimeMillis();
+        Long last = chatLastAt.get(uuid);
+        if (last != null && now - last < chatCooldownMs) {
+            return "chat_slowdown";
+        }
+        if (message == null) {
+            return null;
+        }
+        String msg = message.trim();
+        if (chatBlockLinks) {
+            String low = msg.toLowerCase(java.util.Locale.ROOT);
+            // ссылки/домены/IP — типичная реклама чужих серверов
+            if (low.matches(".*(https?://|www\\..).*")
+                    || low.matches(".*\\b[a-z0-9-]+\\.(ru|com|net|org|gg|io|su|me|cc|xyz|top|fun|host)\\b.*")
+                    || low.matches(".*\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}.*")
+                    || low.matches(".*\\bjoin\\s+\\S+\\.(\\w+).*")) {
+                return "chat_ads_blocked";
+            }
+        }
+        if (chatMaxWords > 0 && msg.split("\\s+").length > chatMaxWords) {
+            return "chat_too_long";
+        }
+        if (chatBlockRepeat) {
+            String prev = chatLastMsg.get(uuid);
+            if (prev != null && prev.equalsIgnoreCase(msg)) {
+                return "chat_no_repeat";
+            }
+        }
+        chatLastAt.put(uuid, now);
+        chatLastMsg.put(uuid, msg);
+        return null;
+    }
+
+    /**
+     * Дроп при смерти в лобби-PvP: падает ТОЛЬКО броня и еда,
+     * всё остальное авто-очищается (не дропается и не выносится).
+     * @return true — смерть обработана нашим правилом
+     */
+    public boolean filterQueueDeathDrops(org.bukkit.event.entity.PlayerDeathEvent e, Player p) {
+        if (!isInQueueLobby(p.getUniqueId())) {
+            return false;
+        }
+        e.setKeepInventory(true);
+        e.setKeepLevel(true);
+        e.setDroppedExp(0);
+        java.util.Iterator<org.bukkit.inventory.ItemStack> it = e.getDrops().iterator();
+        while (it.hasNext()) {
+            org.bukkit.inventory.ItemStack item = it.next();
+            if (item == null) {
+                it.remove();
+                continue;
+            }
+            Material t = item.getType();
+            boolean armor = t.name().endsWith("_HELMET") || t.name().endsWith("_CHESTPLATE")
+                    || t.name().endsWith("_LEGGINGS") || t.name().endsWith("_BOOTS");
+            boolean food = t.isEdible();
+            if (!armor && !food) {
+                it.remove();
+            }
+        }
+        return true;
+    }
+
     /** Игрок залогинился, стоя в очереди — снять со всех очередей сразу. */
     public void leaveQueues(Player p) {
         if (p == null) {
@@ -3846,6 +4000,48 @@ public final class AntiBotService {
                     p.teleport(back);
                 }
             });
+        }
+    }
+
+    /**
+     * Восстановить арену после проверки: платформу перестраиваем в бедрок,
+     * стену пазла/табличку убираем, сломанный целевой блок возвращаем.
+     * Арена переиспользуется — следующий игрок должен видеть её целой.
+     */
+    private void restoreArena(CheckState st) {
+        if (st == null || st.world == null) {
+            return;
+        }
+        World w = st.world;
+        try {
+            // платформа в исходный бедрок
+            for (int dx = -3; dx <= 3; dx++) {
+                for (int dz = -3; dz <= 3; dz++) {
+                    for (int dy = -1; dy <= 0; dy++) {
+                        org.bukkit.block.Block b =
+                                w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ + dz);
+                        Material bt = b.getType();
+                        if (bt != Material.BEDROCK && bt != Material.AIR) {
+                            b.setType(dy == 0 ? Material.BEDROCK : Material.AIR, false);
+                        }
+                    }
+                }
+            }
+            // стена пазла позади (arenaZ+4) и столб таблички спереди (arenaZ-3/-4)
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = 1; dy <= 3; dy++) {
+                    w.getBlockAt(st.arenaX + dx, st.baseY + dy, st.arenaZ + 4)
+                            .setType(Material.AIR, false);
+                }
+            }
+            w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 4).setType(Material.AIR, false);
+            w.getBlockAt(st.arenaX, st.baseY + 2, st.arenaZ - 3).setType(Material.AIR, false);
+            // блоки, тронутые игроком на этапе BLOCK, снова ставим целевым блоком
+            for (long[] pos : st.blocksTouched) {
+                w.getBlockAt((int) pos[0], (int) pos[1], (int) pos[2])
+                        .setType(Material.BEDROCK, false);
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -4617,6 +4813,36 @@ public final class AntiBotService {
     }
 
     private String generateCode() {
+        // Генерируем до тех пор, пока код не будет уникален: не такой, как у
+        // другого игрока на проверке прямо сейчас, и не повтор прошлого.
+        String last = lastGeneratedCode;
+        for (int tries = 0; tries < 16; tries++) {
+            StringBuilder sb = new StringBuilder(codeLength);
+            for (int i = 0; i < codeLength; i++) {
+                sb.append(random.nextInt(10));
+            }
+            String code = sb.toString();
+            if (code.equals(last)) {
+                continue;
+            }
+            boolean clash = false;
+            for (CheckState other : checks.values()) {
+                if (code.equals(other.code)) {
+                    clash = true;
+                    break;
+                }
+            }
+            if (!clash) {
+                lastGeneratedCode = code;
+                return code;
+            }
+        }
+        return generateCodeFallback();
+    }
+
+    private volatile String lastGeneratedCode;
+
+    private String generateCodeFallback() {
         StringBuilder sb = new StringBuilder(codeLength);
         for (int i = 0; i < codeLength; i++) {
             sb.append(random.nextInt(10));
@@ -4633,7 +4859,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = 1971439273;
+    private static final int P7 = 775756281;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

@@ -330,7 +330,8 @@ public final class AuthListener implements Listener {
      */
     private void startAntiBotOrAuth(Player p, UUID uuid) {
         if (antiBotService != null && antiBotService.isEnabled() && !antiBotService.isChecking(uuid)) {
-            boolean required = !(antiBotService.isOnlyNewPlayers() && accountStore.isRegistered(uuid));
+            boolean required = !(antiBotService.isOnlyNewPlayers() && accountStore.isRegistered(uuid))
+                    || antiBotService.requiresRestartRecheck(uuid);
             boolean started = false;
             try {
                 started = required && antiBotService.beginCheck(p);
@@ -1200,6 +1201,18 @@ public final class AuthListener implements Listener {
             // проходит, но видят его только другие ждущие (получатели = очередь)
             if (antiBotService != null && antiBotService.isQueued(uuid)
                     && antiBotService.queueChatAllowed()) {
+                // Фильтр: анти-реклама, КД на сообщения, лимит слов, анти-повтор
+                String reason = antiBotService.filterLobbyChat(p, e.getMessage());
+                if (reason != null) {
+                    e.setCancelled(true);
+                    final String key = reason;
+                    Scheduler.runSync(plugin, () -> {
+                        if (p.isOnline()) {
+                            messages.send(p, key);
+                        }
+                    });
+                    return;
+                }
                 e.getRecipients().removeIf(r -> !(r instanceof Player)
                         || !antiBotService.isQueued(((Player) r).getUniqueId()));
                 return;
@@ -2156,6 +2169,11 @@ public final class AuthListener implements Listener {
                 } catch (Throwable ignored) {
                 }
             }
+            // В лобби-очереди: дропаем только броню и еду (правило PvP-арены)
+            if (antiBotService != null
+                    && antiBotService.filterQueueDeathDrops(e, p)) {
+                return;
+            }
             try {
                 e.setKeepInventory(true);
                 e.setKeepLevel(true);
@@ -2175,6 +2193,14 @@ public final class AuthListener implements Listener {
     public void onRespawn(org.bukkit.event.player.PlayerRespawnEvent e) {
         Player p = e.getPlayer();
         if (sessionManager.isLoggedIn(p.getUniqueId())) {
+            // Залогиненный умер в мире проверки (бездна и т.п.) —
+            // не оставляем его там: перенаправляем в основной мир
+            if (antiBotService != null && antiBotService.isCheckWorld(e.getRespawnLocation().getWorld())) {
+                java.util.List<org.bukkit.World> ws = Bukkit.getWorlds();
+                if (!ws.isEmpty()) {
+                    e.setRespawnLocation(ws.get(0).getSpawnLocation());
+                }
+            }
             return;
         }
         // Игрок в антибот-проверке: даже смерть не выпускает его в обычный мир,
@@ -2202,7 +2228,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = 1971439276
+    private static final int P7 = 775756284
 
 
 ;

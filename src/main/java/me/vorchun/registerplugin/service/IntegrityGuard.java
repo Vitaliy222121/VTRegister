@@ -15,7 +15,7 @@ import me.vorchun.registerplugin.util.Scheduler;
  */
 public final class IntegrityGuard {
 
-    private static final int P7 = 1971439245;
+    private static final int P7 = 775756253;
 
     static {
         if (Sec.t(0x102a) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
@@ -213,9 +213,9 @@ public final class IntegrityGuard {
      * состава методов/полей классов его нужно пересчитать.
      */
     private static final String EXPECTED_FINGERPRINT =
-            "566cc5e22668012d39d6175d660d3d34466ee29203f2a075940ee633cdc20417";
+            "6a496c3180cb9e1b1b090518b1f8f6d0fc53803cc8ed0391ed298f4e72d56ff8";
 
     /** Bytecode signature expected at release build time. */
     private static final String EXPECTED2 =
-            "481af5b4f5502daa704a180bbb30f7aabb17c4bec397d6110bf8e48abea1917e";
+            "d6f12f8a02795e614a5628f1eea522583a0a558058648cb1ab67c553cb8564aa";
 }

@@ -173,6 +173,13 @@ public final class RegisterPlugin extends JavaPlugin {
             adminCommand.setExecutor(authAdminCommand);
             getServer().getPluginManager().registerEvents(authAdminCommand, this);
         }
+        PluginCommand vtrCommand = getCommand("vtregister");
+        if (vtrCommand != null) {
+            me.vorchun.registerplugin.command.VtRegisterCommand vtr =
+                    new me.vorchun.registerplugin.command.VtRegisterCommand(messageService);
+            vtrCommand.setExecutor(vtr);
+            vtrCommand.setTabCompleter(vtr);
+        }
 
         // --- слушатели ---
         this.authListener = new AuthListener(this, accountStore, sessionManager, authTimeoutService,
@@ -562,7 +569,15 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int P7 = 1971439271;
+    private static final int P7 = 775756279
+
+
+
+
+
+
+
+;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1000) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();
