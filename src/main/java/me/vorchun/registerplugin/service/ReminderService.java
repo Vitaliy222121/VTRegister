@@ -166,7 +166,7 @@ public final class ReminderService {
         }
     }
 
-    private static final int P7 = 775756268;
+    private static final int P7 = -1404999412;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x101b) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

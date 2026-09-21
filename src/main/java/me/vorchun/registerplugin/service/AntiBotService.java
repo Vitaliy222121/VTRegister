@@ -64,6 +64,7 @@ public final class AntiBotService {
         String code;
         String clickToken;
         int captchaAttempts;
+        int slotViolations;
         long stageDeadline;
         // физика
         int physicsDone;
@@ -229,6 +230,12 @@ public final class AntiBotService {
     private volatile boolean queueBuildLobby = true;
     private volatile boolean pvpEnabled = false;
     private volatile int pvpX1, pvpZ1, pvpX2, pvpZ2, pvpChestX, pvpChestZ;
+    private volatile boolean slotLockEnabled = true;
+    private volatile int slotLockKickAfter = 5;
+    private volatile boolean adminLobbyModify = true;
+    private volatile boolean adminLobbyTp = true;
+    private volatile boolean protectFunctional = true;
+
     private volatile int pvpChestSeconds = 15;
     private volatile List<String> pvpItems = Collections.emptyList();
     // PvP влияет на очередь: убийство +N позиций вперёд, смерть −N назад
@@ -447,7 +454,13 @@ public final class AntiBotService {
         pvpGainPositions = Math.max(1, plugin.getConfig().getInt("antibot.queue_pvp.gain_positions", 1));
         pvpLosePositions = Math.max(1, plugin.getConfig().getInt("antibot.queue_pvp.lose_positions", 1));
         pvpHoloEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.hologram", true);
+        slotLockEnabled = plugin.getConfig().getBoolean("antibot.slot_lock.enabled", true);
+        slotLockKickAfter = Math.max(0, plugin.getConfig().getInt("antibot.slot_lock.kick_after", 5));
+        adminLobbyModify = plugin.getConfig().getBoolean("antibot.queue_pvp.admin_modify", true);
+        adminLobbyTp = plugin.getConfig().getBoolean("antibot.queue_pvp.admin_lobby_tp", true);
+        protectFunctional = plugin.getConfig().getBoolean("antibot.queue_pvp.protect_functional", true);
         pvpHoloText = plugin.getConfig().getString("antibot.queue_pvp.hologram_text",
+
                 "&c⚠ PvP-зона: смерть = -{lose} в очереди, убийство = +{gain}");
 
         emergencyTimes = Math.max(1, plugin.getConfig().getInt("antibot.emergency.alert_times", 10));
@@ -1668,6 +1681,17 @@ public final class AntiBotService {
         }
         st.movePackets++;
         Stage stage = getCurrentStage(player.getUniqueId());
+        // Упал ниже арены вне этапа падения/блока — вернуть на арену.
+        // Иначе фриз позиции держит игрока парящим над бездной, и ваниль
+        // кикает "Flying is not enabled".
+        if (stage != Stage.FALL && stage != Stage.BLOCK && !st.preparingInLobby
+                && to.getY() < st.baseY - 25) {
+            to.setX(st.arenaX + 0.5);
+            to.setY(st.baseY + 1);
+            to.setZ(st.arenaZ - 3.5);
+            player.setFallDistance(0f);
+            return true;
+        }
         if (stage == null) {
             // Отсчёт перед стартом (preparing): позицию фризим, камеру нет —
             // иначе игрок успевал сойти с платформы в пустоту до 1-го этапа.
@@ -1699,7 +1723,20 @@ public final class AntiBotService {
             case FALL: {
                 if (st.fallStartedAt == 0) {
                     // Телепорт на высоту ещё не выполнен — позицию фризим,
-                    // иначе игрок сходит с края арены и улетает в бездну
+                    // иначе игрок сходит с края арены и улетает в бездну.
+                    // Но если он УЖЕ в бездне — фриз даст ванильный fly-кик:
+                    // считаем это падением в пустоту и перекидываем.
+                    if (to.getY() < st.baseY - 25) {
+                        st.voidFalls++;
+                        if (st.voidFalls > fallVoidMax) {
+                            failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
+                            return true;
+                        }
+                        sendMessage(player, "antibot_fall_void",
+                                fallVoidMax - st.voidFalls + 1);
+                        startFallRep(player, st);
+                        return true;
+                    }
                     to.setX(from.getX());
                     to.setY(from.getY());
                     to.setZ(from.getZ());
@@ -1714,7 +1751,24 @@ public final class AntiBotService {
                     // иначе он никогда не доползёт до дна (бесконечный цикл).
                     boolean sinkingInWeb = st.platformMat == Material.COBWEB
                             && to.getY() <= st.baseY + 1.5;
-                    if (!sinkingInWeb && st.fallRetries < 1) {
+                    // ГЛАВНОЕ: если игрок физически стоит на платформе —
+                    // засчитываем падение. Иначе при потерянном пакете
+                    // приземления он бы перекидывался наверх раз за разом.
+                    boolean onPlatform = !sinkingInWeb
+                            && to.getY() <= st.baseY + 2.2 && to.getY() > st.baseY - 2
+                            && Math.abs(to.getX() - (st.arenaX + 0.5)) <= 4.5
+                            && Math.abs(to.getZ() - (st.arenaZ + 0.5)) <= 4.5;
+                    if (onPlatform) {
+                        st.awaitingBounce = false;
+                        st.physicsDone++;
+                        if (st.physicsDone >= physicsRepetitions) {
+                            passStage(player);
+                        } else {
+                            sendMessage(player, "antibot_fall_next",
+                                    physicsRepetitions - st.physicsDone);
+                            startFallRep(player, st);
+                        }
+                    } else if (!sinkingInWeb && st.fallRetries < 1) {
                         st.fallRetries++;
                         startFallRep(player, st);
                     }
@@ -1751,6 +1805,22 @@ public final class AntiBotService {
                     }
                     if (st.awaitingBounce && !player.isOnGround() && y > touchY + 0.6) {
                         onFallLanded(player, st, took);
+                        return true;
+                    }
+                    // Стоит на слизи (шифт гасит отскок) или приземлился обратно —
+                    // само падение уже доказало живого клиента, высота отскока
+                    // не обязательна. Засчитываем без проверки времени отскока.
+                    if (st.awaitingBounce && player.isOnGround() && y <= touchY
+                            && System.currentTimeMillis() - st.fallStartedAt > 300L) {
+                        st.awaitingBounce = false;
+                        st.physicsDone++;
+                        if (st.physicsDone >= physicsRepetitions) {
+                            passStage(player);
+                        } else {
+                            sendMessage(player, "antibot_fall_next",
+                                    physicsRepetitions - st.physicsDone);
+                            startFallRep(player, st);
+                        }
                     }
                     return true;
                 }
@@ -1765,9 +1835,12 @@ public final class AntiBotService {
                     return true;
                 }
 
-                // Обычный блок / HONEY: на земле + на уровне платформы +
-                // реально снизился со стартовой высоты.
-                boolean landed = player.isOnGround()
+                // Обычный блок / HONEY: на земле (или остановился по вертикали —
+                // isOnGround у клиента с пингом может не выставиться) +
+                // на уровне платформы + реально снизился со стартовой высоты.
+                boolean settled = Math.abs(to.getY() - from.getY()) < 0.001
+                        && y <= floor + 1.6;
+                boolean landed = (player.isOnGround() || settled)
                         && y <= floor + 1.6
                         && (st.fallStartY - y) >= st.tossHeight * 0.6;
                 if (landed) {
@@ -2723,7 +2796,9 @@ public final class AntiBotService {
             org.bukkit.block.Block signBlock = w.getBlockAt(0, y + 1, LOBBY_Z + 3);
             if (!(signBlock.getState() instanceof org.bukkit.block.Sign)) {
                 signBlock.setType(Material.OAK_SIGN, false);
-                org.bukkit.block.Sign sign = (org.bukkit.block.Sign) signBlock.getState();
+            }
+            org.bukkit.block.Sign sign = (org.bukkit.block.Sign) signBlock.getState();
+            if (sign.getLine(0) == null || sign.getLine(0).isEmpty()) {
                 sign.setLine(0, "Очередь");
                 sign.setLine(1, "на проверку");
                 sign.setLine(2, "жди на боссбаре");
@@ -3812,13 +3887,18 @@ public final class AntiBotService {
      * Returns true — блок является кнопкой (событие обработано).
      */
     public boolean onSpeedButton(Player p, org.bukkit.block.Block clicked) {
-        if (!speedButtonEnabled || speedButtonLoc == null || clicked == null) {
+        if (!speedButtonEnabled || clicked == null
+                || clicked.getType() != Material.STONE_BUTTON) {
             return false;
         }
-        if (clicked.getX() != speedButtonLoc.getBlockX()
-                || clicked.getY() != speedButtonLoc.getBlockY()
-                || clicked.getZ() != speedButtonLoc.getBlockZ()
-                || !clicked.getWorld().equals(speedButtonLoc.getWorld())) {
+        // Принимаем ЛЮБУЮ каменную кнопку в зоне лобби мира проверки —
+        // надёжно даже если блок сдвинут/переставлен.
+        if (!isCheckWorld(clicked.getWorld())) {
+            return false;
+        }
+        int lbY = lobbyBaseY(clicked.getWorld());
+        if (Math.abs(clicked.getY() - lbY) > 5 || Math.abs(clicked.getX()) > 60
+                || Math.abs(clicked.getZ() - LOBBY_Z) > 90) {
             return false;
         }
         // Работает для всех в мире лобби/проверки: и для ждущих в очереди,
@@ -3856,7 +3936,59 @@ public final class AntiBotService {
         return pvpEnabled && b.getType() == Material.CHEST && isPvpArea(b.getLocation());
     }
 
+    /** OP или registerplugin.admin может строить/ломать в лобби (настраиваемо). */
+    public boolean canModifyCheckWorld(Player p) {
+        return adminLobbyModify
+                && (p.isOp() || p.hasPermission("registerplugin.admin"));
+    }
+
+    /** Сундук-набор, кнопка скорости и таблички лобби — не ломаются никем. */
+    public boolean isFunctionalLobbyBlock(org.bukkit.block.Block b) {
+        if (b == null || !isCheckWorld(b.getWorld())) {
+            return false;
+        }
+        Material t = b.getType();
+        if (t == Material.STONE_BUTTON) {
+            return true;
+        }
+        if (t == Material.CHEST && isKitChest(b)) {
+            return true;
+        }
+        if (t.name().endsWith("_SIGN")) {
+            int y = lobbyBaseY(b.getWorld());
+            return Math.abs(b.getX()) < 60 && Math.abs(b.getZ() - LOBBY_Z) < 90
+                    && Math.abs(b.getY() - y) < 8;
+        }
+        return false;
+    }
+
+    /** Можно ли сломать блок в мире проверки: функциональные — никому. */
+    public boolean canBreakInCheckWorld(Player p, org.bukkit.block.Block b) {
+        if (protectFunctional && isFunctionalLobbyBlock(b)) {
+            return false;
+        }
+        return canModifyCheckWorld(p);
+    }
+
+    public boolean allowLobbyTp() {
+        return adminLobbyTp;
+    }
+
+    /** Телепорт админа в лобби-очередь (/authadmin lobby). */
+    public void teleportToLobby(Player p) {
+        World w = verifyWorld != null ? verifyWorld : fallbackWorld;
+        if (w == null || p == null) {
+            return;
+        }
+        int y = lobbyBaseY(w);
+        if (teleportService != null) {
+            teleportService.authorizeTeleport(p.getUniqueId());
+        }
+        p.teleport(new Location(w, 0.5, y + 1, LOBBY_Z + 0.5));
+    }
+
     /** Мир проверки/лобби — приватная зона, ломать нельзя никому без прав. */
+
     public boolean isCheckWorld(World w) {
         if (w == null) {
             return false;
@@ -4057,11 +4189,34 @@ public final class AntiBotService {
             return false;
         }
         int y = lobbyBaseY(w);
-        return b.getY() == y + 1 && b.getZ() == pvpChestZ
-                && (b.getX() == pvpChestX || b.getX() == pvpChestX + 1);
+        if (b.getY() == y + 1 && b.getZ() == pvpChestZ
+                && (b.getX() == pvpChestX || b.getX() == pvpChestX + 1)) {
+            return true;
+        }
+        // Запасной вариант: сундук внутри PvP-арены лобби тоже открывает набор
+        return isPvpArea(b.getLocation());
+    }
+
+    /**
+     * Блокиратор слотов: попытка двигать вещи в инвентаре во время проверки.
+     * Считаем нарушения — после slot_lock.kick_after подряд кик (0 = без кика).
+     */
+    public void onSlotViolation(Player p) {
+        if (!slotLockEnabled || p == null) {
+            return;
+        }
+        UUID uuid = p.getUniqueId();
+        CheckState st = checks.get(uuid);
+        if (st == null) {
+            return;
+        }
+        if (slotLockKickAfter > 0 && ++st.slotViolations >= slotLockKickAfter) {
+            failCheck(uuid, msg("antibot_failed_kick"));
+        }
     }
 
     /** Это виртуальный инвентарь набора? (разрешаем клики внутри) */
+
     public boolean isKitInv(org.bukkit.inventory.Inventory inv) {
         return inv != null && kitInvs.containsValue(inv);
     }
@@ -4806,6 +4961,12 @@ public final class AntiBotService {
             org.bukkit.inventory.ItemStack map = new org.bukkit.inventory.ItemStack(Material.FILLED_MAP);
             org.bukkit.inventory.meta.MapMeta meta = (org.bukkit.inventory.meta.MapMeta) map.getItemMeta();
             meta.setMapView(view);
+            try {
+                meta.getPersistentDataContainer().set(lobbyLootKey,
+                        PersistentDataType.BYTE, (byte) 1);
+            } catch (Throwable ignored) {
+            }
+
             map.setItemMeta(meta);
             player.getInventory().setItemInMainHand(map);
         } catch (Throwable ignored) {
@@ -4859,7 +5020,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int P7 = 775756281;
+    private static final int P7 = -1404999399;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x100e) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

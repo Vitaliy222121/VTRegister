@@ -175,10 +175,13 @@ antibot:
     # Содержимое правит админ в игре: /authadmin pvpkit
     kit_enabled: true
     kit_cooldown_seconds: 30
+    admin_modify: true
+    admin_lobby_tp: true
+    protect_functional: true
     # Фильтр чата в лобби-очереди (работает если chat_allowed/logged chat)
     # Лут: "МАТЕРИАЛ[:ЗАЧАРОВАНИЕ:УРОВЕНЬ][:КОЛ-ВО]"
     items:
-      - "NETHERITE_CHESTPLATE:PROTECTION:25"
+      - "NETHERITE_CHESTPLATE:PROTECTION:4"
       - "DIAMOND_SWORD:SHARPNESS:1"
       - "GOLDEN_APPLE:25"
     # Убийство в PvP-зоне двигает очередь: убийца идёт ВПЕРЁД на gain_positions,
@@ -378,6 +381,9 @@ antibot:
   min_answer_ms: 400
   # Клик по кликабельному сообщению быстрее N мс после показа = бот (0 = выкл)
   min_click_ms: 100
+  slot_lock:
+    enabled: true
+    kick_after: 5
   # После ПЕРЕЗАГРУЗКИ сервера все игроки (даже старые аккаунты) обязаны
   # заново пройти проверку на бота. false = рестарт не сбрасывает прохождение
   recheck_on_restart: true

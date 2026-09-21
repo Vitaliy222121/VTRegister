@@ -566,31 +566,43 @@ public final class AuthListener implements Listener {
         boolean isChangeCmd = cleanBase.equals("changepassword") || cleanBase.equals("changepw")
                 || cleanBase.equals("cp") || cleanBase.equals("passwd");
 
-        // Пока идёт проверка на бота (или ждём входа на сервер) — все команды
-        // заблокированы, кроме /rpverify <токен> (клик-подтверждение этапа CLICK)
-        if (!loggedIn && antiBotService != null && antiBotService.isBusy(uuid)) {
+        // Во время ввода пароля в чат — полная блокировка ВСЕХ команд
+        // (иначе игрок мог уйти командой, не завершив ввод)
+        if (!loggedIn && awaitingPassword.containsKey(uuid)) {
             e.setCancelled(true);
-            if (cleanBase.equals("rpverify") && sp >= 0) {
-                int res = antiBotService.submitClickToken(p, cmd.substring(sp + 1).trim());
-                if (res == 1) {
-                    messages.sendOrDefault(p, "antibot_click_wrong",
-                            "{prefix}&#FF6666Неверная ссылка подтверждения. Нажми на сообщение выше.");
-                }
-            } else if (antiBotService.isQueued(uuid)) {
-                Map<String, String> ph = new HashMap<>();
-                ph.put("position", String.valueOf(antiBotService.queuePosition(uuid)));
-                String m = messages.message("antibot_queue", ph);
-                if (m != null && !m.isEmpty()) {
-                    p.sendMessage(m);
+            return;
+        }
+
+        // Пока идёт проверка на бота (или ждём входа на сервер) — команды
+        // заблокированы, кроме /rpverify <токен> и команд авторизации
+        // (/login /register) — вход из лобби-очереди должен работать.
+        if (!loggedIn && antiBotService != null && antiBotService.isBusy(uuid)) {
+            if (isAuthCmd) {
+                // пропускаем к обычной обработке ниже — логин из очереди
+            } else {
+                e.setCancelled(true);
+                if (cleanBase.equals("rpverify") && sp >= 0) {
+                    int res = antiBotService.submitClickToken(p, cmd.substring(sp + 1).trim());
+                    if (res == 1) {
+                        messages.sendOrDefault(p, "antibot_click_wrong",
+                                "{prefix}&#FF6666Неверная ссылка подтверждения. Нажми на сообщение выше.");
+                    }
+                } else if (antiBotService.isQueued(uuid)) {
+                    Map<String, String> ph = new HashMap<>();
+                    ph.put("position", String.valueOf(antiBotService.queuePosition(uuid)));
+                    String m = messages.message("antibot_queue", ph);
+                    if (m != null && !m.isEmpty()) {
+                        p.sendMessage(m);
+                    } else {
+                        messages.sendOrDefault(p, "antibot_wait",
+                                "{prefix}&#7F7F7FОчередь на проверку: позиция {position}");
+                    }
                 } else {
                     messages.sendOrDefault(p, "antibot_wait",
-                            "{prefix}&#7F7F7FОчередь на проверку: позиция {position}");
+                            "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате");
                 }
-            } else {
-                messages.sendOrDefault(p, "antibot_wait",
-                        "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате");
+                return;
             }
-            return;
         }
 
         // ---- служебные команды плагина (работают и до, и после входа) ----
@@ -766,7 +778,9 @@ public final class AuthListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onConsume(PlayerItemConsumeEvent e) {
-        if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
+        if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())
+                && !(antiBotService != null
+                    && antiBotService.isCheckWorld(e.getPlayer().getWorld()))) {
             e.setCancelled(true);
         }
     }
@@ -830,10 +844,17 @@ public final class AuthListener implements Listener {
             return;
         }
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
-            // Кнопка скорости в лобби-PvP — единственное разрешённое действие
+            // Кнопка скорости / сундук-набор в лобби-PvP
             if (antiBotService != null && e.getClickedBlock() != null
                     && e.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
                     && antiBotService.onLobbyInteract(e.getPlayer(), e.getClickedBlock())) {
+                return;
+            }
+            // В мире лобби/проверки разрешены клики по воздуху и удары:
+            // одеть броню ПКМ, поесть, размахнуться мечом. Открытие чужих
+            // блоков (RIGHT_CLICK_BLOCK) остаётся запрещённым.
+            if (antiBotService != null && antiBotService.isCheckWorld(e.getPlayer().getWorld())
+                    && e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK) {
                 return;
             }
             e.setCancelled(true);
@@ -870,7 +891,7 @@ public final class AuthListener implements Listener {
                 if (!antiBotService.onBlockBreak(p, e.getBlock())) {
                     e.setCancelled(true);
                 }
-            } else if (!p.hasPermission("registerplugin.admin")) {
+            } else if (!antiBotService.canBreakInCheckWorld(p, e.getBlock())) {
                 e.setCancelled(true);
             }
             return;
@@ -890,7 +911,15 @@ public final class AuthListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlace(BlockPlaceEvent e) {
-        if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
+        Player p = e.getPlayer();
+        // Мир проверки/лобби: строить могут только OP/registerplugin.admin
+        // (queue_pvp.admin_modify), функциональные блоки watchdog восстановит
+        if (antiBotService != null && antiBotService.isCheckWorld(e.getBlock().getWorld())
+                && !antiBotService.canModifyCheckWorld(p)) {
+            e.setCancelled(true);
+            return;
+        }
+        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
             e.setCancelled(true);
         }
     }
@@ -970,6 +999,11 @@ public final class AuthListener implements Listener {
                 }
             }
             e.setCancelled(true);
+            // Блокиратор слотов: попытка двигать вещи во время проверки —
+            // считаем нарушение, после лимита кик (antibot.slot_lock.*)
+            if (antiBotService != null) {
+                antiBotService.onSlotViolation(p);
+            }
         }
     }
 
@@ -1009,6 +1043,21 @@ public final class AuthListener implements Listener {
 
         Player p = (Player) e.getWhoClicked();
         if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+            // В лобби драг по СВОЕМУ инвентарю разрешён (раскладка лута)
+            if (antiBotService != null
+                    && (antiBotService.isInQueueLobby(p.getUniqueId())
+                        || (antiBotService.isCheckWorld(p.getWorld())
+                            && !antiBotService.isChecking(p.getUniqueId())))) {
+                int topSize = e.getView().getTopInventory() == null ? 0
+                        : e.getView().getTopInventory().getSize();
+                boolean allOwn = true;
+                for (int rs : e.getRawSlots()) {
+                    if (rs < topSize) { allOwn = false; break; }
+                }
+                if (allOwn) {
+                    return;
+                }
+            }
             // Драг по GUI пазла — запрещаем (пазл только по кликам)
             e.setCancelled(true);
         }
@@ -1016,7 +1065,9 @@ public final class AuthListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onSwap(PlayerSwapHandItemsEvent e) {
-        if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
+        if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())
+                && !(antiBotService != null
+                    && antiBotService.isCheckWorld(e.getPlayer().getWorld()))) {
             e.setCancelled(true);
         }
     }
@@ -1031,6 +1082,10 @@ public final class AuthListener implements Listener {
         // событие НЕ отменяем, чтобы игрок мог реально крутить слоты
         if (antiBotService != null && antiBotService.isChecking(p.getUniqueId())) {
             antiBotService.onSlotChange(p, e.getNewSlot());
+            return;
+        }
+        // В лобби-очереди крутить слоты можно — иначе меч не выбрать
+        if (antiBotService != null && antiBotService.isCheckWorld(p.getWorld())) {
             return;
         }
         e.setCancelled(true);
@@ -2228,7 +2283,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int P7 = 775756284
+    private static final int P7 = -1404999396
 
 
 ;

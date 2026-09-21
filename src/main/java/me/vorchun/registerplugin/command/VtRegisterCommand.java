@@ -56,6 +56,7 @@ public final class VtRegisterCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(color("&c/authadmin reset|unregister|setpw|logout|forcelogin <ник>"));
             sender.sendMessage(color("&c/authadmin setspawn <prelogin|postlogin|firstjoin>"));
             sender.sendMessage(color("&c/authadmin pvpkit — GUI-редактор набора в PvP-сундуке"));
+            sender.sendMessage(color("&c/authadmin lobby — телепорт в лобби-очередь"));
             sender.sendMessage(color("&c/authadmin import|reload|unban <ip>"));
         }
         sender.sendMessage(color("&6&m================================"));

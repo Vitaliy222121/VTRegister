@@ -1,4 +1,4 @@
-name: RegisterPlugin
+name: VTRegister
 version: '${project.version}'
 main: me.vorchun.registerplugin.RegisterPlugin
 description: VTRegister — авторизация/регистрация с защитой пароля, антиботом, 2FA и БД
@@ -27,7 +27,7 @@ commands:
     usage: /changepassword
   authadmin:
     description: Администрирование авторизации
-    usage: /authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban|pvpkit>
+    usage: /authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban|pvpkit|lobby>
     permission: registerplugin.admin
   vtregister:
     aliases: [vtr, vreg]

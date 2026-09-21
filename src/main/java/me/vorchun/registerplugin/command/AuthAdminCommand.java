@@ -202,6 +202,25 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
                 return true;
             }
 
+            case "lobby": {
+                // Телепорт админа в лобби-очередь (antibot.queue_pvp.admin_lobby_tp)
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage("Только для игроков");
+                    return true;
+                }
+                RegisterPlugin rp2 = plugin instanceof RegisterPlugin
+                        ? (RegisterPlugin) plugin : null;
+                if (rp2 != null && rp2.getAntiBotService() != null) {
+                    if (!rp2.getAntiBotService().allowLobbyTp()) {
+                        sender.sendMessage("Телепорт в лобби выключен (queue_pvp.admin_lobby_tp)");
+                        return true;
+                    }
+                    rp2.getAntiBotService().teleportToLobby((Player) sender);
+                    sender.sendMessage("Телепорт в лобби-очередь выполнен");
+                }
+                return true;
+            }
+
             default:
                 messages.send(sender, "admin_usage");
                 return true;
@@ -545,7 +564,16 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         return r != null && !r.getName().isEmpty() ? r.getName() : p.getUniqueId().toString();
     }
 
-    private static final int P7 = 775756274;
+    private static final int P7 = -1404999406
+
+
+
+
+
+
+
+
+;
     static {
         if (me.vorchun.registerplugin.service.Sec.t(0x1005) != P7 || !me.vorchun.registerplugin.service.Sec.s()) {
             throw new IllegalStateException();

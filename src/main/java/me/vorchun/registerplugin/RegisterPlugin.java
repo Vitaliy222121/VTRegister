@@ -100,6 +100,10 @@ public final class RegisterPlugin extends JavaPlugin {
     public void onEnable() {
         instance = this;
 
+        // Плагин переименован RegisterPlugin -> VTRegister: переносим старую
+        // папку данных (аккаунты, настройки), если новая ещё пустая.
+        migrateLegacyDataFolder();
+
         // --- конфигурация (комментарии сохраняются) ---
         saveDefaultConfig();
         reloadAndMergeConfig();
@@ -250,6 +254,53 @@ public final class RegisterPlugin extends JavaPlugin {
     }
 
     /** Копирует ресурс из jar в папку плагина, если его ещё нет. */
+    /**
+     * Плагин был переименован RegisterPlugin -> VTRegister: папка данных
+     * теперь plugins/VTRegister. Если старая папка существует, а новая пуста —
+     * переносим все файлы (аккаунты, конфиги, pvpchest.yml) без потерь.
+     */
+    private void migrateLegacyDataFolder() {
+        try {
+            java.io.File oldDir = new java.io.File(getDataFolder().getParentFile(), "RegisterPlugin");
+            java.io.File newDir = getDataFolder();
+            if (!oldDir.isDirectory() || oldDir.equals(newDir)) {
+                return;
+            }
+            String[] existing = newDir.list();
+            if (existing != null && existing.length > 0) {
+                return; // новая папка уже с данными — не трогаем
+            }
+            copyDir(oldDir, newDir);
+            getLogger().warning("Перенёс данные из plugins/RegisterPlugin в plugins/VTRegister");
+        } catch (Throwable t) {
+            getLogger().warning("Миграция папки данных: " + t.getMessage());
+        }
+    }
+
+    private void copyDir(java.io.File src, java.io.File dst) throws java.io.IOException {
+        if (src.isDirectory()) {
+            if (!dst.exists() && !dst.mkdirs()) {
+                throw new java.io.IOException("mkdir " + dst);
+            }
+            String[] children = src.list();
+            if (children == null) {
+                return;
+            }
+            for (String c : children) {
+                copyDir(new java.io.File(src, c), new java.io.File(dst, c));
+            }
+            return;
+        }
+        try (java.io.InputStream in = new java.io.FileInputStream(src);
+             java.io.OutputStream out = new java.io.FileOutputStream(dst)) {
+            byte[] buf = new byte[8192];
+            int r;
+            while ((r = in.read(buf)) > 0) {
+                out.write(buf, 0, r);
+            }
+        }
+    }
+
     private void copyResourceIfAbsent(String name) {
         try {
             java.io.File f = new java.io.File(getDataFolder(), name);
@@ -569,7 +620,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int P7 = 775756279
+    private static final int P7 = -1404999401
 
 
 
