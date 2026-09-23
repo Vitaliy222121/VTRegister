@@ -5903,7 +5903,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = 811582363
+    private static final int READY = 1881092981
 
 
 

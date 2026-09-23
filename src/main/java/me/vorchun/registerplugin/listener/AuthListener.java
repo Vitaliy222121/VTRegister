@@ -845,6 +845,10 @@ public final class AuthListener implements Listener {
         }
         Player p = (Player) e.getEntity();
         if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+            // В PvP-зоне лобби стрельба разрешена (лук/арбалет из набора)
+            if (antiBotService != null && antiBotService.isPvpArea(p.getLocation())) {
+                return;
+            }
             e.setCancelled(true);
         }
     }
@@ -861,6 +865,9 @@ public final class AuthListener implements Listener {
         }
         Player p = (Player) src;
         if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+            if (antiBotService != null && antiBotService.isPvpArea(p.getLocation())) {
+                return;
+            }
             e.setCancelled(true);
         }
     }
@@ -1191,6 +1198,18 @@ public final class AuthListener implements Listener {
         if (last == null || now - last > 1000L) {
             lastSafeTeleport.put(uuid, now);
             teleportService.teleportToSafeLocation(e.getPlayer());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onLeaveCheckWorld(PlayerTeleportEvent e) {
+        if (antiBotService == null) {
+            return;
+        }
+        org.bukkit.World from = e.getFrom().getWorld();
+        org.bukkit.World to = e.getTo() == null ? null : e.getTo().getWorld();
+        if (from != null && antiBotService.isCheckWorld(from) && to != from) {
+            antiBotService.stripLobbyLoot(e.getPlayer());
         }
     }
 
@@ -1709,7 +1728,9 @@ public final class AuthListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerAnimation(org.bukkit.event.player.PlayerAnimationEvent e) {
-        if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
+        if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())
+                && !(antiBotService != null
+                    && antiBotService.isCheckWorld(e.getPlayer().getWorld()))) {
             e.setCancelled(true);
         }
     }
@@ -2397,7 +2418,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = 811582366
+    private static final int READY = 1881092976
 
 
 

@@ -189,7 +189,7 @@ public final class Compat {
         }
     }
 
-    private static final int READY = 811582384;
+    private static final int READY = 1881092958;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1025) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

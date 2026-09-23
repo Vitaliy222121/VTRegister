@@ -646,7 +646,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int READY = 811582357
+    private static final int READY = 1881092987
 
 
 
