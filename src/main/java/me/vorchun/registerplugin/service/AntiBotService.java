@@ -4751,10 +4751,8 @@ public final class AntiBotService {
             return false;
         }
         // Работает для всех в мире лобби/проверки: и для ждущих в очереди,
-        // и для залогиненного админа, зашедшего проверить.
-        if (!isInQueueLobby(p.getUniqueId()) && !isCheckWorld(clicked.getWorld())) {
-            return false;
-        }
+        // и для залогиненного админа, зашедшего проверить (isCheckWorld уже
+        // гарантирован ранним return выше — членство в очереди не требуется).
         // Анти-спам: не чаще раза в 3 секунды (и от кликеров-читеров)
         Long lastPress = speedCooldown.get(p.getUniqueId());
         if (lastPress != null && System.currentTimeMillis() - lastPress < 3000L) {

@@ -245,6 +245,9 @@ public final class MessageService {
     }
 
     private String applyPlaceholders(String input, Map<String, String> placeholders) {
+        if (input == null || input.indexOf('{') < 0 || placeholders == null || placeholders.isEmpty()) {
+            return input;
+        }
         String out = input;
         for (Map.Entry<String, String> e : placeholders.entrySet()) {
             String key = e.getKey();
@@ -252,9 +255,27 @@ public final class MessageService {
                 continue;
             }
             String value = e.getValue() == null ? "" : e.getValue();
-            out = Pattern.compile("\\{" + Pattern.quote(key) + "\\}", Pattern.CASE_INSENSITIVE)
-                    .matcher(out)
-                    .replaceAll(Matcher.quoteReplacement(value));
+            // Дешёвая замена без regex: ищем {key} регистронезависимо вручную.
+            // Старый путь через Pattern.compile на каждый плейсхолдер — главный
+            // источник аллокаций в горячем пути сообщений (stage_num, blocks...).
+            StringBuilder sb = new StringBuilder(out.length() + value.length());
+            int i = 0;
+            int n = out.length();
+            while (i < n) {
+                char c = out.charAt(i);
+                if (c == '{') {
+                    int end = out.indexOf('}', i + 1);
+                    if (end > i + 1 && end - (i + 1) == key.length()
+                            && out.regionMatches(true, i + 1, key, 0, key.length())) {
+                        sb.append(value);
+                        i = end + 1;
+                        continue;
+                    }
+                }
+                sb.append(c);
+                i++;
+            }
+            out = sb.toString();
         }
         return out;
     }
@@ -266,6 +287,9 @@ public final class MessageService {
     }
 
     private String applyHexColors(String input) {
+        if (input == null || (input.indexOf("&#") < 0 && input.indexOf("<#") < 0 && input.indexOf("{#") < 0)) {
+            return input;
+        }
         String out = applyHexPattern(input, HEX_AMP);
         out = applyHexPattern(out, HEX_TAG);
         return applyHexPattern(out, HEX_BRACE);

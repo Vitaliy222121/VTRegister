@@ -1618,10 +1618,10 @@ public final class AuthListener implements Listener {
 
         Player p = (Player) e.getEntity();
         if (!sessionManager.isLoggedIn(p.getUniqueId())) {
-            // PvP-урон внутри зоны очереди-лобби — разрешён (drака на арене)
+            // PvP-урон внутри зоны — разрешён любому, кто физически за линией
+            // (очередь, entry-очередь, залогиненный — неважно)
             if (e.getCause() == EntityDamageEvent.DamageCause.ENTITY_ATTACK
                     && antiBotService != null
-                    && antiBotService.isInQueueLobby(p.getUniqueId())
                     && antiBotService.isPvpArea(p.getLocation())) {
                 return;
             }
@@ -1640,11 +1640,10 @@ public final class AuthListener implements Listener {
                     e.setCancelled(true);
                     return;
                 }
-                // Атакующий и жертва в PvP-зоне очереди-лобби — разрешено
+                // Атакующий и жертва за линией PvP-зоны — разрешено всем,
+                // кто физически в зоне (очередь/entry/залогиненный тестер)
                 if (e.getEntity() instanceof Player
                         && antiBotService != null
-                        && antiBotService.isInQueueLobby(p.getUniqueId())
-                        && antiBotService.isInQueueLobby(e.getEntity().getUniqueId())
                         && antiBotService.isPvpArea(p.getLocation())
                         && antiBotService.isPvpArea(e.getEntity().getLocation())) {
                     return;
@@ -2213,6 +2212,16 @@ public final class AuthListener implements Listener {
             }
             // Своя auth-темнота на экранах входа — разрешена.
             if (dark) {
+                return;
+            }
+            // Эффекты от плагинов (наша кнопка Speed, NIGHT_VISION и т.п.) —
+            // разрешены: без этого addPotionEffect(SPEED) с кнопки лобби
+            // отменялся прямо здесь и «не работал».
+            if (e.getCause() == org.bukkit.event.entity.EntityPotionEffectEvent.Cause.PLUGIN) {
+                return;
+            }
+            // В PvP-зоне лобби — полноценное PvP: зелья вреда/дебаффы тоже идут.
+            if (antiBotService != null && antiBotService.isPvpArea(p.getLocation())) {
                 return;
             }
             e.setCancelled(true);
