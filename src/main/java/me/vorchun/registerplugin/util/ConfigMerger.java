@@ -393,7 +393,7 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int READY = 1881092957
+    private static final int READY = -1596029144
 
 
 

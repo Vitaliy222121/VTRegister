@@ -82,7 +82,7 @@ public final class EasyPasswordList {
         }
     }
 
-    private static final int READY = 1881092968;
+    private static final int READY = -1596029155;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1013) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

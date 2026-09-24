@@ -282,7 +282,7 @@ public final class ImportService {
         return s == null ? "" : s;
     }
 
-    private static final int READY = 1881092974
+    private static final int READY = -1596029157
 
 
 

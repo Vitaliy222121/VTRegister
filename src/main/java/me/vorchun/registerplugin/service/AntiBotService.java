@@ -122,6 +122,7 @@ public final class AntiBotService {
         java.util.Set<Integer> puzzleRemoveSlots;
         int puzzlePlaced;
         int puzzleWrong;
+        boolean toolChestWarned;
         boolean puzzleAwaitConfirm;
         // PUZZLE-рамки (режим blocks): uuid рамки -> true = лишняя
         java.util.Map<java.util.UUID, Boolean> puzzleFrames;
@@ -357,6 +358,7 @@ public final class AntiBotService {
     private volatile int puzzleRemoveCount = 3;
     private volatile String puzzleTaskText = "";
     private final Map<String, org.bukkit.map.MapView> tileViews = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, org.bukkit.map.MapView> puzzleViews = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<String, java.awt.image.BufferedImage> tileImgs = new java.util.concurrent.ConcurrentHashMap<>();
     // MATH: диапазон чисел и куда показывать пример
     private volatile int mathMax = 20;
@@ -379,6 +381,8 @@ public final class AntiBotService {
         long joinMillis;
         long lastSpamAt;
         org.bukkit.boss.BossBar bar;
+        String lastBarText;
+        float lastBarProg = -1f;
         Location lobbyReturn;
         // анти-флай в лобби очереди
         int flyTicks;
@@ -388,6 +392,11 @@ public final class AntiBotService {
 
     private final Map<UUID, CheckState> checks = new ConcurrentHashMap<>();
     private final Map<UUID, Material> lastTargets = new ConcurrentHashMap<>();
+    private final Map<Material, org.bukkit.inventory.ItemStack> toolCache = new ConcurrentHashMap<>();
+    private volatile List<org.bukkit.inventory.ItemStack> cachedPvpItems = null;
+    private volatile int[] puzzleRemoveWeights = new int[]{1};
+    private volatile boolean puzzleSameTarget = false;
+    private volatile String lastHoloText = null;
     private final Map<UUID, Location> returnLocations = new ConcurrentHashMap<>();
     private final Queue<UUID> queue = new ConcurrentLinkedQueue<>();
     private final Map<UUID, QueueEntry> queueInfo = new ConcurrentHashMap<>();
@@ -594,16 +603,49 @@ public final class AntiBotService {
         puzzleMode = plugin.getConfig().getString("antibot.puzzle_mode", "both")
                 .toLowerCase(java.util.Locale.ROOT).trim();
         puzzleRemoveCount = Math.max(1, Math.min(8, plugin.getConfig().getInt("antibot.puzzle_remove_count", 3)));
-        puzzleRemoveNames = plugin.getConfig().getStringList("antibot.puzzle_remove_names");
-        if (puzzleRemoveNames == null || puzzleRemoveNames.isEmpty()) {
-            puzzleRemoveNames = java.util.Arrays.asList("man_black");
+        // "Ð¸Ð¼Ñ" Ð¸Ð»Ð¸ "Ð¸Ð¼Ñ:Ð²ÐµÑ" â Ð²ÐµÑ = Ð¾ÑÐ½Ð¾ÑÐ¸ÑÐµÐ»ÑÐ½ÑÐ¹ ÑÐ°Ð½Ñ Ð²ÑÐ¿Ð°Ð´ÐµÐ½Ð¸Ñ Ð² Â«Ð»Ð¸ÑÐ½Ð¸ÐµÂ»
+        puzzleRemoveNames = new ArrayList<>();
+        List<Integer> rw = new ArrayList<>();
+        List<String> rawRemove = plugin.getConfig().getStringList("antibot.puzzle_remove_names");
+        if (rawRemove != null) {
+            for (String e : rawRemove) {
+                if (e == null) {
+                    continue;
+                }
+                String nm = e.trim();
+                int wgt = 1;
+                int ci = nm.lastIndexOf(':');
+                if (ci > 0) {
+                    try {
+                        wgt = Math.max(1, Integer.parseInt(nm.substring(ci + 1).trim()));
+                        nm = nm.substring(0, ci).trim();
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (!nm.isEmpty()) {
+                    puzzleRemoveNames.add(nm);
+                    rw.add(wgt);
+                }
+            }
         }
+        if (puzzleRemoveNames.isEmpty()) {
+            puzzleRemoveNames.add("man_black");
+            rw.add(1);
+        }
+        int[] wa = new int[rw.size()];
+        for (int i = 0; i < wa.length; i++) {
+            wa[i] = rw.get(i);
+        }
+        puzzleRemoveWeights = wa;
+        puzzleSameTarget = plugin.getConfig().getBoolean("antibot.puzzle_same_target", false);
         puzzleTileNames = plugin.getConfig().getStringList("antibot.puzzle_tiles");
         if (puzzleTileNames == null || puzzleTileNames.isEmpty()) {
             puzzleTileNames = java.util.Arrays.asList("cat", "dog", "pig", "cow", "chicken",
                     "sheep", "rabbit", "fox", "panda", "man_black");
         }
         puzzleTaskText = plugin.getConfig().getString("antibot.puzzle_task", "");
+        toolCache.clear();
+        cachedPvpItems = null;
         ensurePuzzleTiles();
 
         mathMax = Math.max(5, Math.min(99, plugin.getConfig().getInt("antibot.math_max", 20)));
@@ -726,7 +768,7 @@ public final class AntiBotService {
         }
 
         UUID uuid = player.getUniqueId();
-        if (checks.containsKey(uuid) || queue.contains(uuid)) {
+        if (checks.containsKey(uuid) || queueInfo.containsKey(uuid)) {
             return true;
         }
 
@@ -881,7 +923,7 @@ public final class AntiBotService {
             }
             teleportService.authorizeTeleport(uuid);
             Scheduler.runAtEntity(plugin, player, () -> {
-                if (player.isOnline() && queue.contains(uuid)) {
+                if (player.isOnline() && queueInfo.containsKey(uuid)) {
                     player.teleport(lobbySpawn(fw));
                     // темнота/blindness только для reg/login — в лобби светло
                     if (!"always".equals(authDarkness)) {
@@ -1477,7 +1519,11 @@ public final class AntiBotService {
             return;
         }
         try {
-            hologram.setCustomName(toBarText("&eВ очереди: &f" + queue.size() + " &7чел."));
+            String t = toBarText("&eВ очереди: &f" + queue.size() + " &7чел.");
+            if (!t.equals(lastHoloText)) {
+                lastHoloText = t;
+                hologram.setCustomName(t);
+            }
         } catch (Throwable ignored) {
         }
     }
@@ -1642,6 +1688,15 @@ public final class AntiBotService {
         if (mat == null) {
             mat = Material.GOLDEN_PICKAXE;
         }
+        org.bukkit.inventory.ItemStack c = toolCache.get(mat);
+        if (c == null) {
+            c = buildTool(mat);
+            toolCache.put(mat, c);
+        }
+        return c.clone();
+    }
+
+    private org.bukkit.inventory.ItemStack buildTool(Material mat) {
         org.bukkit.inventory.ItemStack tool = new org.bukkit.inventory.ItemStack(mat);
         try {
             org.bukkit.inventory.meta.ItemMeta meta = tool.getItemMeta();
@@ -1649,11 +1704,26 @@ public final class AntiBotService {
                 meta.setDisplayName(toBarText(blockToolName == null || blockToolName.isEmpty()
                         ? "&eКлюч арены" : blockToolName));
                 meta.setUnbreakable(true);
+                meta.getPersistentDataContainer().set(lobbyLootKey,
+                        PersistentDataType.BYTE, (byte) 1);
                 tool.setItemMeta(meta);
             }
         } catch (Throwable ignored) {
         }
         return tool;
+    }
+
+    /** Инструменты этапа BLOCK прямо в инвентарь — сундук остаётся дублирующим. */
+    private void giveBlockTools(Player player) {
+        if (player == null) {
+            return;
+        }
+        try {
+            org.bukkit.inventory.PlayerInventory inv = player.getInventory();
+            inv.addItem(makeTool(Material.GOLDEN_PICKAXE), makeTool(Material.GOLDEN_AXE),
+                    makeTool(Material.GOLDEN_SHOVEL), makeTool(Material.SHEARS));
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Платформа 7x7 из указанного материала — на каждое падение блоки разные. */
@@ -1855,9 +1925,9 @@ public final class AntiBotService {
         if (st == null) {
             // Игрок в очереди-лобби (умер в PvP-зоне) — обратно на платформу.
             // Покрывает и очередь проверки, и очередь входа на сервер.
-            if ((queue.contains(uuid) || entryQueue.contains(uuid)) && queueMode == 2) {
+            if ((queueInfo.containsKey(uuid) || entryInfo.containsKey(uuid)) && queueMode == 2) {
                 Scheduler.runAtEntityLater(plugin, player, () -> {
-                    if (player.isOnline() && (queue.contains(uuid) || entryQueue.contains(uuid))) {
+                    if (player.isOnline() && (queueInfo.containsKey(uuid) || entryInfo.containsKey(uuid))) {
                         teleportService.authorizeTeleport(uuid);
                         player.teleport(lobbySpawn(player.getWorld()));
                         if (queueFlight) {
@@ -2027,6 +2097,7 @@ public final class AntiBotService {
                 break;
             case BLOCK:
                 buildBlockPath(player.getUniqueId(), st);
+                giveBlockTools(player);
                 sendMessage(player, "antibot_stage_block", blockPathLength);
                 break;
         }
@@ -2173,6 +2244,10 @@ public final class AntiBotService {
         if (st == null || st.toolChestLoc == null || st.world == null) {
             return;
         }
+        if (!st.world.isChunkLoaded(st.toolChestLoc.getBlockX() >> 4,
+                st.toolChestLoc.getBlockZ() >> 4)) {
+            return;
+        }
         org.bukkit.block.Block b = st.toolChestLoc.getBlock();
         if (b.getType() != Material.CHEST) {
             b.setType(Material.CHEST, false);
@@ -2194,7 +2269,11 @@ public final class AntiBotService {
             if (dirty) {
                 chest.update(true, false);
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            if (!st.toolChestWarned) {
+                st.toolChestWarned = true;
+                plugin.getLogger().warning("AntiBot: ÑÑÐ½Ð´ÑÐº Ð¸Ð½ÑÑÑÑÐ¼ÐµÐ½ÑÐ¾Ð² Ð½Ðµ Ð½Ð°Ð¿Ð¾Ð»Ð½ÐµÐ½: " + t);
+            }
         }
     }
 
@@ -2701,7 +2780,7 @@ public final class AntiBotService {
             return 0;
         }
         if (tooFast(st)) {
-            failCheck(uuid, msg("antibot_failed_kick"));
+            failCheck(uuid, msg("antibot_kick_fast"));
             return 2;
         }
         if (st.code.equalsIgnoreCase(input == null ? "" : input.trim())) {
@@ -2730,7 +2809,7 @@ public final class AntiBotService {
         }
         if (minClickMs > 0 && st.promptShownAt > 0
                 && System.currentTimeMillis() - st.promptShownAt < minClickMs) {
-            failCheck(uuid, msg("antibot_failed_kick"));
+            failCheck(uuid, msg("antibot_kick_fast"));
             return 1;
         }
         if (!st.clickToken.equals(token)) {
@@ -3037,31 +3116,37 @@ public final class AntiBotService {
         }
         try {
             java.io.File f = puzzleImages.get(random.nextInt(puzzleImages.size()));
-            java.awt.image.BufferedImage raw = javax.imageio.ImageIO.read(f);
-            final java.awt.image.BufferedImage img;
-            if (raw != null && (raw.getWidth() != 128 || raw.getHeight() != 128)) {
-                img = new java.awt.image.BufferedImage(128, 128,
-                        java.awt.image.BufferedImage.TYPE_INT_ARGB);
-                java.awt.Graphics2D g2 = img.createGraphics();
-                g2.drawImage(raw, 0, 0, 128, 128, null);
-                g2.dispose();
-            } else {
-                img = raw;
-            }
             World w = st.world;
-            org.bukkit.map.MapView view = Bukkit.createMap(w);
-            view.getRenderers().forEach(view::removeRenderer);
-            view.addRenderer(new org.bukkit.map.MapRenderer() {
-                private boolean drawn;
-                @Override
-                public void render(org.bukkit.map.MapView mv, org.bukkit.map.MapCanvas canvas, Player p) {
-                    if (drawn) {
-                        return;
-                    }
-                    drawn = true;
-                    canvas.drawImage(0, 0, img);
+            // MapView кэшируется по имени файла: рендер один раз на картинку,
+            // нет новых saved-map на каждую проверку.
+            org.bukkit.map.MapView view = puzzleViews.get(f.getName());
+            if (view == null) {
+                java.awt.image.BufferedImage raw = javax.imageio.ImageIO.read(f);
+                final java.awt.image.BufferedImage img;
+                if (raw != null && (raw.getWidth() != 128 || raw.getHeight() != 128)) {
+                    img = new java.awt.image.BufferedImage(128, 128,
+                            java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                    java.awt.Graphics2D g2 = img.createGraphics();
+                    g2.drawImage(raw, 0, 0, 128, 128, null);
+                    g2.dispose();
+                } else {
+                    img = raw;
                 }
-            });
+                view = Bukkit.createMap(w);
+                view.getRenderers().forEach(view::removeRenderer);
+                view.addRenderer(new org.bukkit.map.MapRenderer() {
+                    private boolean drawn;
+                    @Override
+                    public void render(org.bukkit.map.MapView mv, org.bukkit.map.MapCanvas canvas, Player p) {
+                        if (drawn) {
+                            return;
+                        }
+                        drawn = true;
+                        canvas.drawImage(0, 0, img);
+                    }
+                });
+                puzzleViews.put(f.getName(), view);
+            }
             org.bukkit.inventory.ItemStack map = new org.bukkit.inventory.ItemStack(Material.FILLED_MAP);
             org.bukkit.inventory.meta.MapMeta mm = (org.bukkit.inventory.meta.MapMeta) map.getItemMeta();
             mm.setMapView(view);
@@ -3171,7 +3256,7 @@ public final class AntiBotService {
             return false;
         }
         if (tooFast(st)) {
-            failCheck(uuid, msg("antibot_failed_kick"));
+            failCheck(uuid, msg("antibot_kick_fast"));
             return true;
         }
         if (puzzleAutoPass) {
@@ -3213,12 +3298,10 @@ public final class AntiBotService {
         st.puzzleWrong++;
         st.puzzleAwaitConfirm = false;
         if (st.puzzleWrong >= puzzleMaxWrong) {
-            failCheck(player.getUniqueId(), msg("antibot_failed_kick"));
+            failCheck(player.getUniqueId(), msg("antibot_kick_attempts"));
             return;
         }
-        int left = st.puzzleFrames != null ? st.puzzleExtraLeft
-                : (st.puzzleRemoveSlots == null ? 0 : st.puzzleRemoveSlots.size());
-        sendMessage(player, "antibot_puzzle_wrong", left);
+        sendPuzzleWrong(player, st);
         if (st.puzzleInv != null) {
             player.openInventory(st.puzzleInv);
         }
@@ -3246,8 +3329,9 @@ public final class AntiBotService {
             int extras = Math.min(puzzleRemoveCount, 8);
             List<String> cells = new ArrayList<>(9);
             Map<String, Integer> counts = new HashMap<>();
+            String single = puzzleSameTarget ? pickRemoveName() : null;
             for (int i = 0; i < extras; i++) {
-                String n = puzzleRemoveNames.get(random.nextInt(puzzleRemoveNames.size()));
+                String n = single != null ? single : pickRemoveName();
                 cells.add(n);
                 counts.merge(n, 1, Integer::sum);
             }
@@ -3421,7 +3505,28 @@ public final class AntiBotService {
     }
 
     /** Русское имя тайла для текста задания (вместо служебного id). */
+    /** Ð¡Ð»ÑÑÐ°Ð¹Ð½Ð¾Ðµ Â«Ð»Ð¸ÑÐ½ÐµÐµÂ» Ð¸Ð¼Ñ Ð¿Ð¾ Ð²ÐµÑÐ°Ð¼ Ð¸Ð· puzzle_remove_names ("Ð¸Ð¼Ñ:Ð²ÐµÑ"). */
+    private String pickRemoveName() {
+        int[] w = puzzleRemoveWeights;
+        int total = 0;
+        for (int x : w) {
+            total += Math.max(1, x);
+        }
+        if (total <= 0 || puzzleRemoveNames.isEmpty()) {
+            return "man_black";
+        }
+        int r = random.nextInt(total);
+        for (int i = 0; i < puzzleRemoveNames.size(); i++) {
+            r -= Math.max(1, i < w.length ? w[i] : 1);
+            if (r < 0) {
+                return puzzleRemoveNames.get(i);
+            }
+        }
+        return puzzleRemoveNames.get(0);
+    }
+
     private static String tileDisplay(String n) {
+
         if (n == null) {
             return "?";
         }
@@ -3455,27 +3560,37 @@ public final class AntiBotService {
         }
         try {
             int y = lobbyBaseY(w);
-            org.bukkit.block.Block signBlock = w.getBlockAt(0, y + 1, LOBBY_Z + 3);
-            if (!(signBlock.getState() instanceof org.bukkit.block.Sign)) {
-                signBlock.setType(Material.OAK_SIGN, false);
-            }
-            org.bukkit.block.Sign sign = (org.bukkit.block.Sign) signBlock.getState();
-            if (sign.getLine(0) == null || sign.getLine(0).isEmpty()) {
-                sign.setLine(0, "Очередь");
-                sign.setLine(1, "на проверку");
-                sign.setLine(2, "жди на боссбаре");
-                sign.update(true, false);
+            // Чанки лобби не гружены — любой getBlockAt дергал бы диск.
+            if (w.isChunkLoaded(0, (LOBBY_Z + 3) >> 4)) {
+                org.bukkit.block.Block signBlock = w.getBlockAt(0, y + 1, LOBBY_Z + 3);
+                if (signBlock.getType() != Material.OAK_SIGN) {
+                    signBlock.setType(Material.OAK_SIGN, false);
+                }
+                org.bukkit.block.BlockState bs = signBlock.getState();
+                if (bs instanceof org.bukkit.block.Sign) {
+                    org.bukkit.block.Sign sign = (org.bukkit.block.Sign) bs;
+                    if (sign.getLine(0) == null || sign.getLine(0).isEmpty()) {
+                        sign.setLine(0, "Очередь");
+                        sign.setLine(1, "на проверку");
+                        sign.setLine(2, "жди на боссбаре");
+                        sign.update(true, false);
+                    }
+                }
             }
             // Полное восстановление декора: фонари/стёкла/паркур/PvP-зону
             // ломают чаще всего — переставляем только отличающиеся блоки.
             repairLobbyDecor(w, y);
-            if (pvpEnabled) {
+            if (pvpEnabled && w.isChunkLoaded(pvpChestX >> 4, pvpChestZ >> 4)) {
                 if (w.getBlockAt(pvpChestX, y + 1, pvpChestZ).getType() != Material.CHEST) {
                     w.getBlockAt(pvpChestX, y, pvpChestZ).setType(Material.SMOOTH_STONE, false);
                     w.getBlockAt(pvpChestX, y + 1, pvpChestZ).setType(Material.CHEST, false);
                     refillPvpChest();
                 }
                 if (speedButtonEnabled && speedButtonLoc != null
+                        && speedButtonLoc.getWorld() != null
+                        && speedButtonLoc.getWorld().isChunkLoaded(
+                                speedButtonLoc.getBlockX() >> 4,
+                                speedButtonLoc.getBlockZ() >> 4)
                         && !(speedButtonLoc.getBlock().getBlockData()
                                 instanceof org.bukkit.block.data.type.Switch)) {
                     org.bukkit.block.Block btn = speedButtonLoc.getBlock();
@@ -3689,9 +3804,9 @@ public final class AntiBotService {
         } else {
             st.puzzleWrong++;
             if (st.puzzleWrong >= puzzleMaxWrong) {
-                failCheck(uuid, msg("antibot_failed_kick"));
+                failCheck(uuid, msg("antibot_kick_attempts"));
             } else {
-                sendMessage(player, "antibot_puzzle_wrong", st.puzzleExtraLeft);
+                sendPuzzleWrong(player, st);
             }
         }
         return true;
@@ -3790,7 +3905,7 @@ public final class AntiBotService {
             return 0;
         }
         if (tooFast(st)) {
-            failCheck(uuid, msg("antibot_failed_kick"));
+            failCheck(uuid, msg("antibot_kick_fast"));
             return 2;
         }
         if (st.mathAnswer.equals(input == null ? "" : input.trim())) {
@@ -3871,8 +3986,8 @@ public final class AntiBotService {
             return 0;
         }
         if (tooFast(st)) {
-            failCheck(uuid, msg("antibot_failed_kick"));
-            return 1;
+            failCheck(uuid, msg("antibot_kick_fast"));
+            return 2;
         }
         if (!st.secretExpected.equals(input == null ? "" : input.trim())) {
             return 1;
@@ -4029,7 +4144,7 @@ public final class AntiBotService {
             final World fw = w;
             teleportService.authorizeTeleport(uuid);
             Scheduler.runAtEntity(plugin, player, () -> {
-                if (player.isOnline() && entryQueue.contains(uuid)) {
+                if (player.isOnline() && entryInfo.containsKey(uuid)) {
                     player.teleport(lobbySpawn(fw));
                     if (!"always".equals(authDarkness)) {
                         clearVision(player);
@@ -4057,7 +4172,7 @@ public final class AntiBotService {
     }
 
     public boolean isEntryQueued(UUID uuid) {
-        return entryQueue.contains(uuid);
+        return entryInfo.containsKey(uuid);
     }
 
     private void dequeueEntry(UUID uuid) {
@@ -4098,10 +4213,18 @@ public final class AntiBotService {
                 clearVision(p);
             }
             if (qe.bar != null) {
-                qe.bar.setTitle(toBarText("&bВход на сервер: &f" + pos + "/" + entryQueue.size()
+                String bt = toBarText("&bВход на сервер: &f" + pos + "/" + entryQueue.size()
                         + "  &7·  ~" + (pos * entryReleaseSeconds / Math.max(1, entryReleaseBatch)) + "s"
-                        + "  &7·  &aпроверка пройдена"));
-                qe.bar.setProgress(Math.max(0.02, 1.0 - (pos - 1.0) / Math.max(1, entryQueue.size())));
+                        + "  &7·  &aпроверка пройдена");
+                float pr = (float) Math.max(0.02, 1.0 - (pos - 1.0) / Math.max(1, entryQueue.size()));
+                if (!bt.equals(qe.lastBarText)) {
+                    qe.lastBarText = bt;
+                    qe.bar.setTitle(bt);
+                }
+                if (pr != qe.lastBarProg) {
+                    qe.lastBarProg = pr;
+                    qe.bar.setProgress(pr);
+                }
             }
             if (now - qe.lastSpamAt >= entrySpamSeconds * 1000L) {
                 qe.lastSpamAt = now;
@@ -4267,12 +4390,12 @@ public final class AntiBotService {
     }
 
     public boolean isQueued(UUID uuid) {
-        return queue.contains(uuid);
+        return queueInfo.containsKey(uuid);
     }
 
     /** Игрок занят антиботом: в очереди, на проверке ИЛИ ждёт входа на сервер. */
     public boolean isBusy(UUID uuid) {
-        return checks.containsKey(uuid) || queue.contains(uuid) || entryQueue.contains(uuid);
+        return checks.containsKey(uuid) || queueInfo.containsKey(uuid) || entryInfo.containsKey(uuid);
     }
 
     public boolean queueChatAllowed() {
@@ -4281,7 +4404,7 @@ public final class AntiBotService {
 
     /** Игрок ждёт в очереди-лобби (режим 2). */
     public boolean isInQueueLobby(UUID uuid) {
-        return queueMode == 2 && (queue.contains(uuid) || entryQueue.contains(uuid));
+        return queueMode == 2 && (queueInfo.containsKey(uuid) || entryInfo.containsKey(uuid));
     }
 
     /**
@@ -4293,7 +4416,7 @@ public final class AntiBotService {
         UUID uuid = player.getUniqueId();
         // Движение по лобби-платформе разрешено и ждущим проверки,
         // и ждущим входа на сервер (entry-очередь)
-        if (queueMode != 2 || to == null || (!queue.contains(uuid) && !entryQueue.contains(uuid))) {
+        if (queueMode != 2 || to == null || (!queueInfo.containsKey(uuid) && !entryInfo.containsKey(uuid))) {
             return false;
         }
         int base = lobbyBaseY(player.getWorld());
@@ -4546,6 +4669,23 @@ public final class AntiBotService {
                     && now - st.toolChestCheckAt > 2000L) {
                 st.toolChestCheckAt = now;
                 ensureToolChest(st);
+                // ÐÐ½ÑÑÑÑÐ¼ÐµÐ½Ñ Ð² Ð¸Ð½Ð²ÐµÐ½ÑÐ°ÑÐµ Ð¿ÑÐ¾Ð¿Ð°Ð» â Ð²ÑÐ´Ð°ÑÑ ÑÐ½Ð¾Ð²Ð°.
+                try {
+                    boolean hasTool = false;
+                    for (org.bukkit.inventory.ItemStack tl : p.getInventory().getContents()) {
+                        if (tl != null && (tl.getType() == Material.GOLDEN_PICKAXE
+                                || tl.getType() == Material.GOLDEN_AXE
+                                || tl.getType() == Material.GOLDEN_SHOVEL
+                                || tl.getType() == Material.SHEARS)) {
+                            hasTool = true;
+                            break;
+                        }
+                    }
+                    if (!hasTool) {
+                        giveBlockTools(p);
+                    }
+                } catch (Throwable ignored) {
+                }
             }
             // CLICK: пересылаем кликабельную кнопку каждые 8 сек —
             // сообщение тонет в чате, игрок теряет куда нажимать
@@ -4657,10 +4797,18 @@ public final class AntiBotService {
             }
             // Боссбар с позицией (режимы 1 и 2)
             if (qe.bar != null) {
-                qe.bar.setTitle(toBarText("&eОчередь: &f" + pos + "/" + queue.size()
+                String bt = toBarText("&eОчередь: &f" + pos + "/" + queue.size()
                         + "  &7·  ~" + (pos * batchDelaySeconds) + "s"
-                        + "  &7·  &bпроверка на бота"));
-                qe.bar.setProgress(Math.max(0.02, 1.0 - (pos - 1.0) / Math.max(1, queue.size())));
+                        + "  &7·  &bпроверка на бота");
+                float pr = (float) Math.max(0.02, 1.0 - (pos - 1.0) / Math.max(1, queue.size()));
+                if (!bt.equals(qe.lastBarText)) {
+                    qe.lastBarText = bt;
+                    qe.bar.setTitle(bt);
+                }
+                if (pr != qe.lastBarProg) {
+                    qe.lastBarProg = pr;
+                    qe.bar.setProgress(pr);
+                }
             }
             // Лобби-режим: спасение с паркура + напоминание в чат
             if (queueMode == 2) {
@@ -4683,7 +4831,7 @@ public final class AntiBotService {
                     teleportService.authorizeTeleport(u);
                     final Player fp = p;
                     Scheduler.runAtEntity(plugin, p, () -> {
-                        if (fp.isOnline() && queue.contains(u)) {
+                        if (fp.isOnline() && queueInfo.containsKey(u)) {
                             fp.teleport(lobbySpawn(fp.getWorld()));
                             fp.setFallDistance(0f);
                         }
@@ -4968,10 +5116,10 @@ public final class AntiBotService {
         UUID uuid = p.getUniqueId();
         QueueEntry qe = entryInfo.get(uuid);
         CheckState est = entryStates.get(uuid);
-        if (queue.contains(uuid)) {
+        if (queueInfo.containsKey(uuid)) {
             dequeue(uuid);
         }
-        if (entryQueue.contains(uuid)) {
+        if (entryInfo.containsKey(uuid)) {
             dequeueEntry(uuid);
         }
         if (est != null) {
@@ -5289,7 +5437,7 @@ public final class AntiBotService {
      * Вызывается из PlayerDeathEvent до keepInventory-логики.
      */
     public void onQueuePvpDeath(Player victim) {
-        if (!pvpQueueSteal || queueMode != 2 || !queue.contains(victim.getUniqueId())) {
+        if (!pvpQueueSteal || queueMode != 2 || !queueInfo.containsKey(victim.getUniqueId())) {
             return;
         }
         Player killer = victim.getKiller();
@@ -5298,7 +5446,7 @@ public final class AntiBotService {
         if (killer == null) {
             return;
         }
-        if (queue.contains(killer.getUniqueId()) && !killer.getUniqueId().equals(victim.getUniqueId())) {
+        if (queueInfo.containsKey(killer.getUniqueId()) && !killer.getUniqueId().equals(victim.getUniqueId())) {
             shiftInQueue(killer.getUniqueId(), -pvpGainPositions);
             sendMessage(killer, "antibot_queue_gain", pvpGainPositions);
         }
@@ -5332,7 +5480,7 @@ public final class AntiBotService {
     /** Сундук PvP-зоны: лежит на pvp_chest координатах, пополняется по таймеру. */
     private void refillPvpChest() {
         World w = verifyWorld != null ? verifyWorld : fallbackWorld;
-        if (w == null) {
+        if (w == null || !w.isChunkLoaded(pvpChestX >> 4, pvpChestZ >> 4)) {
             return;
         }
         int y = lobbyBaseY(w);
@@ -5340,13 +5488,28 @@ public final class AntiBotService {
         if (b.getType() != Material.CHEST) {
             return;
         }
+        if (cachedPvpItems == null) {
+            cachedPvpItems = parsePvpItems();
+        }
         try {
             org.bukkit.block.Chest chest = (org.bukkit.block.Chest) b.getState();
-            chest.getInventory().clear();
+            org.bukkit.inventory.Inventory inv = chest.getInventory();
+            // Ð¡ÑÐ½Ð´ÑÐº ÑÐ¶Ðµ Ð¿Ð¾Ð»Ð¾Ð½ â Ð½Ðµ ÑÑÐ¾Ð³Ð°ÐµÐ¼ (Ð½ÐµÑ Ð¿ÐµÑÐµÑÐ¾Ð·Ð´Ð°Ð½Ð¸Ñ ItemStack).
+            boolean full = true;
+            for (int i = 0; i < cachedPvpItems.size() && i < 27; i++) {
+                if (inv.getItem(i) == null) {
+                    full = false;
+                    break;
+                }
+            }
+            if (full && !cachedPvpItems.isEmpty()) {
+                return;
+            }
+            inv.clear();
             int slot = 0;
-            for (org.bukkit.inventory.ItemStack item : parsePvpItems()) {
+            for (org.bukkit.inventory.ItemStack item : cachedPvpItems) {
                 if (slot < 27) {
-                    chest.getInventory().setItem(slot++, item);
+                    inv.setItem(slot++, item.clone());
                 }
             }
             chest.update(true, false);
@@ -5548,7 +5711,28 @@ public final class AntiBotService {
         return null;
     }
 
+    /** Â«ÐÐµ Ð²ÑÑ Ð»Ð¸ÑÐ½ÐµÐµ ÑÐ±ÑÐ°Ð½Ð¾Â» â Ñ Ð¾ÑÑÐ°ÑÐºÐ¾Ð¼ Ð»Ð¸ÑÐ½Ð¸Ñ Ð¸ Ð¾ÑÑÐ°ÑÐºÐ¾Ð¼ Ð¿Ð¾Ð¿ÑÑÐ¾Ðº. */
+    private void sendPuzzleWrong(Player player, CheckState st) {
+        MessageService ms = messages();
+        if (ms == null || player == null || st == null) {
+            return;
+        }
+        int left = st.puzzleFrames != null ? st.puzzleExtraLeft
+                : (st.puzzleRemoveSlots == null ? 0 : st.puzzleRemoveSlots.size());
+        Map<String, String> ph = new HashMap<>();
+        List<Stage> order = st.stages != null ? st.stages : stageOrder;
+        ph.put("blocks", String.valueOf(left));
+        ph.put("attempts_left", String.valueOf(Math.max(0, puzzleMaxWrong - st.puzzleWrong)));
+        ph.put("stage_num", String.valueOf(st.stageIndex + 1));
+        ph.put("stage_total", String.valueOf(order.size()));
+        String text = ms.message("antibot_puzzle_wrong", ph);
+        if (text != null && !text.isEmpty()) {
+            player.sendMessage(text);
+        }
+    }
+
     private void sendMessage(Player player, String key, int number) {
+
         MessageService ms = messages();
         if (ms == null || player == null) {
             return;
@@ -5903,7 +6087,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = 1881092981
+    private static final int READY = -1596029184
 
 
 

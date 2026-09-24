@@ -168,7 +168,7 @@ public final class ForeignHashes {
         return r == 0;
     }
 
-    private static final int READY = 1881092975
+    private static final int READY = -1596029158
 
 
 
