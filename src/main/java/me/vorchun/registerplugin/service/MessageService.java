@@ -79,7 +79,17 @@ public final class MessageService {
             } else {
                 ConfigMerger.mergeFile(plugin, "lang/" + code + ".yml", file);
             }
-            YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
+            YamlConfiguration cfg = ConfigMerger.loadYamlTolerant(file, plugin);
+            if (cfg == null) {
+                // файл безнадёжно битый — подменяем копией из jar
+                try (InputStream in2 = plugin.getResource("lang/" + code + ".yml")) {
+                    if (in2 != null) {
+                        java.nio.file.Files.copy(in2, file.toPath(),
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+                cfg = YamlConfiguration.loadConfiguration(file);
+            }
             try (InputStream in = plugin.getResource("lang/" + code + ".yml")) {
                 if (in != null) {
                     cfg.setDefaults(YamlConfiguration.loadConfiguration(
@@ -312,7 +322,7 @@ public final class MessageService {
         return sb.toString();
     }
 
-    private static final int READY = -1596029162;
+    private static final int READY = -111058299;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1018) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

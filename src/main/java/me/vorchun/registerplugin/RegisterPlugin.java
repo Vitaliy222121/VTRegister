@@ -351,6 +351,10 @@ public final class RegisterPlugin extends JavaPlugin {
     }
 
     public void reloadAndMergeConfig() {
+        // Файлы могли быть сохранены старым сервером в ANSI/CP1251 —
+        // санируем в UTF-8 до того, как Bukkit начнёт их парсить.
+        ConfigMerger.sanitizeFile(this, new java.io.File(getDataFolder(), "config.yml"), "config.yml");
+        ConfigMerger.sanitizeFile(this, new java.io.File(getDataFolder(), "advanced.yml"), "advanced.yml");
         reloadConfig();
         // Дописываем новые ключи из jar, НЕ теряя '#'-комментарии (saveConfig() их стирает)
         ConfigMerger.merge(this, "config.yml");
@@ -575,6 +579,13 @@ public final class RegisterPlugin extends JavaPlugin {
         }
     }
 
+    /** Мост от AntiBotService: перевешивает auth-hiding после выпуска с проверки. */
+    public void reapplyHiding(Player player) {
+        if (authListener != null) {
+            authListener.reapplyHidingIfEnabled(player);
+        }
+    }
+
     /** Мост от AntiBotService: проверка провалена — временный бан IP (если включён). */
     public void onAntiBotFailed(java.util.UUID uuid) {
         if (antiBotGuard != null) {
@@ -646,7 +657,8 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int READY = -1596029170
+    private static final int READY = -111058275
+
 
 
 

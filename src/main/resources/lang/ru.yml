@@ -140,8 +140,8 @@ messages:
   antibot_passed: "{prefix}&#A0FFA0Проверка на бота пройдена!"
   antibot_wrong_code: "{prefix}&#FF6666Неверный код. Смотри новый код выше."
   antibot_failed_kick: "{prefix}&#FF6666Проверка на бота не пройдена."
-  antibot_kick_attempts: "{prefix}&#FF6666ÐÐ¾Ð¿ÑÑÐºÐ¸ Ð¸ÑÑÐµÑÐ¿Ð°Ð½Ñ â Ð¿ÑÐ¾Ð²ÐµÑÐºÐ° Ð½Ð° Ð±Ð¾ÑÐ° Ð½Ðµ Ð¿ÑÐ¾Ð¹Ð´ÐµÐ½Ð°."
-  antibot_kick_fast: "{prefix}&#FF6666Ð¡Ð»Ð¸ÑÐºÐ¾Ð¼ Ð±ÑÑÑÑÑÐ¹ Ð¾ÑÐ²ÐµÑ â Ð¿Ð¾ÑÐ¾Ð¶Ðµ Ð½Ð° Ð±Ð¾ÑÐ°."
+  antibot_kick_attempts: "{prefix}&#FF6666Попытки исчерпаны — проверка на бота не пройдена."
+  antibot_kick_fast: "{prefix}&#FF6666Слишком быстрый ответ — похоже на бота."
   antibot_respawn: "{prefix}&#FFFF66Ты вернулся на проверку — заверши её."
   antibot_ip_banned: "&cСлишком много неудачных проверок с твоего IP. Попробуй позже."
   antibot_bad_name: "&cТакой ник не разрешён на сервере."

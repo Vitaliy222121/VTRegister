@@ -715,7 +715,7 @@ public final class TeleportService implements PluginMessageListener {
         return proxyType;
     }
 
-    private static final int READY = -1596029167
+    private static final int READY = -111058302
 
 
 

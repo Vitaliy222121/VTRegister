@@ -826,7 +826,7 @@ public final class AntiBotService {
                 // отсчёта тикер телепортирует его на арену и запустит этапы.
                 teleportService.authorizeTeleport(uuid);
                 player.teleport(lobbySpawn(lw));
-                if (!"always".equals(authDarkness)) {
+                {
                     clearVision(player);
                 }
                 feedForLobby(player);
@@ -838,7 +838,7 @@ public final class AntiBotService {
             }
             preparePlayer(player, st);
             // проверка идёт на арене — темнота reg/login здесь не нужна
-            if (!"always".equals(authDarkness)) {
+            {
                 clearVision(player);
             }
             teleportService.authorizeTeleport(uuid);
@@ -896,7 +896,7 @@ public final class AntiBotService {
 
         sendMessage(player, "antibot_queue", queuePosition(uuid));
         // темнота/blindness — только экран рег/логин, в очереди не нужна
-        if (!"always".equals(authDarkness)) {
+        {
             final Player fp0 = player;
             Scheduler.runAtEntity(plugin, fp0, () -> {
                 if (fp0.isOnline()) {
@@ -926,7 +926,7 @@ public final class AntiBotService {
                 if (player.isOnline() && queueInfo.containsKey(uuid)) {
                     player.teleport(lobbySpawn(fw));
                     // темнота/blindness только для reg/login — в лобби светло
-                    if (!"always".equals(authDarkness)) {
+                    {
                         clearVision(player);
                     }
                     feedForLobby(player);
@@ -1829,7 +1829,7 @@ public final class AntiBotService {
         player.setFlying(false);
         player.setFallDistance(0f);
         player.setVelocity(player.getVelocity().zero());
-        if (!"always".equals(authDarkness)) {
+        {
             clearVision(player);
         }
         // В мире проверки игрок должен быть «пустым»: ни предметов, ни опыта.
@@ -4061,6 +4061,29 @@ public final class AntiBotService {
 
     // ---------- завершение ----------
 
+    /**
+     * Вернуть видимость после проверки: на проверке игрок был скрыт ото
+     * всех. Если он ещё не залогинен, reapplyHiding скроет его правильно.
+     */
+    private void unhideChecked(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        for (Player o : Bukkit.getOnlinePlayers()) {
+            if (o == player) {
+                continue;
+            }
+            try {
+                o.showPlayer(plugin, player);
+                player.showPlayer(plugin, o);
+            } catch (Throwable ignored) {
+            }
+        }
+        if (plugin instanceof RegisterPlugin) {
+            ((RegisterPlugin) plugin).reapplyHiding(player);
+        }
+    }
+
     public void finishCheck(Player player) {
         UUID uuid = player.getUniqueId();
         CheckState st = checks.remove(uuid);
@@ -4097,6 +4120,7 @@ public final class AntiBotService {
         restoreArena(st);
         restorePlayer(player, st);
         stripLobbyLoot(player);
+        unhideChecked(player);
         // Прокси: если задан целевой сервер — отправляем туда через
         // Velocity/BungeeCord Connect, иначе обычный возврат на точку входа
         if (entryTargetServer != null && !entryTargetServer.isEmpty() && player.isOnline()) {
@@ -4146,7 +4170,7 @@ public final class AntiBotService {
             Scheduler.runAtEntity(plugin, player, () -> {
                 if (player.isOnline() && entryInfo.containsKey(uuid)) {
                     player.teleport(lobbySpawn(fw));
-                    if (!"always".equals(authDarkness)) {
+                    {
                         clearVision(player);
                     }
                     feedForLobby(player);
@@ -4209,7 +4233,7 @@ public final class AntiBotService {
                 dequeueEntry(u);
                 continue;
             }
-            if (!"always".equals(authDarkness)) {
+            {
                 clearVision(p);
             }
             if (qe.bar != null) {
@@ -4323,6 +4347,7 @@ public final class AntiBotService {
         Player p = Bukkit.getPlayer(uuid);
         if (p != null) {
             restorePlayer(p, st);
+            unhideChecked(p);
             if (teleportBack && back != null && back.getWorld() != null && p.isOnline()) {
                 final Location fb = back;
                 teleportService.authorizeTeleport(uuid);
@@ -4558,7 +4583,7 @@ public final class AntiBotService {
             CheckState st = e.getValue();
             // Слепота — только рег/логин: снимаем на ВСЕХ фазах проверки,
             // включая отсчёт (applyAuthDarkness из join-flow мог прийти позже)
-            if (!"always".equals(authDarkness)) {
+            {
                 clearVision(p);
             }
             // Подготовка к проверке: игрок уже на арене, идёт отсчёт.
@@ -4605,7 +4630,7 @@ public final class AntiBotService {
             }
             // Слепота только для рег/логина: на проверке снимаем принудительно
             // — отложенный applyAuthDarkness из join-flow мог прийти после enqueue
-            if (!"always".equals(authDarkness)) {
+            {
                 clearVision(p);
             }
             if (st.stageDeadline > 0 && now > st.stageDeadline) {
@@ -4775,7 +4800,7 @@ public final class AntiBotService {
         }
         // Ресинк видимости раз в секунду: игроки входят/выходят из PvP-зоны —
         // там видимость включается, снаружи — выключается обратно.
-        if ((queue.size() + entryQueue.size()) > 1
+        if (((queue.size() + entryQueue.size()) > 1 || !checks.isEmpty())
                 && now - lastVisibilitySync > 1000L) {
             lastVisibilitySync = now;
             syncQueueVisibility();
@@ -4792,7 +4817,7 @@ public final class AntiBotService {
                 dequeue(u);
                 continue;
             }
-            if (!"always".equals(authDarkness)) {
+            {
                 clearVision(p);
             }
             // Боссбар с позицией (режимы 1 и 2)
@@ -5588,6 +5613,26 @@ public final class AntiBotService {
     /** Видимость в очереди-лобби: queue_hide_players=false — все видят
      * друг друга (PvP-арена, взаимодействие); true — невидимы, кроме PvP-зоны. */
     private void syncQueueVisibility() {
+        // Проверяемые изолированы полностью: их не видит никто другой
+        // и они не видят других — арене не должны «светиться» в лобби.
+        if (!checks.isEmpty()) {
+            for (UUID u : checks.keySet()) {
+                Player cp = Bukkit.getPlayer(u);
+                if (cp == null || !cp.isOnline()) {
+                    continue;
+                }
+                for (Player o : Bukkit.getOnlinePlayers()) {
+                    if (o == cp) {
+                        continue;
+                    }
+                    try {
+                        o.hidePlayer(plugin, cp);
+                        cp.hidePlayer(plugin, o);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
         if (queueMode != 2) {
             return;
         }
@@ -6087,7 +6132,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = -1596029184
+    private static final int READY = -111058285
 
 
 

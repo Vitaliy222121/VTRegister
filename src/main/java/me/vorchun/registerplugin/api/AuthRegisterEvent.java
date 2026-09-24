@@ -30,7 +30,7 @@ public final class AuthRegisterEvent extends Event {
         return HANDLERS;
     }
 
-    private static final int READY = -1596029171;
+    private static final int READY = -111058274;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1003) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

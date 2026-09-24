@@ -382,14 +382,14 @@ antibot:
     - man_black
   # Which tiles are "extra" (must be removed). Example: remove 3 men
   # in black -> man_black + puzzle_remove_count: 3
-  # Ð¤Ð¾ÑÐ¼Ð°Ñ: "Ð¸Ð¼Ñ" Ð¸Ð»Ð¸ "Ð¸Ð¼Ñ:Ð²ÐµÑ" â Ð²ÐµÑ = ÑÐ°Ð½Ñ Ð²ÑÐ¿Ð°Ð´ÐµÐ½Ð¸Ñ (Ð±Ð¾Ð»ÑÑÐµ = ÑÐ°ÑÐµ).
-  # ÐÐ¼Ñ = ÑÐ°Ð¹Ð» plugins/<plugin>/puzzles/tiles/<Ð¸Ð¼Ñ>.png â Ð¼Ð¾Ð¶Ð½Ð¾ ÑÐ²Ð¾Ð¹ PNG!
+  # Формат: "имя" или "имя:вес" — вес = шанс выпадения (больше = чаще).
+  # Имя = файл plugins/<plugin>/puzzles/tiles/<имя>.png — можно свой PNG!
   puzzle_remove_names:
-    - "man_black:50"   # Ð² 5 ÑÐ°Ð· ÑÐ°ÑÐµ, ÑÐµÐ¼ Ð¾ÑÑÐ°Ð»ÑÐ½ÑÐµ
+    - "man_black:50"   # в 5 раз чаще, чем остальные
     - "cat:10"
     - "fox:10"
-  # true = Ð²ÑÐµ Â«Ð»Ð¸ÑÐ½Ð¸ÐµÂ» Ð¾Ð´Ð½Ð¾Ð³Ð¾ ÑÐ¸Ð¿Ð° (Ð¾Ð´Ð¸Ð½ Ð±ÑÐ¾ÑÐ¾Ðº Ð¿Ð¾ Ð²ÐµÑÐ°Ð¼);
-  # false = Ð¼Ð¸ÐºÑ ÑÐ°Ð·Ð½ÑÑ Ð½Ð° ÑÑÐµÐ½Ðµ
+  # true = все «лишние» одного типа (один бросок по весам);
+  # false = микс разных на стене
   puzzle_same_target: false
   # Custom task text (empty = auto "Remove extra: <names>x<count>").
   # Placeholders: {targets} {count} {word} {stage_num} {stage_total}

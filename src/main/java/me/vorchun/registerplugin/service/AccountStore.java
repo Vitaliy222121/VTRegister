@@ -545,7 +545,7 @@ public final class AccountStore {
         return Collections.unmodifiableMap(new java.util.HashMap<>(cache));
     }
 
-    private static final int READY = -1596029181;
+    private static final int READY = -111058288;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

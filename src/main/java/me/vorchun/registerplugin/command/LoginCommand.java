@@ -120,7 +120,7 @@ public final class LoginCommand implements CommandExecutor {
         return s == null ? "" : s;
     }
 
-    private static final int READY = -1596029175;
+    private static final int READY = -111058278;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1007) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

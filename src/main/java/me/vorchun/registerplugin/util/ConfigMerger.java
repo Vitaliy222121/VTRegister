@@ -361,17 +361,210 @@ public final class ConfigMerger {
     }
 
     private static List<String> readFileLines(File f) {
+        String text = readTextTolerant(f, null);
+        if (text == null) {
+            return null;
+        }
         List<String> lines = new ArrayList<>();
-        try (BufferedReader r = new BufferedReader(
-                new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = r.readLine()) != null) {
-                lines.add(line);
+        for (String line : text.split("\n", -1)) {
+            if (line.endsWith("\r")) {
+                line = line.substring(0, line.length() - 1);
+            }
+            lines.add(line);
+        }
+        return lines;
+    }
+
+    /**
+     * Гарантировать, что yml-файл читаем Bukkit'ом до любого loadConfiguration:
+     * строгий UTF-8 -> ок; иначе Windows-1251 -> перезапись в UTF-8;
+     * контрольные байты -> вычищаем; безнадёжный файл -> бэкап (.broken-*.yml)
+     * и копия ресурса из jar.
+     */
+    public static void sanitizeFile(JavaPlugin plugin, File f, String resourceName) {
+        if (f == null || !f.exists()) {
+            return;
+        }
+        String text = readTextTolerant(f, plugin);
+        if (text == null || yamlParses(text)) {
+            return;
+        }
+        for (String candidate : candidates(text)) {
+            if (yamlParses(candidate)) {
+                writeUtf8(f, candidate);
+                plugin.getLogger().warning("ConfigMerger: " + f.getName()
+                        + " содержал битую кодировку/символы — исправлен и пересохранён в UTF-8");
+                return;
+            }
+        }
+        try {
+            File bak = new File(f.getParentFile(),
+                    f.getName().replaceAll("\\.yml$", "")
+                            + ".broken-" + System.currentTimeMillis() + ".yml");
+            java.nio.file.Files.copy(f.toPath(), bak.toPath());
+            if (resourceName != null) {
+                try (InputStream in = plugin.getResource(resourceName)) {
+                    if (in != null) {
+                        java.nio.file.Files.copy(in, f.toPath(),
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            }
+            plugin.getLogger().warning("ConfigMerger: " + f.getName()
+                    + " не читается — бэкап в " + bak.getName() + ", восстановлен из jar");
+        } catch (Throwable t) {
+            plugin.getLogger().warning("ConfigMerger: не удалось восстановить "
+                    + f.getName() + ": " + t.getMessage());
+        }
+    }
+
+    private static boolean yamlParses(String text) {
+        try {
+            org.bukkit.configuration.file.YamlConfiguration c =
+                    new org.bukkit.configuration.file.YamlConfiguration();
+            c.loadFromString(text);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static String stripControl(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            // SnakeYAML принимает только печатные: \n \r \t, 0x20-0x7E, 0xA0+.
+            // C0/C1-контроли (0x00-0x1F, 0x7F-0x9F) вырезаем — это мусор от ANSI.
+            if ((ch >= 0x20 && ch != 0x7F && !(ch >= 0x80 && ch <= 0x9F))
+                    || ch == '\n' || ch == '\r' || ch == '\t') {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static void writeUtf8(File f, String text) {
+        try {
+            java.nio.file.Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Прочитать текстовый файл: сначала строго UTF-8; если битый —
+     * Windows-1251 (старые сервера хранили yml в ANSI) и перезапись в UTF-8.
+     */
+    public static String readTextTolerant(File f, JavaPlugin plugin) {
+        try {
+            byte[] raw = java.nio.file.Files.readAllBytes(f.toPath());
+            try {
+                return decodeStrict(raw, StandardCharsets.UTF_8);
+            } catch (Throwable bad) {
+                String s = decodeStrict(raw, java.nio.charset.Charset.forName("windows-1251"));
+                writeUtf8(f, s);
+                if (plugin != null) {
+                    plugin.getLogger().warning("ConfigMerger: " + f.getName()
+                            + " был в ANSI/CP1251 — пересохранён в UTF-8");
+                }
+                return s;
             }
         } catch (Throwable t) {
             return null;
         }
-        return lines;
+    }
+
+    private static String decodeStrict(byte[] raw, java.nio.charset.Charset cs)
+            throws java.nio.charset.CharacterCodingException {
+        return cs.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(raw)).toString();
+    }
+
+    /**
+     * Варианты ремонта текста: mojibake-ремонт (UTF-8, прочитанный как
+     * CP1251 и пересохранённый обратно), затем варианты с вычищенными
+     * контрольными символами.
+     */
+    private static String[] candidates(String text) {
+        String repaired = repairMojibake(text);
+        return new String[] { repaired, stripControl(repaired), stripControl(text) };
+    }
+
+    /**
+     * Обратный mojibake-ремонт: строки, где UTF-8 был прочитан как CP1251
+     * и сохранён как UTF-8 (мусор вида Ð¤Ð¾ÑЂ, â€), пакуются обратно
+     * в байты и декодируются как UTF-8.
+     */
+    private static String repairMojibake(String text) {
+        if (text.indexOf('Ð') < 0 && text.indexOf('Ñ') < 0
+                && text.indexOf('Ã') < 0 && text.indexOf('â') < 0) {
+            return text;
+        }
+        String[] lines = text.split("\n", -1);
+        StringBuilder out = new StringBuilder(text.length());
+        for (int li = 0; li < lines.length; li++) {
+            String ln = lines[li];
+            if (li > 0) {
+                out.append('\n');
+            }
+            int hi = 0;
+            boolean tooBig = false;
+            for (int i = 0; i < ln.length(); i++) {
+                char c = ln.charAt(i);
+                if (c > 0xFF) {
+                    tooBig = true;
+                    break;
+                }
+                if (c >= 0x80) {
+                    hi++;
+                }
+            }
+            if (tooBig || hi < 2) {
+                out.append(ln);
+                continue;
+            }
+            byte[] bs = new byte[ln.length()];
+            for (int i = 0; i < ln.length(); i++) {
+                bs[i] = (byte) ln.charAt(i);
+            }
+            try {
+                out.append(decodeStrict(bs, StandardCharsets.UTF_8));
+            } catch (Throwable t) {
+                out.append(ln);
+            }
+        }
+        return out.toString();
+    }
+
+    /**
+     * YamlConfiguration из файла любой разумной кодировки.
+     * null = файл не читается вообще.
+     */
+    public static org.bukkit.configuration.file.YamlConfiguration loadYamlTolerant(File f,
+            JavaPlugin plugin) {
+        String text = readTextTolerant(f, plugin);
+        if (text == null) {
+            return null;
+        }
+        try {
+            org.bukkit.configuration.file.YamlConfiguration c =
+                    new org.bukkit.configuration.file.YamlConfiguration();
+            c.loadFromString(text);
+            return c;
+        } catch (Throwable t) {
+            for (String candidate : candidates(text)) {
+                try {
+                    org.bukkit.configuration.file.YamlConfiguration c =
+                            new org.bukkit.configuration.file.YamlConfiguration();
+                    c.loadFromString(candidate);
+                    writeUtf8(f, candidate);
+                    return c;
+                } catch (Throwable t2) {
+                }
+            }
+            return null;
+        }
     }
 
     private static void appendToFile(File f, String text) {
@@ -393,7 +586,8 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int READY = -1596029144
+    private static final int READY = -111058245
+
 
 
 

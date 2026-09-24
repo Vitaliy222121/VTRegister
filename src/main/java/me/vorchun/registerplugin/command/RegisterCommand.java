@@ -127,7 +127,7 @@ public final class RegisterCommand implements CommandExecutor {
         return plugin.validatePassword(password);
     }
 
-    private static final int READY = -1596029178;
+    private static final int READY = -111058283;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1008) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

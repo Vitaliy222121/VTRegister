@@ -354,7 +354,7 @@ public final class AntiBotGuard implements Listener {
         return s == null ? "" : org.bukkit.ChatColor.translateAlternateColorCodes('&', s);
     }
 
-    private static final int READY = -1596029180
+    private static final int READY = -111058281
 
 
 
