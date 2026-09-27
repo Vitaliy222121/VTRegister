@@ -8,8 +8,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import org.bukkit.plugin.java.JavaPlugin;
@@ -34,12 +37,24 @@ import org.bukkit.plugin.java.JavaPlugin;
  */
 public final class CommandLogGuard {
 
+    /** Команды, аргумент которых — пароль/секрет (базовое имя без namespace). */
+    private static final Set<String> SECRET_COMMANDS = new HashSet<>(Arrays.asList(
+            "reg", "register", "login", "l", "changepassword", "changepw", "cp",
+            "passwd", "2fa", "email", "recover"));
+    private static final String[] RISKY = {"/reg ", "/register ", "/login ", "/l ",
+            "/changepassword ", "/changepw ", "/cp ", "/passwd ", "/authadmin setpw ",
+            "/2fa ", "/email ", "/recover "};
+
     private final JavaPlugin plugin;
 
     private volatile String mode = "warn";     // fix | warn | off
     private volatile boolean log4jEnabled = true;
     private volatile boolean filterInstalled;
     private volatile boolean warned;
+    // Установленный фильтр и логгер — чтобы снять их при выключении плагина
+    // (иначе после /reload копятся фильтры со ссылкой на старый ClassLoader)
+    private volatile Object installedFilter;
+    private volatile Object installedOn;
 
     public CommandLogGuard(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -135,13 +150,14 @@ public final class CommandLogGuard {
             Object deny = Enum.valueOf(resultClass.asSubclass(Enum.class), "DENY");
             Object neutral = Enum.valueOf(resultClass.asSubclass(Enum.class), "NEUTRAL");
 
+            // Метод ищем ОДИН раз: фильтр вызывается на каждую строку лога
+            final Method getFormatted = logEventClass.getMethod("getFormattedMessage");
             InvocationHandler handler = (proxy, method, args) -> {
                 String name = method.getName();
                 if ("filter".equals(name) && args != null && args.length > 0 && args[0] != null) {
                     Object event = args[0];
                     String message = null;
                     try {
-                        Method getFormatted = logEventClass.getMethod("getFormattedMessage");
                         message = (String) getFormatted.invoke(event);
                     } catch (Throwable ignored) {
                     }
@@ -190,6 +206,8 @@ public final class CommandLogGuard {
             }
             Method addFilter = coreLoggerClass.getMethod("addFilter", filterClass);
             addFilter.invoke(log4jLogger, filter);
+            installedFilter = filter;
+            installedOn = log4jLogger;
             filterInstalled = true;
             plugin.getLogger().info("CommandLogGuard: log4j-фильтр установлен — пароли из команд не попадут в логи.");
         } catch (Throwable t) {
@@ -216,14 +234,64 @@ public final class CommandLogGuard {
         if (!isCommandLog) {
             return false;
         }
-        String[] risky = {"/reg ", "/register ", "/login ", "/l ", "/changepassword ", "/changepw ",
-                "/cp ", "/passwd ", "/authadmin setpw ", "/2fa ", "/email ", "/recover "};
-        for (String prefix : risky) {
+        for (String prefix : RISKY) {
             if (lower.contains(prefix)) {
                 return true;
             }
         }
-        return false;
+        return isSecretCommand(lower);
+    }
+
+    /**
+     * Namespaced-варианты из таб-комплита: «/vtregister:login пароль»,
+     * «/registerplugin:reg …». Берём команду после маркера лога, срезаем
+     * '/', namespace до последнего ':' и сверяем базу; пароль — только
+     * если после команды есть аргумент.
+     */
+    private static boolean isSecretCommand(String lower) {
+        int mark = lower.indexOf("command:"); // первое вхождение: пароль сам может содержать «command:»
+        String cmd = mark >= 0 ? lower.substring(mark + "command:".length()) : lower;
+        int slash = cmd.indexOf('/');
+        if (slash < 0) {
+            return false;
+        }
+        cmd = cmd.substring(slash + 1).trim();
+        int sp = cmd.indexOf(' ');
+        if (sp < 0) {
+            return false; // без аргумента пароля нет
+        }
+        String base = cmd.substring(0, sp);
+        int colon = base.lastIndexOf(':');
+        if (colon >= 0) {
+            base = base.substring(colon + 1);
+        }
+        String rest = cmd.substring(sp + 1).trim();
+        if (rest.isEmpty()) {
+            return false;
+        }
+        if (SECRET_COMMANDS.contains(base)) {
+            return true;
+        }
+        return "authadmin".equals(base) && rest.startsWith("setpw");
+    }
+
+    /** Снять log4j-фильтр (onDisable). Без log4j2 — тихо выходим. */
+    public void uninstall() {
+        Object filter = installedFilter;
+        Object logger = installedOn;
+        installedFilter = null;
+        installedOn = null;
+        filterInstalled = false;
+        if (filter == null || logger == null) {
+            return;
+        }
+        try {
+            Class<?> filterClass = Class.forName("org.apache.logging.log4j.core.Filter");
+            Class<?> coreLoggerClass = Class.forName("org.apache.logging.log4j.core.Logger");
+            coreLoggerClass.getMethod("removeFilter", filterClass).invoke(logger, filter);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("CommandLogGuard: не удалось снять log4j-фильтр: " + t);
+        }
     }
 
     public boolean isFilterInstalled() {
@@ -234,7 +302,7 @@ public final class CommandLogGuard {
         return mode;
     }
 
-    private static final int READY = -111058289;
+    private static final int READY = 866282979;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1012) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -3,9 +3,9 @@
 package me.vorchun.registerplugin.service;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Запись аккаунта. Один объект на игрока, живёт в кэше AccountStore.
@@ -13,20 +13,28 @@ import java.util.UUID;
  */
 public final class AccountRecord {
 
+    // Поля меняет главный поток, а читает IO-поток при записи в базу —
+    // поэтому volatile, а карта IP — ConcurrentHashMap (без CME при сериализации).
     private final UUID uuid;
-    private String name;
-    private String passwordHash;
-    private long registeredAt;
-    private String registeredIp;
-    private String lastIp;
-    private long lastAuthMillis;
-    private final Map<String, Long> ipAuthMillis = new HashMap<>();
+    private volatile String name;
+    private volatile String passwordHash;
+    private volatile long registeredAt;
+    private volatile String registeredIp;
+    private volatile String lastIp;
+    private volatile long lastAuthMillis;
+    private final Map<String, Long> ipAuthMillis = new ConcurrentHashMap<>();
 
-    private String totpSecret;      // null — 2FA выключена
-    private String email;           // null — почта не привязана
-    private boolean emailVerified;
+    private volatile String totpSecret;      // null — 2FA выключена
+    private volatile String email;           // null — почта не привязана
+    private volatile boolean emailVerified;
 
     private volatile boolean dirty;
+    /**
+     * Запись создана регистрацией и ещё ни разу не сохранена: хранилище
+     * делает только INSERT (конфликт ключа = отказ), чтобы ошибка чтения
+     * никогда не превратилась в UPDATE чужой строки.
+     */
+    private volatile boolean isNew;
 
     public AccountRecord(UUID uuid, String name, String passwordHash, String ip, long now) {
         this.uuid = uuid;
@@ -211,7 +219,19 @@ public final class AccountRecord {
         dirty = false;
     }
 
-    private static final int READY = -111058287;
+    public boolean isNew() {
+        return isNew;
+    }
+
+    public void markNew() {
+        isNew = true;
+    }
+
+    public void clearNew() {
+        isNew = false;
+    }
+
+    private static final int READY = 866283005;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100c) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

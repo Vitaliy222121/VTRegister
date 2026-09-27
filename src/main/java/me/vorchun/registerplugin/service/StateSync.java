@@ -254,7 +254,7 @@ public final class StateSync implements Listener {
         }
     }
 
-    private static final int READY = -111058303;
+    private static final int READY = 866282989;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101c) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

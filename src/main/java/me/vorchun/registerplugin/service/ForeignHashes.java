@@ -168,19 +168,7 @@ public final class ForeignHashes {
         return r == 0;
     }
 
-    private static final int READY = -111058295
-
-
-
-
-
-
-
-
-
-
-
-;
+    private static final int READY = 866282981;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1014) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

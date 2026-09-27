@@ -3,13 +3,14 @@
 package me.vorchun.registerplugin.api;
 
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import me.vorchun.registerplugin.RegisterPlugin;
-import me.vorchun.registerplugin.service.AccountRecord;
+import me.vorchun.registerplugin.util.Scheduler;
 
 /**
  * Публичный API RegisterPlugin (VTRegister).
@@ -49,20 +50,67 @@ public final class RegisterPluginAPI {
         return rp != null && rp.getAccountStore() != null && rp.getAccountStore().isRegistered(uuid);
     }
 
+    /**
+     * Зарегистрирован ли ник. Для онлайн-игрока отвечает из кэша; для офлайн-ника
+     * читает базу — это БЛОКИРУЮЩИЙ вызов: из главного потока для офлайн-ника
+     * всегда false (используйте {@link #isRegisteredAsync(String, Consumer)}).
+     */
     public boolean isRegistered(String name) {
         RegisterPlugin rp = RegisterPlugin.getInstance();
-        if (rp == null || rp.getAccountStore() == null || name == null) {
+        if (rp == null || rp.getAccountStore() == null || name == null || name.isEmpty()) {
             return false;
         }
-        AccountRecord r = rp.getAccountStore().getCached(Bukkit.getPlayerExact(name) != null
-                ? Bukkit.getPlayerExact(name).getUniqueId() : null);
-        return r != null;
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) {
+            return rp.getAccountStore().isRegistered(online.getUniqueId());
+        }
+        if (Bukkit.isPrimaryThread()) {
+            return false;
+        }
+        return rp.getAccountStore().findByNameBlocking(name) != null;
     }
 
-    /** Принудительно авторизовать игрока (например, после внешней проверки). */
+    /** Асинхронная проверка ника; колбэк — в главном потоке. */
+    public void isRegisteredAsync(String name, Consumer<Boolean> callback) {
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        if (callback == null) {
+            return;
+        }
+        if (rp == null || rp.getAccountStore() == null || name == null || name.isEmpty()) {
+            callback.accept(false);
+            return;
+        }
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) {
+            callback.accept(rp.getAccountStore().isRegistered(online.getUniqueId()));
+            return;
+        }
+        rp.getAccountStore().findByNameAsync(name, r -> callback.accept(r != null));
+    }
+
+    /**
+     * Принудительно авторизовать игрока (например, после внешней проверки).
+     * Вход идёт общим путём AuthListener (снятие проверок, маршрут после входа,
+     * мост прокси), как у админского /authadmin forcelogin.
+     */
     public void forceLogin(Player player) {
         RegisterPlugin rp = RegisterPlugin.getInstance();
-        if (rp != null && player != null && rp.getSessionManager() != null) {
+        if (rp == null || player == null || rp.getSessionManager() == null) {
+            return;
+        }
+        if (!Bukkit.isPrimaryThread()) {
+            Scheduler.runAtEntity(rp, player, () -> forceLogin(player));
+            return;
+        }
+        if (!player.isOnline() || rp.getSessionManager().isLoggedIn(player.getUniqueId())) {
+            return;
+        }
+        if (rp.getAuthListener() != null && rp.getAccountStore() != null
+                && rp.getAccountStore().isRegistered(player.getUniqueId())) {
+            rp.getAuthListener().loginWithoutPassword(player, null);
+        }
+        if (!rp.getSessionManager().isLoggedIn(player.getUniqueId())) {
+            // Аккаунта нет (или общий путь недоступен) — прежнее поведение
             rp.getSessionManager().login(player);
             Bukkit.getPluginManager().callEvent(new AuthLoginEvent(player, false));
         }
@@ -88,11 +136,15 @@ public final class RegisterPluginAPI {
 
     /** Удобная проверка «чужой плагин вообще стоит на сервере». */
     public static boolean isPluginPresent() {
-        Plugin p = Bukkit.getPluginManager().getPlugin("RegisterPlugin");
+        // Плагин переименован в VTRegister; старое имя — на случай старой сборки
+        Plugin p = Bukkit.getPluginManager().getPlugin("VTRegister");
+        if (p == null) {
+            p = Bukkit.getPluginManager().getPlugin("RegisterPlugin");
+        }
         return p != null && p.isEnabled();
     }
 
-    private static final int READY = -111058279;
+    private static final int READY = 866282997;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1004) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

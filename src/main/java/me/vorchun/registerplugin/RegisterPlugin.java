@@ -32,6 +32,7 @@ import me.vorchun.registerplugin.service.MessageService;
 import me.vorchun.registerplugin.service.PasswordHasher;
 import me.vorchun.registerplugin.service.PasswordValidator;
 import me.vorchun.registerplugin.service.PremiumService;
+import me.vorchun.registerplugin.service.ProxyBridge;
 import me.vorchun.registerplugin.service.ReminderService;
 import me.vorchun.registerplugin.service.StateSync;
 import me.vorchun.registerplugin.service.SessionManager;
@@ -40,6 +41,7 @@ import me.vorchun.registerplugin.service.TeleportService;
 import me.vorchun.registerplugin.service.TotpService;
 import me.vorchun.registerplugin.util.Compat;
 import me.vorchun.registerplugin.util.ConfigMerger;
+import me.vorchun.registerplugin.util.IpUtil;
 import me.vorchun.registerplugin.util.Scheduler;
 import me.vorchun.registerplugin.util.ServerCore;
 
@@ -69,6 +71,11 @@ public final class RegisterPlugin extends JavaPlugin {
     private BedrockSupportService bedrockSupportService;
     private AntiBotService antiBotService;
     private AntiBotGuard antiBotGuard;
+    private me.vorchun.registerplugin.service.SecurityAudit securityAudit;
+    private me.vorchun.registerplugin.service.AutoRestart autoRestart;
+    private me.vorchun.registerplugin.listener.AdminTwoFactorGuard adminTwoFactorGuard;
+    private me.vorchun.registerplugin.service.GlobalBlacklist globalBlacklist;
+    private ProxyBridge proxyBridge;
     private me.vorchun.registerplugin.service.AfkService afkService;
     private EasyPasswordList easyPasswordList;
     private StateSync stateSync;
@@ -118,18 +125,15 @@ public final class RegisterPlugin extends JavaPlugin {
         // --- ядро и совместимость ---
         getLogger().info("Ядро: " + ServerCore.describe());
         if (ServerCore.isFolia()) {
+            // Авторизация работает и на Folia; про мир/арену антибота
+            // (на Folia отключены) пишет сам AntiBotService — одной строкой.
             getLogger().info("Обнаружена Folia — задачи планируются через региональные планировщики");
-            if (getConfig().getBoolean("antibot.enabled", false)) {
-                getLogger().warning("Folia: мир антибот-проверки нельзя создать автоматически. "
-                        + "Создай мир '" + getConfig().getString("antibot.world_name", "auth_verify")
-                        + "' вручную или отключи antibot.");
-            }
         }
         if (ServerCore.isHybrid()) {
             getLogger().info("Гибридное ядро (Forge/Fabric + Bukkit): часть API может работать иначе");
         }
         if (!Compat.isSupported()) {
-            getLogger().warning("Версия " + Bukkit.getBukkitVersion() + " не входит в поддерживаемый диапазон (1.16.5+)");
+            getLogger().warning("Версия " + Bukkit.getBukkitVersion() + " не входит в поддерживаемый диапазон (1.13 – 1.21.x / 26.x)");
         }
 
         // --- сервисы ---
@@ -144,11 +148,18 @@ public final class RegisterPlugin extends JavaPlugin {
         this.reminderService = new ReminderService(this, accountStore, sessionManager, messageService);
         this.loginAttemptService = new LoginAttemptService(this, messageService);
         this.teleportService = new TeleportService(this, sessionManager);
+        // D4: можно ли верить IP игроков — решает окружение прокси
+        IpUtil.setTrustSource(teleportService::ipsTrusted);
+        IpUtil.reload(this);
         this.antiBotService = new AntiBotService(this, teleportService);
         this.authService = new AuthService(this, accountStore, sessionManager, loginAttemptService, messageService);
         this.totpService = new TotpService(this, accountStore);
         this.mailService = new MailService(this);
         this.premiumService = new PremiumService(this);
+        // D4: премиум по UUID — только без прокси или при защищённом forwarding
+        this.premiumService.setIdentityTrust(teleportService::identityTrusted);
+        // D1: регистрация только после антибота (защита в глубину)
+        this.authService.setRegisterGate(antiBotService::mayRegister);
         this.spawnService = new SpawnService(this, teleportService);
         this.importService = new ImportService(this, accountStore);
         this.commandLogGuard = new CommandLogGuard(this);
@@ -191,15 +202,63 @@ public final class RegisterPlugin extends JavaPlugin {
                 reminderService, messageService, teleportService, bedrockSupportService, antiBotService, easyPasswordList);
         this.authListener.setServices(authService, totpService, mailService, premiumService, spawnService);
         getServer().getPluginManager().registerEvents(authListener, this);
+        try {
+            // Спавн сразу на платформе входа (нет события — просто без этой экономии)
+            getServer().getPluginManager().registerEvents(
+                    new me.vorchun.registerplugin.listener.SpawnRedirectListener(authListener), this);
+        } catch (Throwable t) {
+            getLogger().info("PlayerSpawnLocationEvent недоступен — спавн на платформе через телепорт");
+        }
 
         this.antiBotGuard = new AntiBotGuard(this, accountStore);
         getServer().getPluginManager().registerEvents(antiBotGuard, this);
+        // Единый чёрный список между серверами (global_blacklist, по умолчанию выкл)
+        this.globalBlacklist = new me.vorchun.registerplugin.service.GlobalBlacklist(this, antiBotGuard::exportBans);
+        antiBotGuard.setGlobalBlacklist(globalBlacklist);
+        antiBotGuard.setProxyModeSource(teleportService::isProxyMode);
+
+        // D3: мост с прокси-модулем. Все входы проходят SessionManager.login —
+        // оттуда AUTH уходит на прокси; TRUST с прокси — вход без пароля.
+        this.proxyBridge = new ProxyBridge(this, teleportService::isProxyMode);
+        this.proxyBridge.start();
+        final ProxyBridge bridge = this.proxyBridge;
+        // Журнал входов + оповещения о входе админа с нового IP
+        this.securityAudit = new me.vorchun.registerplugin.service.SecurityAudit(this);
+        this.autoRestart = new me.vorchun.registerplugin.service.AutoRestart(this);
+        // QR-код 2FA на карте (ссылку otpauth:// игра не открывает)
+        me.vorchun.registerplugin.service.TwoFactorQr qrService = new me.vorchun.registerplugin.service.TwoFactorQr(this);
+        getServer().getPluginManager().registerEvents(qrService, this);
+        if (authListener != null) {
+            authListener.setTwoFactorQr(qrService);
+        }
+        sessionManager.setAuditHook(securityAudit::onLogin);
+        // Обязательная 2FA для админов
+        this.adminTwoFactorGuard = new me.vorchun.registerplugin.listener.AdminTwoFactorGuard(
+                this, accountStore, totpService, messageService);
+        getServer().getPluginManager().registerEvents(adminTwoFactorGuard, this);
+        final me.vorchun.registerplugin.listener.AdminTwoFactorGuard adminGuard = this.adminTwoFactorGuard;
+        sessionManager.setLoginHook(p -> {
+            bridge.notifyAuth(p);
+            adminGuard.onLogin(p);
+        });
+        sessionManager.setLogoutHook(uuid -> {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) {
+                bridge.notifyLogout(p);
+            }
+        });
+        final AuthListener listener = this.authListener;
+        bridge.setTrustHandler(listener::trustNetworkLogin);
 
         // AFK-защита + детект макросов + BossBar #2/#3 для неавторизованных
         this.afkService = new me.vorchun.registerplugin.service.AfkService(
                 this, sessionManager, antiBotService, bedrockSupportService, messageService);
         this.afkService.setGuard(antiBotGuard);
         this.authListener.setAfkService(afkService);
+        // F41: режим до AFK-spectator не должен запоминаться как SPECTATOR
+        this.antiBotService.setAfkService(afkService);
+        // F9/F58: проверку сняли без прохождения — обычный auth-флоу без «пройдена»
+        this.antiBotService.setAbortHook(authListener::onAntiBotAborted);
 
         this.stateSync = new StateSync(this, this::restoreState);
         getServer().getPluginManager().registerEvents(stateSync, this);
@@ -208,6 +267,7 @@ public final class RegisterPlugin extends JavaPlugin {
         hookPlaceholderApi();
 
         // --- стартовая конфигурация и мониторинг ---
+        getLogger().info("VTRegister: сборка " + me.vorchun.registerplugin.util.Buyer.ID);
         reloadAll();
         commandLogGuard.apply();
         healthService.start();
@@ -216,6 +276,7 @@ public final class RegisterPlugin extends JavaPlugin {
             return;
         }
         scheduleConsoleReminder();
+        resumeOnlinePlayers();
 
         getLogger().info("VTRegister от SerclStudio (автор: Vitaliy). "
                 + "Официальные источники: MineLeak (vitaliy21) и Telegram-канал SerclStudio.");
@@ -335,8 +396,11 @@ public final class RegisterPlugin extends JavaPlugin {
             if (!file.exists()) {
                 return;
             }
-            org.bukkit.configuration.file.YamlConfiguration adv =
-                    org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(file);
+            org.bukkit.configuration.file.YamlConfiguration adv = ConfigMerger
+                    .loadYamlTolerant(file, this);
+            if (adv == null) {
+                return;
+            }
             for (String key : adv.getKeys(true)) {
                 if (adv.isConfigurationSection(key)) {
                     continue;
@@ -373,6 +437,7 @@ public final class RegisterPlugin extends JavaPlugin {
 
     public void reloadAll() {
         PasswordHasher.reload(this);
+        IpUtil.reload(this);
         if (messageService != null) messageService.reload();
         if (bedrockSupportService != null) bedrockSupportService.reload();
         if (authTimeoutService != null) authTimeoutService.reload();
@@ -380,8 +445,13 @@ public final class RegisterPlugin extends JavaPlugin {
         if (loginAttemptService != null) loginAttemptService.reload();
         if (authListener != null) authListener.reload();
         if (teleportService != null) teleportService.reload();
+        if (proxyBridge != null) proxyBridge.reload();
         if (antiBotService != null) antiBotService.reload();
         if (antiBotGuard != null) antiBotGuard.reload();
+        if (globalBlacklist != null) globalBlacklist.reload();
+        if (securityAudit != null) securityAudit.reload();
+        if (autoRestart != null) autoRestart.reload();
+        if (adminTwoFactorGuard != null) adminTwoFactorGuard.reload();
         if (easyPasswordList != null) easyPasswordList.reload();
         if (stateSync != null) stateSync.reload();
         if (totpService != null) totpService.reload();
@@ -501,6 +571,14 @@ public final class RegisterPlugin extends JavaPlugin {
         return afkService;
     }
 
+    public me.vorchun.registerplugin.service.SecurityAudit getSecurityAudit() {
+        return securityAudit;
+    }
+
+    public me.vorchun.registerplugin.service.GlobalBlacklist getGlobalBlacklist() {
+        return globalBlacklist;
+    }
+
     public AntiBotGuard getAntiBotGuard() {
         return antiBotGuard;
     }
@@ -541,6 +619,35 @@ public final class RegisterPlugin extends JavaPlugin {
         return loginAttemptService;
     }
 
+    public ProxyBridge getProxyBridge() {
+        return proxyBridge;
+    }
+
+    /**
+     * Выключение плагина: у неавторизованных снимаем бесконечную слепоту и
+     * взаимное скрытие — иначе они остаются слепыми/невидимыми до перезахода.
+     */
+    private void releaseUnauthedOnDisable() {
+        if (sessionManager == null) {
+            return;
+        }
+        try {
+            java.util.Collection<? extends Player> online = Bukkit.getOnlinePlayers();
+            for (Player p : online) {
+                if (sessionManager.isLoggedIn(p.getUniqueId())) {
+                    continue;
+                }
+                Compat.clearAuthDarkness(p);
+                for (Player other : online) {
+                    Compat.showPlayer(this, other, p);
+                    Compat.showPlayer(this, p, other);
+                }
+            }
+        } catch (Throwable t) {
+            getLogger().warning("Выключение: не удалось снять ограничения с игроков: " + t.getMessage());
+        }
+    }
+
     /** Единая валидация пароля (учитывает enforce_strength и easy-passwords.yml). */
     public PasswordValidator.ValidationResult validatePassword(String password) {
         int minLen = getConfig().getInt("password.min_length", 8);
@@ -579,6 +686,18 @@ public final class RegisterPlugin extends JavaPlugin {
         }
     }
 
+    /** Игрок после проверки будет ждать входа на платформе (тот же мир проверки). */
+    public boolean holdsOnAuthPlatform(Player player) {
+        return authListener != null && authListener.holdsOnAuthPlatform(player);
+    }
+
+    /** То же, но с явной точкой возврата (null — неизвестна). */
+    public void onAntiBotPassed(Player player, org.bukkit.Location back) {
+        if (authListener != null) {
+            authListener.onAntiBotPassed(player, back);
+        }
+    }
+
     /** Мост от AntiBotService: перевешивает auth-hiding после выпуска с проверки. */
     public void reapplyHiding(Player player) {
         if (authListener != null) {
@@ -586,10 +705,47 @@ public final class RegisterPlugin extends JavaPlugin {
         }
     }
 
-    /** Мост от AntiBotService: проверка провалена — временный бан IP (если включён). */
+    /**
+     * Мост от AntiBotService: проверка провалена — временный бан IP (если включён).
+     * Вызывается уже после кика: guard берёт IP, запомненный при выходе.
+     */
     public void onAntiBotFailed(java.util.UUID uuid) {
         if (antiBotGuard != null) {
             antiBotGuard.onAntiBotFail(uuid);
+        }
+    }
+
+    /** То же, но IP снят вызывающим ДО кика (IpUtil.getIp; "" — пропуск). */
+    public void onAntiBotFailed(java.util.UUID uuid, String ip) {
+        if (antiBotGuard == null) {
+            return;
+        }
+        if (ip != null && !ip.isEmpty()) {
+            antiBotGuard.onAntiBotFail(ip);
+        } else {
+            antiBotGuard.onAntiBotFail(uuid);
+        }
+    }
+
+    /**
+     * Включение при уже онлайн-игроках (/reload, PlugMan): сессии жили в
+     * памяти старого экземпляра и потеряны — без этого игроки стоят
+     * замороженными без подсказок. Запускаем обычный вход заново.
+     */
+    private void resumeOnlinePlayers() {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p.hasMetadata("NPC")) {
+                continue;
+            }
+            Scheduler.runAtEntity(this, p, () -> {
+                if (!p.isOnline() || sessionManager.isLoggedIn(p.getUniqueId())) {
+                    return;
+                }
+                if (afkService != null) {
+                    afkService.onJoin(p);
+                }
+                beginAuthentication(p);
+            });
         }
     }
 
@@ -614,7 +770,7 @@ public final class RegisterPlugin extends JavaPlugin {
         if (authListener != null) authListener.clearPasswordWaiting(player.getUniqueId());
         if (antiBotService != null) antiBotService.cancelCheck(player.getUniqueId());
         if (totpService != null) totpService.cancelChallenge(player.getUniqueId());
-        Compat.applyAuthDarkness(player);
+        if (authListener != null) authListener.applyDarknessIfEnabled(player);
         if (authListener != null) authListener.reapplyHidingIfEnabled(player);
         if (authTimeoutService != null) authTimeoutService.start(player);
         if (reminderService != null) reminderService.start(player);
@@ -630,6 +786,18 @@ public final class RegisterPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (autoRestart != null) {
+            autoRestart.stop();
+        }
+        if (securityAudit != null) {
+            securityAudit.shutdown();
+        }
+        if (globalBlacklist != null) {
+            globalBlacklist.stop();
+        }
+        if (antiBotGuard != null) {
+            antiBotGuard.saveBansNow();
+        }
         if (stateSync != null) {
             stateSync.markShutdown();
         }
@@ -639,17 +807,54 @@ public final class RegisterPlugin extends JavaPlugin {
             } catch (Throwable ignored) {
             }
         }
+        // Каждый шаг — отдельно: исключение в одном сервисе не должно
+        // пропустить accountStore.shutdown() (сброс несохранённых аккаунтов)
         if (authService != null) {
-            authService.shutdown();
+            try {
+                authService.shutdown();
+            } catch (Throwable t) {
+                getLogger().warning("shutdown authService: " + t);
+            }
         }
         if (afkService != null) {
-            afkService.shutdown();
+            try {
+                afkService.shutdown();
+            } catch (Throwable t) {
+                getLogger().warning("shutdown afkService: " + t);
+            }
         }
         if (antiBotService != null) {
-            antiBotService.shutdown();
+            try {
+                antiBotService.shutdown();
+            } catch (Throwable t) {
+                getLogger().warning("shutdown antiBotService: " + t);
+            }
         }
         if (teleportService != null) {
-            teleportService.cancelAllWaits();
+            try {
+                teleportService.cancelAllWaits();
+            } catch (Throwable t) {
+                getLogger().warning("shutdown teleportService: " + t);
+            }
+        }
+        if (proxyBridge != null) {
+            try {
+                proxyBridge.stop();
+            } catch (Throwable t) {
+                getLogger().warning("shutdown proxyBridge: " + t);
+            }
+        }
+        if (commandLogGuard != null) {
+            try {
+                commandLogGuard.uninstall();
+            } catch (Throwable t) {
+                getLogger().warning("shutdown commandLogGuard: " + t);
+            }
+        }
+        try {
+            releaseUnauthedOnDisable();
+        } catch (Throwable t) {
+            getLogger().warning("shutdown releaseUnauthed: " + t);
         }
         if (accountStore != null) {
             accountStore.shutdown();
@@ -657,26 +862,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int READY = -111058275
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-;
+    private static final int READY = 866282993;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1000) != READY || !me.vorchun.registerplugin.util.Data.sealed() || !me.vorchun.registerplugin.util.Data.marked()) {
             throw new IllegalStateException();

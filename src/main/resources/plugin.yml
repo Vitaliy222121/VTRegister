@@ -4,10 +4,12 @@ main: me.vorchun.registerplugin.RegisterPlugin
 description: VTRegister — авторизация/регистрация с защитой пароля, антиботом, 2FA и БД
 author: Vorchun
 website: https://mineleak.pro
-api-version: '1.16'
+api-version: '1.13'
 # POSTWORLD (по умолчанию): мир антибот-проверки создаётся в onEnable,
 # а на фазе STARTUP Bukkit запрещает создание миров.
-softdepend: [Floodgate, Geyser, PlaceholderAPI]
+# Плагины миров — в softdepend, чтобы их миры (спавны after_auth и т.п.)
+# были загружены раньше нас.
+softdepend: [Floodgate, Geyser, PlaceholderAPI, Multiverse-Core, MultiWorld, MyWorlds]
 # Планировщик задач умеет работать с региональными потоками Folia.
 # Ограничение: мир антибот-проверки на Folia нужно создать вручную.
 folia-supported: true
@@ -27,12 +29,12 @@ commands:
     usage: /changepassword
   authadmin:
     description: Администрирование авторизации
-    usage: /authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban|pvpkit|lobby>
+    usage: /authadmin <reload|status|info|list|reset|unregister|setpw|logout|forcelogin|setspawn|import|unban|testmail|pvpkit|lobby>
     permission: registerplugin.admin
   vtregister:
     aliases: [vtr, vreg]
     description: Справка по командам VTRegister
-    usage: /vtregister [help|status|cmds]
+    usage: /vtregister [help|status|cmds|reload]
 # /rpverify (кнопка антибот-проверки) намеренно НЕ регистрируется:
 # команда перехватывается до диспетчера ядра, поэтому пароли и токены
 # не попадают в лог "issued server command".
@@ -41,3 +43,6 @@ permissions:
   registerplugin.admin:
     description: Доступ к /authadmin
     default: op
+  vtregister.afk.bypass:
+    description: Не кикается за AFK после входа (afk.kick_after_login)
+    default: false

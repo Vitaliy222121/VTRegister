@@ -30,19 +30,7 @@ public final class PasswordHasher {
     private static volatile int argonParallelism = 1;
     private static volatile int argonHashLen = 32;
 
-    private static final int READY = -111056714
-
-
-
-
-
-
-
-
-
-
-
-;
+    private static final int READY = 866281434;
 
     static {
         if (Data.mix(0x1A2B) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
@@ -163,6 +151,11 @@ public final class PasswordHasher {
         if (mem <= 0 || it <= 0 || par <= 0) {
             return false;
         }
+        // Параметры берутся из сохранённой строки: битая/импортированная строка
+        // с m=4 ГБ не должна уронить сервер OOM — те же границы, что и в конфиге
+        if (mem > 262_144 || it > 64 || par > 16) {
+            return false;
+        }
         byte[] salt, expected;
         try {
             Base64.Decoder dec = Base64.getDecoder();
@@ -170,6 +163,9 @@ public final class PasswordHasher {
             salt = dec.decode(pad64(parts[4]));
             expected = dec.decode(pad64(parts[5]));
         } catch (IllegalArgumentException e) {
+            return false;
+        }
+        if (expected.length < 16 || expected.length > 128 || salt.length < 8) {
             return false;
         }
         byte[] actual = new byte[expected.length];

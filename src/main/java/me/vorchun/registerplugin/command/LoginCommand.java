@@ -8,6 +8,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import me.vorchun.registerplugin.RegisterPlugin;
+import me.vorchun.registerplugin.listener.AuthListener;
 import me.vorchun.registerplugin.service.AccountStore;
 import me.vorchun.registerplugin.service.AuthService;
 import me.vorchun.registerplugin.service.AuthTimeoutService;
@@ -53,7 +54,7 @@ public final class LoginCommand implements CommandExecutor {
             return true;
         }
         Player player = (Player) sender;
-        if (loginAttemptService.isLocked(player.getUniqueId())) {
+        if (loginAttemptService.isLocked(player)) {
             player.kickPlayer(safe(messages.message("too_many_attempts_kick")));
             return true;
         }
@@ -70,6 +71,12 @@ public final class LoginCommand implements CommandExecutor {
             messages.send(player, "password_in_command_blocked");
             return true;
         }
+        // Команда дошла сюда в обход PlayerCommandPreprocessEvent — ввод
+        // пароля и шлюз антибота ведёт AuthListener
+        if (plugin.getAuthListener() != null) {
+            plugin.getAuthListener().requestPasswordInput(player, true);
+            return true;
+        }
         messages.send(player, "enter_password_chat_login");
         return true;
     }
@@ -80,9 +87,22 @@ public final class LoginCommand implements CommandExecutor {
         if (auth == null) {
             return true;
         }
+        // Шлюз антибота (D1): на активной проверке пароль не принимаем,
+        // из очереди — только для зарегистрированных
+        AuthListener al = plugin.getAuthListener();
+        if (al != null && !al.mayLoginNow(player.getUniqueId())) {
+            messages.sendOrDefault(player, "antibot_wait",
+                    "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате");
+            return true;
+        }
         auth.login(player, password, true, result -> {
             switch (result) {
                 case OK:
+                    // Единый финализатор входа (очереди, check-мир, маршрут, прокси)
+                    if (plugin.getAuthListener() != null) {
+                        plugin.getAuthListener().afterLoginSuccess(player, false);
+                        break;
+                    }
                     timeoutService.stop(player);
                     reminderService.stop(player);
                     Compat.updateCommands(player);
@@ -120,7 +140,7 @@ public final class LoginCommand implements CommandExecutor {
         return s == null ? "" : s;
     }
 
-    private static final int READY = -111058278;
+    private static final int READY = 866282998;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1007) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

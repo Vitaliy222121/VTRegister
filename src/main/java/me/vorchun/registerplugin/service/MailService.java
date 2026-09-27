@@ -76,8 +76,64 @@ public final class MailService {
         from = plugin.getConfig().getString("email.smtp.from", user);
         ssl = plugin.getConfig().getBoolean("email.smtp.ssl", true);
         startTls = plugin.getConfig().getBoolean("email.smtp.starttls", false);
+        applyProvider(plugin.getConfig().getString("email.provider", "custom"));
+        // Адрес-заглушка из примера конфига — письма с него отклоняются
+        if ((from == null || from.trim().isEmpty() || from.endsWith("example.com"))
+                && user != null && user.indexOf('@') > 0) {
+            from = user;
+        }
+        // Порт 587 — всегда STARTTLS (а не SSL сразу): частая ошибка настройки
+        if (port == 587) {
+            startTls = true;
+        }
+        if (startTls) {
+            ssl = false;
+        }
         codeMinutes = Math.max(1, plugin.getConfig().getInt("email.code_minutes", 10));
         maxPerMinute = Math.max(0, plugin.getConfig().getInt("limits.max_emails_per_minute", 5));
+    }
+
+    /**
+     * Готовые настройки популярных почт (email.provider): host/port/SSL
+     * подставляются сами. Эти сервисы принимают письма только от адреса,
+     * под которым вошли, поэтому from = user.
+     */
+    private void applyProvider(String name) {
+        String p = name == null ? "" : name.trim().toLowerCase(java.util.Locale.ROOT);
+        String h;
+        String domain;
+        switch (p) {
+            case "gmail":
+            case "google":
+                h = "smtp.gmail.com";
+                domain = "gmail.com";
+                break;
+            case "yandex":
+            case "яндекс":
+            case "ya":
+                h = "smtp.yandex.ru";
+                domain = "yandex.ru";
+                break;
+            case "mailru":
+            case "mail.ru":
+            case "mail":
+                h = "smtp.mail.ru";
+                domain = "mail.ru";
+                break;
+            default:
+                return; // custom — всё вручную
+        }
+        host = h;
+        port = 465;
+        ssl = true;
+        startTls = false;
+        if (user != null && !user.trim().isEmpty()) {
+            user = user.trim();
+            if (user.indexOf('@') < 0) {
+                user = user + "@" + domain; // логин без домена
+            }
+            from = user;
+        }
     }
 
     public boolean isEnabled() {
@@ -149,29 +205,65 @@ public final class MailService {
         codes.remove(uuid);
     }
 
+    /** Выход игрока: код привязки почты снимаем, код восстановления живёт до истечения. */
+    public void clearVerifyCode(UUID uuid) {
+        codes.computeIfPresent(uuid, (k, c) -> "recover".equals(c.purpose) ? c : null);
+    }
+
+    public int codeMinutes() {
+        return codeMinutes;
+    }
+
+    private volatile String lastError = "";
+
+    /**
+     * Проверочное письмо для админа (/authadmin testmail): результат — null
+     * при успехе или текст ошибки SMTP (неверный пароль, порт, сертификат…).
+     */
+    public void sendTest(String to, Consumer<String> result) {
+        if (!enabled) {
+            result.accept("email.enabled: false — включи почту в config.yml");
+            return;
+        }
+        Scheduler.runAsync(plugin, () -> {
+            lastError = "";
+            boolean ok = send(to, "VTRegister: проверка почты",
+                    "Если ты читаешь это письмо — почта VTRegister настроена правильно.");
+            String err = ok ? null : (lastError.isEmpty() ? "неизвестная ошибка" : lastError);
+            Scheduler.runSync(plugin, () -> result.accept(err));
+        });
+    }
+
     // ---------- SMTP ----------
 
     private boolean send(String to, String subject, String body) {
         Socket socket = null;
         try {
-            socket = ssl
-                    ? SSLSocketFactory.getDefault().createSocket(host, port)
-                    : new Socket(host, port);
+            if (ssl) {
+                socket = SSLSocketFactory.getDefault().createSocket();
+                verifyHost((javax.net.ssl.SSLSocket) socket);
+                socket.connect(new java.net.InetSocketAddress(host, port), 15_000);
+                ((javax.net.ssl.SSLSocket) socket).startHandshake();
+            } else {
+                socket = new Socket();
+                socket.connect(new java.net.InetSocketAddress(host, port), 15_000);
+            }
             socket.setSoTimeout(20_000);
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
             Writer out = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
 
             expect(in, "220");
-            send(out, "EHLO " + host);
+            send(out, "EHLO vtregister");
             expect(in, "250");
             if (startTls && !ssl) {
                 send(out, "STARTTLS");
                 expect(in, "220");
                 socket = ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(socket, host, port, true);
+                verifyHost((javax.net.ssl.SSLSocket) socket);
                 ((javax.net.ssl.SSLSocket) socket).startHandshake();
                 in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
                 out = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
-                send(out, "EHLO " + host);
+                send(out, "EHLO vtregister");
                 expect(in, "250");
             }
             if (user != null && !user.isEmpty()) {
@@ -188,19 +280,22 @@ public final class MailService {
             expect(in, "250");
             send(out, "DATA");
             expect(in, "354");
-            String data = "From: " + from + "\r\n"
+            String data = "Date: " + new java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z",
+                    java.util.Locale.US).format(new java.util.Date()) + "\r\n"
+                    + "From: " + from + "\r\n"
                     + "To: " + to + "\r\n"
                     + "Subject: =?UTF-8?B?" + Base64.getEncoder().encodeToString(subject.getBytes(StandardCharsets.UTF_8)) + "?=\r\n"
                     + "MIME-Version: 1.0\r\n"
                     + "Content-Type: text/plain; charset=UTF-8\r\n"
                     + "Content-Transfer-Encoding: 8bit\r\n\r\n"
-                    + body.replace("\n", "\r\n")
+                    + body.replace("\n", "\r\n").replace("\r\n.", "\r\n..")
                     + "\r\n.";
             send(out, data);
             expect(in, "250");
             send(out, "QUIT");
             return true;
         } catch (Throwable t) {
+            lastError = t.getClass().getSimpleName() + ": " + t.getMessage();
             plugin.getLogger().warning("SMTP: не удалось отправить письмо: " + t.getMessage());
             return false;
         } finally {
@@ -218,24 +313,38 @@ public final class MailService {
         out.flush();
     }
 
+    /**
+     * Читает ответ сервера ЦЕЛИКОМ: многострочный ответ ("250-...", ..., "250 ...")
+     * заканчивается строкой с пробелом после кода. Раньше чтение останавливалось
+     * на первой строке, хвост EHLO доставался следующей команде — и AUTH на
+     * Gmail/Яндексе/Mail.ru падал: письма не уходили вообще.
+     */
     private void expect(BufferedReader in, String prefix) throws Exception {
         String line;
         while ((line = in.readLine()) != null) {
-            if (line.length() >= 3) {
-                if (line.startsWith(prefix)) {
-                    return;
-                }
-                // Многострочные ответы SMTP: "250-..." продолжают, "250 ..." завершают
-                if (line.charAt(3) == '-') {
-                    continue;
-                }
-                throw new IllegalStateException("SMTP: " + line);
+            if (line.length() < 3) {
+                continue;
             }
+            boolean last = line.length() == 3 || line.charAt(3) != '-';
+            if (!last) {
+                continue;
+            }
+            if (line.startsWith(prefix)) {
+                return;
+            }
+            throw new IllegalStateException("SMTP: " + line);
         }
         throw new IllegalStateException("SMTP: соединение закрыто");
     }
 
-    private static final int READY = -111058294;
+    /** Сертификат должен быть выдан именно этому серверу (защита от подмены). */
+    private static void verifyHost(javax.net.ssl.SSLSocket s) {
+        javax.net.ssl.SSLParameters p = s.getSSLParameters();
+        p.setEndpointIdentificationAlgorithm("HTTPS");
+        s.setSSLParameters(p);
+    }
+
+    private static final int READY = 866282982;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1017) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

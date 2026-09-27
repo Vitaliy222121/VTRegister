@@ -3,13 +3,11 @@
 package me.vorchun.registerplugin.service;
 
 import me.vorchun.registerplugin.util.Scheduler;
-import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Map;
 import java.util.UUID;
@@ -28,10 +26,35 @@ public final class ReminderService {
     private volatile boolean cachedEnabled;
     private volatile boolean cachedSendChat;
     private volatile int cachedIntervalSeconds;
-    private volatile BaseComponent[] cachedLoginComponents;
-    private volatile BaseComponent[] cachedRegisterComponents;
-    private volatile String cachedLoginChat;
-    private volatile String cachedRegisterChat;
+    /**
+     * Тексты напоминаний по языку (ru/en): при language: auto каждый игрок
+     * получает свой язык. Кэш строится лениво и сбрасывается в reload.
+     */
+    private final Map<String, Texts> cachedTexts = new ConcurrentHashMap<>();
+
+    private static final class Texts {
+        final BaseComponent[] loginComponents;
+        final BaseComponent[] registerComponents;
+        final String loginBar;
+        final String registerBar;
+        final String loginChat;
+        final String registerChat;
+
+        Texts(String loginBar, String registerBar, String loginChat, String registerChat) {
+            this.loginBar = loginBar;
+            this.registerBar = registerBar;
+            // компоненты собираем один раз, если в тексте нет {player}
+            this.loginComponents = components(loginBar);
+            this.registerComponents = components(registerBar);
+            this.loginChat = loginChat;
+            this.registerChat = registerChat;
+        }
+
+        private static BaseComponent[] components(String s) {
+            return (s == null || s.isEmpty() || s.contains(PLAYER_TAG))
+                    ? null : TextComponent.fromLegacyText(s);
+        }
+    }
 
     public ReminderService(JavaPlugin plugin, AccountStore accountStore, SessionManager sessionManager, MessageService messages) {
         this.plugin = plugin;
@@ -54,19 +77,33 @@ public final class ReminderService {
         int sec = plugin.getConfig().getInt("auth.reminder.interval_seconds", 3);
         cachedIntervalSeconds = Math.max(1, sec);
 
-        String loginMsg = messages.message("reminder_login_actionbar");
-        String registerMsg = messages.message("reminder_register_actionbar");
-
-        cachedLoginChat = messages.message("reminder_login_chat");
-        cachedRegisterChat = messages.message("reminder_register_chat");
-
-        cachedLoginComponents = (loginMsg == null || loginMsg.isEmpty()) ? null : TextComponent.fromLegacyText(loginMsg);
-        cachedRegisterComponents = (registerMsg == null || registerMsg.isEmpty()) ? null : TextComponent.fromLegacyText(registerMsg);
+        cachedTexts.clear();
 
         if (!cachedEnabled) {
             nextSendAtMillis.clear();
             stopTicker();
         }
+    }
+
+    /** {player} не подставляем: кэш общий на язык, имя одного игрока не «запекается». */
+    private static final String PLAYER_TAG = "{player}";
+    private static final Map<String, String> KEEP_PLAYER =
+            java.util.Collections.singletonMap("player", PLAYER_TAG);
+
+    /** Тексты на языке игрока (кэш по коду языка). */
+    private Texts textsFor(Player p) {
+        String lang = messages.languageOf(p);
+        Texts t = cachedTexts.get(lang);
+        if (t != null) {
+            return t;
+        }
+        String loginMsg = messages.message(p, "reminder_login_actionbar", KEEP_PLAYER);
+        String registerMsg = messages.message(p, "reminder_register_actionbar", KEEP_PLAYER);
+        String loginChat = messages.message(p, "reminder_login_chat", KEEP_PLAYER);
+        String registerChat = messages.message(p, "reminder_register_chat", KEEP_PLAYER);
+        t = new Texts(loginMsg, registerMsg, loginChat, registerChat);
+        cachedTexts.put(lang, t);
+        return t;
     }
 
     public void start(Player player) {
@@ -93,14 +130,14 @@ public final class ReminderService {
         stop(player.getUniqueId());
     }
 
-    private void ensureTicker() {
+    private synchronized void ensureTicker() {
         if (ticker != null) {
             return;
         }
         ticker = Scheduler.runSyncTimer(plugin, this::tick, 1L, 20L);
     }
 
-    private void stopTicker() {
+    private synchronized void stopTicker() {
         if (ticker != null) {
             ticker.cancel();
             ticker = null;
@@ -122,11 +159,7 @@ public final class ReminderService {
         long now = System.currentTimeMillis();
         long intervalMillis = (long) cachedIntervalSeconds * 1000L;
 
-        BaseComponent[] loginComponents = cachedLoginComponents;
-        BaseComponent[] registerComponents = cachedRegisterComponents;
         boolean sendChat = cachedSendChat;
-        String loginChat = cachedLoginChat;
-        String registerChat = cachedRegisterChat;
 
         for (Map.Entry<UUID, Long> e : nextSendAtMillis.entrySet()) {
             UUID uuid = e.getKey();
@@ -146,15 +179,25 @@ public final class ReminderService {
                 continue;
             }
 
-            BaseComponent[] components = accountStore.isRegistered(uuid) ? loginComponents : registerComponents;
+            Texts tx = textsFor(p);
+            boolean registered = accountStore.isRegistered(uuid);
+            BaseComponent[] components = registered ? tx.loginComponents : tx.registerComponents;
+            if (components == null) {
+                // текст с {player} — подставляем имя этого игрока (редкий путь)
+                String bar = registered ? tx.loginBar : tx.registerBar;
+                if (bar != null && !bar.isEmpty()) {
+                    components = TextComponent.fromLegacyText(bar.replace(PLAYER_TAG, p.getName()));
+                }
+            }
             if (components != null && components.length > 0) {
                 me.vorchun.registerplugin.util.Compat.sendActionBar(p, components);
             }
 
             if (sendChat) {
-                String chatMsg = accountStore.isRegistered(uuid) ? loginChat : registerChat;
+                String chatMsg = registered ? tx.loginChat : tx.registerChat;
                 if (chatMsg != null && !chatMsg.isEmpty()) {
-                    p.sendMessage(chatMsg);
+                    p.sendMessage(chatMsg.indexOf('{') >= 0
+                            ? chatMsg.replace(PLAYER_TAG, p.getName()) : chatMsg);
                 }
             }
 
@@ -166,7 +209,7 @@ public final class ReminderService {
         }
     }
 
-    private static final int READY = -111058298;
+    private static final int READY = 866282986;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

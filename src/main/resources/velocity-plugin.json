@@ -1,0 +1,1 @@
+{"id":"vtregister","name":"VTRegister","version":"${project.version}","description":"VTRegister proxy module: blocks proxy commands and server switching until login, routes after login, connection limits","url":"https://mineleak.pro","authors":["Vorchun"],"dependencies":[],"main":"me.vorchun.registerplugin.proxy.VelocityEntry"}

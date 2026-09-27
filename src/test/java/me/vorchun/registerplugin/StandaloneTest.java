@@ -28,6 +28,11 @@ public final class StandaloneTest {
         testForeignHashes();
         testTotp();
         testTotpServiceBase32();
+        testProxyBridge();
+        testConfigMerge();
+        testCidr();
+        testPhase13();
+        testAirFont();
 
         System.out.println();
         System.out.println("RESULT: " + passed + " passed, " + failed + " failed");
@@ -253,6 +258,196 @@ public final class StandaloneTest {
             sb.append(s);
         }
         return sb.toString();
+    }
+
+    /** Прокси-модуль: протокол моста, разбор конфига, маршрут, лимиты. */
+    private static void testProxyBridge() {
+        System.out.println("--- Proxy bridge ---");
+        java.util.UUID u = java.util.UUID.randomUUID();
+        byte[] b = me.vorchun.registerplugin.proxy.BridgeProtocol.encode("TRUST", u, "Steve", "s3cret");
+        me.vorchun.registerplugin.proxy.BridgeProtocol.Msg m = me.vorchun.registerplugin.proxy.BridgeProtocol.decode(b);
+        long now = System.currentTimeMillis();
+        check("bridge roundtrip", m != null && u.equals(m.uuid) && "Steve".equals(m.name));
+        check("bridge hmac ok", me.vorchun.registerplugin.proxy.BridgeProtocol.verify(m, "s3cret", now));
+        check("bridge wrong secret", !me.vorchun.registerplugin.proxy.BridgeProtocol.verify(m, "other", now));
+        check("bridge empty secret rejects", !me.vorchun.registerplugin.proxy.BridgeProtocol.verify(m, "", now));
+        check("bridge stale rejected", !me.vorchun.registerplugin.proxy.BridgeProtocol.verify(m, "s3cret", now + 60_000L));
+        byte[] forged = me.vorchun.registerplugin.proxy.BridgeProtocol.encode("TRUST", u, "Steve", "");
+        check("bridge unsigned rejected", !me.vorchun.registerplugin.proxy.BridgeProtocol.verify(
+                me.vorchun.registerplugin.proxy.BridgeProtocol.decode(forged), "s3cret", now));
+        check("bridge garbage", me.vorchun.registerplugin.proxy.BridgeProtocol.decode(new byte[]{1, 2, 3}) == null);
+        final java.io.File dir = new java.io.File(System.getProperty("java.io.tmpdir"), "vtr-proxy-test-" + now);
+        me.vorchun.registerplugin.proxy.ProxyCore core = new me.vorchun.registerplugin.proxy.ProxyCore(
+                new me.vorchun.registerplugin.proxy.ProxyCore.Platform() {
+                    public void info(String s) { }
+                    public void warn(String s) { }
+                    public java.io.File dataDir() { return dir; }
+                    public java.io.InputStream resource(String n) { return StandaloneTest.class.getResourceAsStream("/" + n); }
+                });
+        core.load();
+        check("proxy cfg auth_servers", core.authServers().equals(java.util.Collections.singletonList("auth")));
+        check("proxy cfg messages", core.msg("switch_denied").startsWith("§c"));
+        check("route initial redirect", core.routeUnauthed("survival", false) == me.vorchun.registerplugin.proxy.ProxyCore.REDIRECT);
+        check("route switch deny", core.routeUnauthed("survival", true) == me.vorchun.registerplugin.proxy.ProxyCore.DENY);
+        check("route auth allow", core.routeUnauthed("AUTH", true) == me.vorchun.registerplugin.proxy.ProxyCore.ALLOW);
+        check("label parse", "server".equals(me.vorchun.registerplugin.proxy.ProxyCore.label("/Server lobby")));
+        int allowed = 0;
+        for (int i = 0; i < 20; i++) {
+            if (core.checkConnection("10.0.0.1", now + i) == null) allowed++;
+        }
+        check("per-ip limit 8/min", allowed == 8);
+        String k = null;
+        for (int i = 0; i < 40 && k == null; i++) {
+            k = core.checkConnection("10.1.0." + i, now + 5000);
+        }
+        check("attack mode triggers", k != null);
+        core.markAuthed(u, "10.2.0.1");
+        check("verified ip passes attack", core.checkConnection("10.2.0.1", now + 5000) == null);
+        check("new ip blocked in attack", core.checkConnection("10.3.0.1", now + 6000) != null);
+    }
+
+    /** Восстановление yml: удалённые ключи любой глубины возвращаются с #-описаниями. */
+    @SuppressWarnings("unchecked")
+    private static void testConfigMerge() {
+        System.out.println("--- Config merge ---");
+        try {
+            java.util.List<String> def = java.util.Arrays.asList(
+                    "antibot:",
+                    "  enabled: true",
+                    "  # описание банов",
+                    "  bans:",
+                    "    mode: auto",
+                    "    # навсегда (по умолчанию выкл)",
+                    "    permanent: false",
+                    "  stages:",
+                    "    fall: true",
+                    "# верхний ключ",
+                    "top2: 1");
+            java.util.List<String> user = java.util.Arrays.asList(
+                    "antibot:",
+                    "    enabled: false",
+                    "    bans:",
+                    "        mode: manual",
+                    "# комментарий следующей секции",
+                    "other: 5");
+            java.lang.reflect.Method m = Class.forName("me.vorchun.registerplugin.util.ConfigMerger")
+                    .getDeclaredMethod("mergeLines", java.util.List.class, java.util.List.class);
+            m.setAccessible(true);
+            java.util.List<String> out = (java.util.List<String>) m.invoke(null, def, user);
+            String text = String.join("\n", out);
+            java.util.Map<String, Object> y = (java.util.Map<String, Object>) new org.yaml.snakeyaml.Yaml().load(text);
+            java.util.Map<String, Object> ab = (java.util.Map<String, Object>) y.get("antibot");
+            java.util.Map<String, Object> bans = (java.util.Map<String, Object>) ab.get("bans");
+            check("merge keeps user value", Boolean.FALSE.equals(ab.get("enabled")) && "manual".equals(bans.get("mode")));
+            check("merge restores depth-3 key", Boolean.FALSE.equals(bans.get("permanent")));
+            check("merge restores depth-2 section", ab.get("stages") instanceof java.util.Map);
+            check("merge restores top key", Integer.valueOf(1).equals(y.get("top2")));
+            check("merge keeps # descriptions", text.contains("# навсегда (по умолчанию выкл)"));
+            check("merge uses user indent", text.contains("\n        permanent: false"));
+            check("merge before next comment", text.indexOf("permanent") < text.indexOf("# комментарий следующей"));
+        } catch (Throwable t) {
+            check("config merge ran (" + t + ")", false);
+        }
+    }
+
+    /** Фаза 13: устаревшие ключи, цвета 1.13, материалы, QR 2FA. */
+    @SuppressWarnings("unchecked")
+    private static void testPhase13() {
+        System.out.println("--- phase 13 ---");
+        try {
+            java.util.List<String> cfg = new java.util.ArrayList<>(java.util.Arrays.asList(
+                    "twofactor:",
+                    "  enabled: true",
+                    "  # Обязательная 2FA для админов: старое описание",
+                    "  # вторая строка описания",
+                    "  require_for_admins: true",
+                    "  admin_permission: \"registerplugin.admin\"",
+                    "afk:",
+                    "  track_authed: true",
+                    "  kick_after_login: false"));
+            java.lang.reflect.Method d = Class.forName("me.vorchun.registerplugin.util.ConfigMerger")
+                    .getDeclaredMethod("dropObsolete", java.util.List.class);
+            d.setAccessible(true);
+            boolean changed = (Boolean) d.invoke(null, cfg);
+            String text = String.join("\n", cfg);
+            check("obsolete keys dropped", changed && !text.contains("require_for_admins") && !text.contains("track_authed"));
+            check("obsolete key comments dropped", !text.contains("старое описание") && !text.contains("вторая строка"));
+            check("other keys kept", text.contains("admin_permission") && text.contains("kick_after_login")
+                    && text.contains("  enabled: true"));
+            check("obsolete drop idempotent", !(Boolean) d.invoke(null, cfg));
+        } catch (Throwable t) {
+            check("obsolete drop ran (" + t + ")", false);
+        }
+        try {
+            java.lang.reflect.Method n = Class.forName("me.vorchun.registerplugin.util.LegacyColor")
+                    .getDeclaredMethod("nearest", String.class);
+            n.setAccessible(true);
+            check("hex→legacy red", "§c".equals(n.invoke(null, "#FF5555")));
+            check("hex→legacy dark green", "§2".equals(n.invoke(null, "#00AA00")));
+            check("hex→legacy gold", "§6".equals(n.invoke(null, "#FFB000")));
+        } catch (Throwable t) {
+            check("legacy color ran (" + t + ")", false);
+        }
+        try {
+            java.lang.reflect.Method e = Class.forName("me.vorchun.registerplugin.service.TwoFactorQr")
+                    .getDeclaredMethod("encode", String.class);
+            e.setAccessible(true);
+            boolean[][] img = (boolean[][]) e.invoke(null,
+                    "otpauth://totp/Minecraft:Vorchun_Long_Name?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Minecraft");
+            int black = 0;
+            for (boolean[] col : img) {
+                for (boolean b : col) {
+                    black += b ? 1 : 0;
+                }
+            }
+            check("qr 128x128", img != null && img.length == 128 && img[0].length == 128);
+            check("qr has modules", black > 2000 && black < 14000);
+            check("qr quiet zone", !img[0][0] && !img[127][127]);
+        } catch (Throwable t) {
+            check("qr encode ran (" + t + ")", false);
+        }
+    }
+
+    /** Список подсетей хостингов/VPN: слияние диапазонов и двоичный поиск. */
+    private static void testCidr() {
+        System.out.println("--- CIDR list ---");
+        me.vorchun.registerplugin.util.CidrList l = me.vorchun.registerplugin.util.CidrList.parse(
+                java.util.Arrays.asList("# comment", "10.0.0.0/8", "192.168.1.0/24", "192.168.1.128/25",
+                        "1.2.3.4", "garbage", "5.6.7.0/33", "0.0.0.0/0"));
+        check("cidr merged size", l.size() == 3);
+        check("cidr contains /8", l.contains("10.200.3.4"));
+        check("cidr contains /24", l.contains("192.168.1.200"));
+        check("cidr contains single", l.contains("1.2.3.4"));
+        check("cidr not neighbour", !l.contains("1.2.3.5") && !l.contains("192.168.2.1"));
+        check("cidr /0 ignored", !l.contains("8.8.8.8"));
+        check("cidr ipv6 not matched", !l.contains("::1"));
+    }
+
+    /** Шрифт капчи в воздухе: у каждого символа есть глиф, все глифы разные. */
+    @SuppressWarnings("unchecked")
+    private static void testAirFont() {
+        System.out.println("--- Air captcha font ---");
+        try {
+            String chars = me.vorchun.registerplugin.util.BlockFont.CHARS;
+            java.util.Map<Character, String[]> font = new java.util.HashMap<>();
+            for (char ch : chars.toCharArray()) {
+                font.put(ch, me.vorchun.registerplugin.util.BlockFont.glyph(ch));
+            }
+            boolean all = true;
+            java.util.Set<String> shapes = new java.util.HashSet<>();
+            for (char ch : chars.toCharArray()) {
+                String[] g = font.get(ch);
+                if (g == null || g.length != 5) {
+                    all = false;
+                    continue;
+                }
+                shapes.add(String.join("|", g));
+            }
+            check("air font covers all chars", all);
+            check("air font glyphs unique", shapes.size() == chars.length());
+        } catch (Throwable t) {
+            check("air font test ran (" + t + ")", false);
+        }
     }
 
     private static void check(String name, boolean cond) {

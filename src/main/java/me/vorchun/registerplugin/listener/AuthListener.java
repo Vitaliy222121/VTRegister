@@ -77,17 +77,29 @@ public final class AuthListener implements Listener {
         final PasswordMode mode;
         final long expiresAtMillis;
         final String data;
+        // Смена пароля: старый пароль, введённый на шаге CHANGE_OLD
+        // (проверяется вместе со сменой — в пуле AuthService)
+        final String oldPassword;
 
         PendingPassword(PasswordMode mode, long expiresAtMillis) {
-            this(mode, expiresAtMillis, null);
+            this(mode, expiresAtMillis, null, null);
         }
 
         PendingPassword(PasswordMode mode, long expiresAtMillis, String data) {
+            this(mode, expiresAtMillis, data, null);
+        }
+
+        PendingPassword(PasswordMode mode, long expiresAtMillis, String data, String oldPassword) {
             this.mode = mode;
             this.expiresAtMillis = expiresAtMillis;
             this.data = data;
+            this.oldPassword = oldPassword;
         }
     }
+
+    /** Порог «шага» для afk_first: 0.05 блока по XZ (пакет со сдвигом 0.001 — не шаг). */
+    private static final double AFK_FIRST_STEP_SQ = 0.05 * 0.05;
+    private static final String RETURNS_FILE = "auth-returns.yml";
 
     private final JavaPlugin plugin;
     private final AccountStore accountStore;
@@ -102,6 +114,74 @@ public final class AuthListener implements Listener {
 
     private me.vorchun.registerplugin.service.AuthService authService;
     private me.vorchun.registerplugin.service.TotpService totpService;
+    private volatile me.vorchun.registerplugin.service.TwoFactorQr twoFactorQr;
+
+    /** Настоящие точки входа игроков, заспавненных сразу на платформе входа. */
+    private final Map<UUID, Location> spawnRedirected = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile boolean spawnOnPlatform = true;
+
+    /**
+     * PlayerSpawnLocationEvent: неавторизованный появляется сразу на платформе
+     * входа. Раньше он появлялся в основном мире (сервер грузил и слал ему
+     * сотни чанков), а через тик улетал на платформу — второй перелёт между
+     * мирами. Настоящая точка входа запоминается и вернётся после /login.
+     * Премиум-автовход, IP-сессия и Bedrock без пароля — как раньше.
+     * @return куда заспавнить, null — не трогать
+     */
+    Location redirectSpawn(Player p, Location orig) {
+        if (!spawnOnPlatform || !authPlatformEnabled || p == null || orig == null
+                || orig.getWorld() == null || antiBotService == null || !antiBotService.isEnabled()
+                || (spawnService != null && spawnService.hasPrelogin())) {
+            return null;
+        }
+        if (!Scheduler.isPrimaryThread()) {
+            return null; // платформа строится только в главном потоке
+        }
+        UUID uuid = p.getUniqueId();
+        try {
+            if (sessionManager.isLoggedIn(uuid)
+                    || (bedrockSupportService != null && bedrockSupportService.shouldBypassAuth(p))) {
+                return null;
+            }
+            boolean autoEntry = (premiumService != null && premiumService.isEnabled())
+                    || plugin.getConfig().getBoolean("session.auto_login_by_ip", false);
+            if (autoEntry && accountStore.isRegistered(uuid)) {
+                return null;
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+        Location spot = antiBotService.authPlatformSpotIfReady();
+        if (spot == null) {
+            return null;
+        }
+        spawnRedirected.put(uuid, orig.clone());
+        return spot;
+    }
+
+    /**
+     * Будет ли игрок ждать /reg или /login на платформе входа. AntiBotService
+     * спрашивает после проверки: тогда он везёт игрока с арены прямо на
+     * платформу (тот же мир), а не в основной мир и обратно.
+     */
+    public boolean holdsOnAuthPlatform(Player p) {
+        if (p == null || !authPlatformEnabled || antiBotService == null || !antiBotService.isEnabled()
+                || (spawnService != null && spawnService.hasPrelogin())
+                || me.vorchun.registerplugin.util.ServerCore.isFolia()) {
+            return false;
+        }
+        UUID uuid = p.getUniqueId();
+        if (sessionManager.isLoggedIn(uuid)) {
+            return false;
+        }
+        // IP-сессия впустит зарегистрированного без платформы
+        return !(accountStore.isRegistered(uuid) && me.vorchun.registerplugin.util.IpUtil.ipsTrusted()
+                && sessionManager.canAutoLogin(p));
+    }
+
+    public void setTwoFactorQr(me.vorchun.registerplugin.service.TwoFactorQr qr) {
+        this.twoFactorQr = qr;
+    }
     private me.vorchun.registerplugin.service.MailService mailService;
     private me.vorchun.registerplugin.service.PremiumService premiumService;
     private me.vorchun.registerplugin.service.SpawnService spawnService;
@@ -134,10 +214,30 @@ public final class AuthListener implements Listener {
     private volatile boolean hideDuringAuth = true;
     // always|auth_only|never - scope of darkness/blindness effect
     private volatile String authDarkness = "auth_only";
+    private volatile boolean afkFirst = true;
+    private volatile boolean authPlatformEnabled = true;
+    private volatile boolean afkTrackAuthed = false;
+    private final java.util.Set<UUID> afkFirstPending =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<UUID, Location> authReturn =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    // Точки возврата игроков, вышедших с платформы/арены до входа
+    // (иначе после перезахода позиция в playerdata — check-мир, и
+    // настоящая точка теряется). uuid -> "world;x;y;z;yaw;pitch".
+    private final Map<UUID, String> savedReturns = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicBoolean returnsSaveQueued =
+            new java.util.concurrent.atomic.AtomicBoolean();
+    private final Object returnsFileLock = new Object();
+    // Отдельный слушатель для Paper AsyncTabCompleteEvent: restoreState()
+    // перерегистрирует AuthListener через unregisterAll(this) — рефлексивная
+    // регистрация на this потерялась бы.
+    private final Listener paperTabListener = new Listener() { };
     private volatile boolean requireConfirm = false;
     private volatile boolean enforceStrength = true;
     private volatile boolean protectDeath = true;
     private volatile int passwordInputTimeoutSec = 25;
+    private volatile int passwordMinLen = 8;
+    private volatile int passwordMaxLen = 64;
 
     public AuthListener(JavaPlugin plugin,
                         AccountStore accountStore,
@@ -161,6 +261,8 @@ public final class AuthListener implements Listener {
         this.easyPasswordList = easyPasswordList;
 
         reload();
+        loadSavedReturns();
+        registerPaperTabBlock();
     }
 
     /** Внедрение сервисов, создаваемых после конструктора (разрывает цикл зависимостей). */
@@ -206,11 +308,20 @@ public final class AuthListener implements Listener {
         secureMode = plugin.getConfig().getBoolean("security.secure_password_input", true);
         hideDuringAuth = plugin.getConfig().getBoolean("security.hide_during_auth", true);
         authDarkness = plugin.getConfig().getString("security.auth_darkness", "auth_only");
+        // В быстром режиме антибота «сделай шаг» не нужен — проверка сразу
+        afkFirst = plugin.getConfig().getBoolean("antibot.afk_first", true)
+                && !plugin.getConfig().getBoolean("antibot.fast_mode", false);
+        authPlatformEnabled = plugin.getConfig().getBoolean("security.auth_platform", true);
+        spawnOnPlatform = plugin.getConfig().getBoolean("security.spawn_on_platform", true);
+        afkTrackAuthed = plugin.getConfig().getBoolean("afk.kick_after_login", false);
         requireConfirm = plugin.getConfig().getBoolean("password.require_confirm", false);
         enforceStrength = plugin.getConfig().getBoolean("password.enforce_strength", true);
         protectDeath = plugin.getConfig().getBoolean("security.protect_inventory_on_death", true);
         int sec = plugin.getConfig().getInt("security.password_input_timeout_seconds", 25);
         passwordInputTimeoutSec = Math.max(5, Math.min(120, sec));
+        // Длины пароля читаем один раз, а не на каждое сообщение в чат
+        passwordMinLen = plugin.getConfig().getInt("password.min_length", 8);
+        passwordMaxLen = Math.max(8, Math.min(256, plugin.getConfig().getInt("password.max_length", 64)));
     }
 
     public boolean isSecureMode() {
@@ -229,26 +340,225 @@ public final class AuthListener implements Listener {
         return enforceStrength;
     }
 
+    private static void sendCopyable(Player p, String text, String copy) {
+        try {
+            net.md_5.bungee.api.chat.TextComponent c = new net.md_5.bungee.api.chat.TextComponent(
+                    net.md_5.bungee.api.chat.TextComponent.fromLegacyText(text));
+            c.setClickEvent(new net.md_5.bungee.api.chat.ClickEvent(
+                    net.md_5.bungee.api.chat.ClickEvent.Action.COPY_TO_CLIPBOARD, copy));
+            p.spigot().sendMessage(c);
+        } catch (Throwable t) {
+            p.sendMessage(text);
+        }
+    }
+
+    /**
+     * Прокси подтвердил подписью (ProxyBridge/TRUST), что игрок уже вошёл на
+     * другом сервере сети: зарегистрированный аккаунт входит без пароля и без
+     * антибота — ожидания ввода/2FA/afk_first/проверка/очереди снимаются,
+     * дальше общий afterLoginSuccess (маршрут, возврат, прокси).
+     */
+    public void trustNetworkLogin(Player p) {
+        loginWithoutPassword(p, "join_network_auto_login");
+    }
+
+    /**
+     * Вход зарегистрированного аккаунта без пароля и без антибота общим
+     * путём (TRUST прокси, админский forcelogin, API). В главном потоке
+     * выполняется сразу — вызывающий тут же видит isLoggedIn (иначе его
+     * запасной ручной путь срабатывал раньше общего); из чужого потока —
+     * переносится в поток игрока.
+     * @param messageKey сообщение игроку; null — не отправлять
+     */
+    public void loginWithoutPassword(Player p, String messageKey) {
+        if (p == null) {
+            return;
+        }
+        if (!Scheduler.isPrimaryThread()) {
+            Scheduler.runAtEntity(plugin, p, () -> loginWithoutPassword(p, messageKey));
+            return;
+        }
+        UUID uuid = p.getUniqueId();
+        if (!p.isOnline() || sessionManager.isLoggedIn(uuid) || !accountStore.isRegistered(uuid)) {
+            return;
+        }
+        awaitingPassword.remove(uuid);
+        riskyCommands.remove(uuid);
+        afkFirstPending.remove(uuid);
+        if (totpService != null) {
+            totpService.cancelChallenge(uuid);
+        }
+        completeLoginNoPassword(p);
+        if (!sessionManager.isLoggedIn(uuid)) {
+            return;
+        }
+        // Проверку/очереди антибота снимает afterLoginSuccess
+        afterLoginSuccess(p, false, null);
+        if ("join_network_auto_login".equals(messageKey)) {
+            messages.sendOrDefault(p, messageKey,
+                    "{prefix}&#A0FFA0Вход подтверждён прокси — ты уже авторизован в сети");
+        } else if (messageKey != null) {
+            messages.send(p, messageKey);
+        }
+    }
+
+    /** Вход без пароля (премиум, IP-сессия, Bedrock, прокси): сессия + AuthLoginEvent. */
+    private void completeLoginNoPassword(Player p) {
+        if (authService != null) {
+            authService.completeLogin(p, "");
+        } else {
+            sessionManager.login(p);
+        }
+    }
+
+    // ---------- шлюз антибота перед вводом пароля (D1) ----------
+
+    /**
+     * Можно ли сейчас регистрироваться: игрок не в очереди/на проверке/в
+     * очереди входа, не в окне afk_first и антибот его пропустил
+     * (прошёл проверку или она не требуется). Безопасно из чат-потока.
+     */
+    public boolean mayRegisterNow(UUID uuid) {
+        if (uuid == null || afkFirstPending.contains(uuid)) {
+            return false;
+        }
+        AntiBotService ab = antiBotService;
+        if (ab == null) {
+            return true;
+        }
+        try {
+            return !ab.isBusy(uuid) && ab.mayRegister(uuid);
+        } catch (Throwable t) {
+            // Сбой — не бесплатный пропуск для бота
+            return false;
+        }
+    }
+
+    /**
+     * Можно ли сейчас вводить пароль входа. На активной проверке — нет
+     * (ввод пароля подменил бы ответ этапа). В очереди / очереди входа /
+     * окне afk_first — только уже зарегистрированным аккаунтам.
+     */
+    public boolean mayLoginNow(UUID uuid) {
+        if (uuid == null) {
+            return false;
+        }
+        AntiBotService ab = antiBotService;
+        if (ab != null && ab.isChecking(uuid)) {
+            return false;
+        }
+        if (afkFirstPending.contains(uuid) || (ab != null && ab.isBusy(uuid))) {
+            return accountStore.isRegistered(uuid);
+        }
+        return true;
+    }
+
+    /** Отказ шлюза: что сказать игроку (вызывать в потоке игрока). */
+    private void sendGateRefusal(Player p, boolean login) {
+        UUID uuid = p.getUniqueId();
+        if (afkFirstPending.contains(uuid)) {
+            messages.send(p, "afk_move_prompt");
+            return;
+        }
+        if (login) {
+            messages.sendOrDefault(p, "antibot_wait",
+                    "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате");
+        } else {
+            messages.sendOrDefault(p, "antibot_wait_register",
+                    "{prefix}&#FF6666Регистрация откроется после проверки на бота — следуй инструкциям в чате");
+        }
+        if (antiBotService != null && antiBotService.isQueued(uuid)) {
+            Map<String, String> ph = new HashMap<>();
+            ph.put("position", String.valueOf(antiBotService.queuePosition(uuid)));
+            String m = messages.message("antibot_queue", ph);
+            if (m != null && !m.isEmpty()) {
+                p.sendMessage(m);
+            }
+        }
+    }
+
+    private void sendGateRefusalAsync(Player p, boolean login) {
+        Scheduler.runAtEntity(plugin, p, () -> {
+            if (p.isOnline()) {
+                sendGateRefusal(p, login);
+            }
+        });
+    }
+
+    /**
+     * Начать ввод пароля в чат (/login или /register без аргументов).
+     * Шлюз антибота применяется здесь же. Вызывать в потоке игрока.
+     */
+    public void requestPasswordInput(Player p, boolean login) {
+        if (p == null) {
+            return;
+        }
+        UUID uuid = p.getUniqueId();
+        if (sessionManager.isLoggedIn(uuid)) {
+            messages.send(p, "already_logged_in");
+            return;
+        }
+        if (login ? !mayLoginNow(uuid) : !mayRegisterNow(uuid)) {
+            sendGateRefusal(p, login);
+            return;
+        }
+        long expiresAt = System.currentTimeMillis() + passwordInputTimeoutSec * 1000L;
+        if (login) {
+            awaitingPassword.put(uuid, new PendingPassword(PasswordMode.LOGIN, expiresAt));
+            messages.send(p, "enter_password_chat_login");
+        } else {
+            awaitingPassword.put(uuid, new PendingPassword(PasswordMode.REGISTER, expiresAt));
+            messages.send(p, "enter_password_chat_register");
+        }
+    }
+
+    /** Citizens-NPC — сущность Player с metadata "NPC": правила игрока к ней не применяются. */
+    private static boolean isNpc(org.bukkit.entity.Entity e) {
+        return e != null && e.hasMetadata("NPC");
+    }
+
     @EventHandler(priority = EventPriority.LOWEST)
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
         UUID uuid = p.getUniqueId();
+        // Фоновая пакетная проверка с самого входа (флуд пакетами, битые координаты)
+        if (antiBotService != null && !sessionManager.isLoggedIn(uuid)) {
+            antiBotService.startPacketWatch(p);
+        }
+        // Страховка стэша: вещи, спрятанные до краша сервера, вернуть до
+        // любой проверки/удержания (дёшево: файл читается только после краша)
+        if (antiBotService != null) {
+            antiBotService.recoverStash(p);
+        }
         if (afkService != null) {
             afkService.onJoin(p);
         }
 
-        teleportService.saveJoinLocation(p);
+        // Заспавнен сразу на платформе — точка входа та, что была до этого
+        Location redirectedFrom = spawnRedirected.remove(uuid);
+        Location joinLoc = redirectedFrom != null ? redirectedFrom : p.getLocation();
+        teleportService.saveJoinLocation(p, joinLoc);
+        boolean joinInCheck = antiBotService != null && antiBotService.isCheckArea(joinLoc);
+        restoreSavedReturn(uuid, joinInCheck);
+        if (redirectedFrom != null && !joinInCheck) {
+            authReturn.putIfAbsent(uuid, redirectedFrom.clone());
+            if (antiBotService != null) {
+                antiBotService.rememberReturn(uuid, redirectedFrom);
+            }
+        }
 
         // Синхронизируем видимость: скрываем всех неавторизованных от нового игрока
         syncHidingFor(p);
 
         if (bedrockSupportService != null && bedrockSupportService.shouldBypassAuth(p)) {
-            sessionManager.login(p);
-            timeoutService.stop(p);
-            reminderService.stop(p);
-            Compat.updateCommands(p);
-            Compat.clearAuthDarkness(p);
-            Scheduler.runSync(plugin, () -> messages.send(p, "join_bedrock_auto_login"));
+            completeLoginNoPassword(p);
+            // Общий финализатор входа — тиком позже (как раньше сообщение):
+            // маршрут after_auth / прокси-перенос не в самом PlayerJoinEvent
+            Scheduler.runAtEntity(plugin, p, () -> {
+                if (p.isOnline() && sessionManager.isLoggedIn(uuid)) {
+                    afterLoginSuccess(p, false, "join_bedrock_auto_login");
+                }
+            });
             return;
         }
 
@@ -269,6 +579,11 @@ public final class AuthListener implements Listener {
         // Антибот забирает игрока СРАЗУ — телепорт в мир проверки на первом же тике,
         // без промежуточного прелогин-спавна.
         if (antibotNow) {
+            // Настоящая точка входа — для возврата после входа и для
+            // сохранения при выходе с арены (иначе playerdata = check-мир)
+            if (!joinInCheck) {
+                authReturn.putIfAbsent(uuid, joinLoc.clone());
+            }
             boolean started = false;
             try {
                 started = antiBotService.beginCheck(p);
@@ -288,16 +603,38 @@ public final class AuthListener implements Listener {
         }
         // Прелогин-точка не задана — держим неавторизованного на платформе
         // проверки, чтобы он (особенно новый аккаунт) не стоял в мире.
-        if ((spawnService == null || !spawnService.hasPrelogin())
+        // С платформой входа отдельная «площадка ожидания» не нужна: дальше
+        // игрока всё равно ставят на платформу (или на арену) — раньше это
+        // был второй телепорт через 3 тика, а при перепроверке он уводил
+        // игрока прямо с арены. Премиум ждёт ответа Mojang на платформе.
+        if (authPlatformEnabled && (spawnService == null || !spawnService.hasPrelogin())) {
+            if (premiumPending) {
+                Scheduler.runAtEntityLater(plugin, p, () -> {
+                    if (p.isOnline() && !sessionManager.isLoggedIn(uuid)
+                            && (antiBotService == null || !antiBotService.isChecking(uuid))) {
+                        sendToAuthPlatform(p);
+                    }
+                }, 3L);
+            }
+        } else if ((spawnService == null || !spawnService.hasPrelogin())
                 && antiBotService != null && antiBotService.isEnabled()) {
             Location hold = antiBotService.holdingSpot();
             if (hold != null) {
-                teleportService.authorizeTeleport(uuid);
-                Scheduler.runAtEntity(plugin, p, () -> {
-                    if (p.isOnline()) {
-                        p.teleport(hold);
+                // Точка входа запоминается: премиум/IP-автовход или /login
+                // вернут игрока сюда, а не оставят на площадке check-мира
+                if (!joinInCheck) {
+                    authReturn.putIfAbsent(uuid, joinLoc.clone());
+                }
+                // Через 3 тика, а не сразу: телепорт в тике входа заставлял
+                // Essentials синхронно ждать загрузку профиля игрока (в профиле
+                // spark — половина нагрузки плагина). Игрок эти 3 тика заморожен.
+                Scheduler.runAtEntityLater(plugin, p, () -> {
+                    if (p.isOnline() && !sessionManager.isLoggedIn(uuid)
+                            && !antiBotService.isChecking(uuid)) {
+                        teleportService.authorizeTeleport(uuid);
+                        Compat.teleport(p, hold);
                     }
-                });
+                }, 3L);
             }
         }
 
@@ -309,25 +646,30 @@ public final class AuthListener implements Listener {
             if (hideDuringAuth) {
                 applyHiding(p);
             }
-            premiumService.check(p, premium -> {
-                if (premium && p.isOnline() && !sessionManager.isLoggedIn(uuid)) {
-                    sessionManager.login(p);
-                    if (authService != null) {
-                        authService.completeLogin(p, "");
-                    }
-                    timeoutService.stop(p);
-                    reminderService.stop(p);
-                    Compat.updateCommands(p);
-                    Compat.clearAuthDarkness(p);
-                    revealPlayer(p);
-                    if (spawnService != null) {
-                        spawnService.teleportAfterLogin(p, false);
-                    }
-                    messages.send(p, "join_premium_auto_login");
-                } else {
-                    startAntiBotOrAuth(p, uuid);
+            premiumService.check(p, premium -> Scheduler.runAtEntity(plugin, p, () -> {
+                // Пока ждали Mojang, игрок мог выйти или войти через /login —
+                // тогда ни автовход, ни антибот/платформа ему не нужны
+                if (!p.isOnline() || sessionManager.isLoggedIn(uuid)) {
+                    return;
                 }
-            });
+                if (premium) {
+                    // F30: лицензия заменяет пароль, но не второй фактор —
+                    // с включённой 2FA сначала код (/2fa <код> или в чат)
+                    AccountRecord prec = accountStore.get(uuid);
+                    if (prec != null && prec.hasTotp() && totpService != null
+                            && totpService.isEnabled() && !totpService.isTrusted(p)) {
+                        totpService.beginChallenge(p, "", false);
+                        timeoutService.start(p);
+                        return;
+                    }
+                    completeLoginNoPassword(p);
+                    if (sessionManager.isLoggedIn(uuid)) {
+                        afterLoginSuccess(p, false, "join_premium_auto_login");
+                        return;
+                    }
+                }
+                startAntiBotOrAuth(p, uuid);
+            }));
             return;
         }
 
@@ -340,9 +682,34 @@ public final class AuthListener implements Listener {
      * иначе игрок получал бы спам «введи /reg», стоя в мире проверки.
      */
     private void startAntiBotOrAuth(Player p, UUID uuid) {
+        startAntiBotOrAuth(p, uuid, false);
+    }
+
+    private void startAntiBotOrAuth(Player p, UUID uuid, boolean afkDone) {
+        if (!p.isOnline() || sessionManager.isLoggedIn(uuid)) {
+            return;
+        }
         if (antiBotService != null && antiBotService.isEnabled() && !antiBotService.isChecking(uuid)) {
             boolean required = !(antiBotService.isOnlyNewPlayers() && accountStore.isRegistered(uuid))
                     || antiBotService.requiresRestartRecheck(uuid);
+            if (required && afkFirst && !afkDone && afkService != null && afkService.isEnabled()
+                    && antiBotService.queueMode() != 2) {
+                // Лобби-очередь выкл: сначала AFK-проверка (шаг вперёд),
+                // потом цепочка антибота. Бот без движения отлетает по
+                // afk.initial_timeout — до арен он не доходит.
+                afkFirstPending.add(uuid);
+                if (hideDuringAuth) {
+                    applyHiding(p);
+                }
+                sendToAuthPlatform(p);
+                messages.send(p, "afk_move_prompt");
+                sendModeIndicator(p);
+                // Окно afk_first ограничено общим таймаутом авторизации: чат и
+                // команды считаются активностью, и без таймаута бот, не делая
+                // шага, висел бы здесь бесконечно. Снимается на шаге (onMove).
+                timeoutService.start(p);
+                return;
+            }
             boolean started = false;
             try {
                 started = required && antiBotService.beginCheck(p);
@@ -364,6 +731,7 @@ public final class AuthListener implements Listener {
             if (hideDuringAuth) {
                 applyHiding(p);
             }
+            sendToAuthPlatform(p);
             sendModeIndicator(p);
             Scheduler.runSync(plugin, () -> {
                 messages.send(p, "join_need_register");
@@ -375,21 +743,25 @@ public final class AuthListener implements Listener {
             return;
         }
 
-        if (sessionManager.canAutoLogin(p)) {
-            sessionManager.login(p);
-            timeoutService.stop(p);
-            reminderService.stop(p);
-            Compat.updateCommands(p);
-            Compat.clearAuthDarkness(p);
-            revealPlayer(p);
-            Scheduler.runSync(plugin, () -> messages.send(p, "join_auto_login"));
-            return;
+        // IP-сессия: только когда IP игроков настоящие (за прокси без
+        // forwarding у всех адрес прокси — сессия досталась бы чужому)
+        if (me.vorchun.registerplugin.util.IpUtil.ipsTrusted() && sessionManager.canAutoLogin(p)) {
+            // F69: лут лобби (в т.ч. на курсоре) не уходит в мир и при IP-сессии
+            if (antiBotService != null) {
+                antiBotService.stripLobbyLoot(p);
+            }
+            completeLoginNoPassword(p);
+            if (sessionManager.isLoggedIn(uuid)) {
+                afterLoginSuccess(p, false, "join_auto_login");
+                return;
+            }
         }
 
         darkness(p);
         if (hideDuringAuth) {
             applyHiding(p);
         }
+        sendToAuthPlatform(p);
         sendModeIndicator(p);
         Scheduler.runSync(plugin, () -> {
             messages.send(p, "join_need_login");
@@ -419,18 +791,55 @@ public final class AuthListener implements Listener {
      * Продолжаем стандартный флоу авторизации.
      */
     public void onAntiBotPassed(Player p) {
+        onAntiBotPassed(p, null);
+    }
+
+    /**
+     * Проверку сняли без прохождения (антибот выключен/перезагружен, мир
+     * недоступен), игрок онлайн — обычный auth-флоу БЕЗ «проверка пройдена».
+     */
+    public void onAntiBotAborted(Player p) {
+        if (p == null || !p.isOnline()) {
+            return;
+        }
+        UUID u = p.getUniqueId();
+        if (sessionManager.isLoggedIn(u)) {
+            return;
+        }
+        Scheduler.runAtEntity(plugin, p, () -> {
+            if (p.isOnline() && !sessionManager.isLoggedIn(u)) {
+                continueAuthFlow(p, u);
+            }
+        });
+    }
+
+    /**
+     * @param back точка входа, куда AntiBotService возвращает игрока
+     *             (null — неизвестна). Точка в check-мире не запоминается.
+     */
+    public void onAntiBotPassed(Player p, Location back) {
         if (p == null || !p.isOnline()) {
             return;
         }
         UUID uuid = p.getUniqueId();
+        if (back != null && back.getWorld() != null
+                && (antiBotService == null || !antiBotService.isCheckArea(back))) {
+            authReturn.putIfAbsent(uuid, back.clone());
+        }
         messages.sendOrDefault(p, "antibot_passed",
                 "{prefix}&#A0FFA0Проверка на бота пройдена!");
         if (sessionManager.isLoggedIn(uuid)) {
             return;
         }
         // Только теперь включаем таймаут и напоминания — во время проверки игрок
-        // не должен получать спам «введи /reg».
-        continueAuthFlow(p, uuid);
+        // не должен получать спам «введи /reg». Тиком позже: AntiBotService
+        // только запланировал телепорт с арены на точку входа — платформа
+        // должна запомнить её, а не арену.
+        Scheduler.runAtEntity(plugin, p, () -> {
+            if (p.isOnline() && !sessionManager.isLoggedIn(uuid)) {
+                continueAuthFlow(p, uuid);
+            }
+        });
     }
 
     /**
@@ -439,6 +848,15 @@ public final class AuthListener implements Listener {
     public void reapplyHidingIfEnabled(Player unauth) {
         if (hideDuringAuth && unauth != null && !sessionManager.isLoggedIn(unauth.getUniqueId())) {
             applyHiding(unauth);
+        }
+    }
+
+    /**
+     * Публичная обёртка: применить auth-тьму с учётом режима и busy-игроков.
+     */
+    public void applyDarknessIfEnabled(Player p) {
+        if (p != null && !sessionManager.isLoggedIn(p.getUniqueId())) {
+            darkness(p);
         }
     }
 
@@ -475,6 +893,22 @@ public final class AuthListener implements Listener {
         if (authed == null) {
             return;
         }
+        // Сидел на платформе авторизации — возвращаем на точку входа.
+        // Но если точка входа сама в check-мире (игрок
+        // перезашёл, отключившись на арене/платформе) —
+        // не возвращаем: там пустота, пусть решает
+        // after_auth-цепочка/страховка в afterLoginSuccess.
+        Location back = authReturn.remove(authed.getUniqueId());
+        if (back != null && back.getWorld() != null && authed.isOnline()
+                && (antiBotService == null
+                    || !antiBotService.isCheckArea(back))) {
+            final Location fb = back;
+            Scheduler.runAtEntity(plugin, authed, () -> {
+                if (authed.isOnline()) {
+                    Compat.teleport(authed, fb);
+                }
+            });
+        }
         for (Player other : Bukkit.getOnlinePlayers()) {
             if (other.equals(authed)) {
                 continue;
@@ -485,6 +919,36 @@ public final class AuthListener implements Listener {
                 Compat.hidePlayer(plugin, authed, other);
                 Compat.hidePlayer(plugin, other, authed);
             }
+        }
+    }
+
+    /**
+     * Телепорт на общую платформу авторизации в check-мире:
+     * точка входа сохраняется, после логина игрок возвращается.
+     * Мир недоступен — игрок остаётся где был.
+     */
+    private void sendToAuthPlatform(Player p) {
+        // Платформа — часть антибот-мира: при выключенном антиботе мир не
+        // создаём; заданная prelogin-точка важнее платформы.
+        if (!authPlatformEnabled || antiBotService == null || p == null
+                || !antiBotService.isEnabled()
+                || (spawnService != null && spawnService.hasPrelogin())) {
+            return;
+        }
+        UUID uuid = p.getUniqueId();
+        Location cur = p.getLocation();
+        // Точку в check-мире (арена, лобби, сама платформа) не запоминаем —
+        // возвращать туда после входа нельзя
+        boolean added = !antiBotService.isCheckArea(cur)
+                && authReturn.putIfAbsent(uuid, cur.clone()) == null;
+        if (!antiBotService.toAuthPlatform(p)) {
+            if (added) {
+                authReturn.remove(uuid);
+            }
+        } else {
+            // Общая платформа = одна точка для всех — взаимное скрытие
+            // обязательно, иначе игроки стоят друг в друге.
+            applyHiding(p);
         }
     }
 
@@ -506,10 +970,161 @@ public final class AuthListener implements Listener {
         }
     }
 
+    // ---------- сохранённые точки возврата (выход до входа из check-мира) ----------
+
+    private static String serializeLoc(Location l) {
+        return l.getWorld().getName() + ";" + l.getX() + ";" + l.getY() + ";" + l.getZ()
+                + ";" + l.getYaw() + ";" + l.getPitch();
+    }
+
+    private static Location parseLoc(String s) {
+        if (s == null) {
+            return null;
+        }
+        // Имя мира — всё до пятой с конца ';' (в имени может встретиться ';')
+        String[] parts = s.split(";");
+        if (parts.length < 6) {
+            return null;
+        }
+        int n = parts.length;
+        String world = String.join(";", java.util.Arrays.copyOfRange(parts, 0, n - 5));
+        org.bukkit.World w = Bukkit.getWorld(world);
+        if (w == null) {
+            return null;
+        }
+        try {
+            return new Location(w, Double.parseDouble(parts[n - 5]), Double.parseDouble(parts[n - 4]),
+                    Double.parseDouble(parts[n - 3]), Float.parseFloat(parts[n - 2]),
+                    Float.parseFloat(parts[n - 1]));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    /** Один раз при старте (onEnable): файл маленький. */
+    private void loadSavedReturns() {
+        java.io.File f = new java.io.File(plugin.getDataFolder(), RETURNS_FILE);
+        if (!f.isFile()) {
+            return;
+        }
+        try {
+            org.bukkit.configuration.file.YamlConfiguration y =
+                    org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(f);
+            for (String k : y.getKeys(false)) {
+                String v = y.getString(k);
+                if (v == null) {
+                    continue;
+                }
+                try {
+                    savedReturns.put(UUID.fromString(k), v);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Не удалось прочитать " + RETURNS_FILE + ": " + t);
+        }
+    }
+
+    /** Запись файла в фоне; серия изменений за тик — одна запись. */
+    private void saveReturnsAsync() {
+        if (!returnsSaveQueued.compareAndSet(false, true)) {
+            return;
+        }
+        Scheduler.runAsync(plugin, () -> {
+            returnsSaveQueued.set(false);
+            org.bukkit.configuration.file.YamlConfiguration y =
+                    new org.bukkit.configuration.file.YamlConfiguration();
+            for (Map.Entry<UUID, String> en : savedReturns.entrySet()) {
+                y.set(en.getKey().toString(), en.getValue());
+            }
+            synchronized (returnsFileLock) {
+                try {
+                    y.save(new java.io.File(plugin.getDataFolder(), RETURNS_FILE));
+                } catch (Throwable t) {
+                    plugin.getLogger().warning("Не удалось записать " + RETURNS_FILE + ": " + t);
+                }
+            }
+        });
+    }
+
+    /**
+     * Вход: игрок стоит в check-мире (вышел оттуда до входа) — настоящую
+     * точку берём из файла. Не в check-мире — запись устарела, удаляем.
+     */
+    private void restoreSavedReturn(UUID uuid, boolean joinInCheck) {
+        String s = savedReturns.get(uuid);
+        if (s == null) {
+            return;
+        }
+        if (!joinInCheck) {
+            forgetSavedReturn(uuid);
+            return;
+        }
+        Location l = parseLoc(s);
+        if (l != null && !antiBotService.isCheckArea(l)) {
+            authReturn.put(uuid, l);
+            antiBotService.rememberReturn(uuid, l);
+        }
+    }
+
+    private void forgetSavedReturn(UUID uuid) {
+        if (savedReturns.remove(uuid) != null) {
+            saveReturnsAsync();
+        }
+    }
+
+    // ---------- блокировка таб-комплита до входа ----------
+
+    /**
+     * Paper: AsyncTabCompleteEvent приходит ДО Brigadier и обычного
+     * TabCompleteEvent — отмена гасит подсказки целиком (ники онлайн,
+     * варпы, тяжёлые комплитеры). На Spigot класса нет — работает только
+     * onTabComplete ниже.
+     */
+    private void registerPaperTabBlock() {
+        final Class<? extends org.bukkit.event.Event> cls;
+        final java.lang.reflect.Method getSender;
+        try {
+            cls = Class.forName("com.destroystokyo.paper.event.server.AsyncTabCompleteEvent")
+                    .asSubclass(org.bukkit.event.Event.class);
+            getSender = cls.getMethod("getSender");
+        } catch (Throwable t) {
+            return;
+        }
+        try {
+            Bukkit.getPluginManager().registerEvent(cls, paperTabListener, EventPriority.LOWEST,
+                    (l, ev) -> {
+                        if (!cls.isInstance(ev) || !(ev instanceof org.bukkit.event.Cancellable)) {
+                            return;
+                        }
+                        try {
+                            Object s = getSender.invoke(ev);
+                            if (s instanceof Player
+                                    && !sessionManager.isLoggedIn(((Player) s).getUniqueId())) {
+                                ((org.bukkit.event.Cancellable) ev).setCancelled(true);
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    }, plugin, false);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AsyncTabCompleteEvent: регистрация не удалась: " + t);
+        }
+    }
+
+    /** До входа подсказки не нужны: ни одна разрешённая команда их не требует. */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onTabComplete(org.bukkit.event.server.TabCompleteEvent e) {
+        if (e.getSender() instanceof Player
+                && !sessionManager.isLoggedIn(((Player) e.getSender()).getUniqueId())) {
+            e.setCancelled(true);
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
         UUID uuid = p.getUniqueId();
+        spawnRedirected.remove(uuid);
         timeoutService.stop(p);
         reminderService.stop(p);
         if (afkService != null) {
@@ -521,15 +1136,34 @@ public final class AuthListener implements Listener {
         pending2faPassword.remove(uuid);
         pendingEmailCode.remove(uuid);
         lastSafeTeleport.remove(uuid);
+        afkFirstPending.remove(uuid);
+        Location back = authReturn.remove(uuid);
+        // Вышел/кикнут до входа, стоя в check-мире (платформа, арена,
+        // лобби): ядро сохранит позицию там — запоминаем настоящую точку,
+        // при следующем входе она вернётся в authReturn.
+        if (back != null && back.getWorld() != null && antiBotService != null
+                && !sessionManager.isLoggedIn(uuid)
+                && antiBotService.isCheckArea(p.getLocation())
+                && !antiBotService.isCheckArea(back)) {
+            savedReturns.put(uuid, serializeLoc(back));
+            saveReturnsAsync();
+        }
         if (antiBotService != null) {
+            // F101: вышел посреди этапа после ошибок — провал для guard
+            // (IP снимаем до cancelCheck; выход без ошибок не караем)
+            if (plugin instanceof RegisterPlugin && antiBotService.quitCountsAsFail(uuid)) {
+                ((RegisterPlugin) plugin).onAntiBotFailed(uuid,
+                        me.vorchun.registerplugin.util.IpUtil.getIp(plugin, p));
+            }
             antiBotService.stripLobbyLoot(p);
             antiBotService.cancelCheck(uuid);
+            antiBotService.forget(uuid);
         }
         if (totpService != null) {
             totpService.cancelChallenge(uuid);
         }
         if (mailService != null) {
-            mailService.clearCode(uuid);
+            mailService.clearVerifyCode(uuid);
         }
         sessionManager.logout(uuid);
         teleportService.clearSavedLocation(uuid);
@@ -588,8 +1222,8 @@ public final class AuthListener implements Listener {
             cleanBase = cleanBase.substring(idx + 1);
         }
 
-        boolean isAuthCmd = cleanBase.equals("l") || cleanBase.equals("login")
-                || cleanBase.equals("reg") || cleanBase.equals("register");
+        boolean isLoginCmd = cleanBase.equals("l") || cleanBase.equals("login");
+        boolean isAuthCmd = isLoginCmd || cleanBase.equals("reg") || cleanBase.equals("register");
         boolean isChangeCmd = cleanBase.equals("changepassword") || cleanBase.equals("changepw")
                 || cleanBase.equals("cp") || cleanBase.equals("passwd");
 
@@ -600,43 +1234,44 @@ public final class AuthListener implements Listener {
             return;
         }
 
+        // Шлюз антибота (D1): регистрация — только после пройденной проверки
+        // (не из очереди, не из окна afk_first, не с арены); вход из очереди
+        // и окна afk_first — только для уже зарегистрированных аккаунтов.
+        if (!loggedIn && isAuthCmd && !(isLoginCmd ? mayLoginNow(uuid) : mayRegisterNow(uuid))) {
+            e.setCancelled(true);
+            sendGateRefusal(p, isLoginCmd);
+            return;
+        }
+
+        // Команда — активность для AFK-детектора: её засчитывает сам
+        // AfkService (MONITOR, в т.ч. отменённые команды ввода пароля).
+
         // Пока идёт проверка на бота (или ждём входа на сервер) — команды
-        // заблокированы, кроме /rpverify <токен> и команд авторизации
-        // (/login /register) — вход из лобби-очереди должен работать.
-        if (!loggedIn && antiBotService != null && antiBotService.isBusy(uuid)) {
-            if (isAuthCmd && !antiBotService.isChecking(uuid)) {
-                // пропускаем к обычной обработке ниже — логин из очереди
-            } else if (isAuthCmd) {
-                // Активная проверка: /login /reg подменили бы ввод ответа
-                // этапа на ввод пароля — блокируем до конца проверки.
-                e.setCancelled(true);
-                messages.sendOrDefault(p, "antibot_wait",
-                        "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате");
-                return;
-            } else {
-                e.setCancelled(true);
-                if (cleanBase.equals("rpverify") && sp >= 0) {
-                    int res = antiBotService.submitClickToken(p, cmd.substring(sp + 1).trim());
-                    if (res == 1) {
-                        messages.sendOrDefault(p, "antibot_click_wrong",
-                                "{prefix}&#FF6666Неверная ссылка подтверждения. Нажми на сообщение выше.");
-                    }
-                } else if (antiBotService.isQueued(uuid)) {
-                    Map<String, String> ph = new HashMap<>();
-                    ph.put("position", String.valueOf(antiBotService.queuePosition(uuid)));
-                    String m = messages.message("antibot_queue", ph);
-                    if (m != null && !m.isEmpty()) {
-                        p.sendMessage(m);
-                    } else {
-                        messages.sendOrDefault(p, "antibot_wait",
-                                "{prefix}&#7F7F7FОчередь на проверку: позиция {position}");
-                    }
+        // заблокированы, кроме /rpverify <токен> и команд авторизации,
+        // которые уже пропустил шлюз выше (вход из лобби-очереди).
+        if (!loggedIn && !isAuthCmd && antiBotService != null && antiBotService.isBusy(uuid)) {
+            e.setCancelled(true);
+            if (cleanBase.equals("rpverify") && sp >= 0) {
+                int res = antiBotService.submitClickToken(p, cmd.substring(sp + 1).trim());
+                if (res == 1) {
+                    messages.sendOrDefault(p, "antibot_click_wrong",
+                            "{prefix}&#FF6666Неверная ссылка подтверждения. Нажми на сообщение выше.");
+                }
+            } else if (antiBotService.isQueued(uuid)) {
+                Map<String, String> ph = new HashMap<>();
+                ph.put("position", String.valueOf(antiBotService.queuePosition(uuid)));
+                String m = messages.message("antibot_queue", ph);
+                if (m != null && !m.isEmpty()) {
+                    p.sendMessage(m);
                 } else {
                     messages.sendOrDefault(p, "antibot_wait",
-                            "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате");
+                            "{prefix}&#7F7F7FОчередь на проверку: позиция {position}");
                 }
-                return;
+            } else {
+                messages.sendOrDefault(p, "antibot_wait",
+                        "{prefix}&#FF6666Сначала пройди проверку на бота — следуй инструкциям в чате");
             }
+            return;
         }
 
         // ---- служебные команды плагина (работают и до, и после входа) ----
@@ -667,21 +1302,8 @@ public final class AuthListener implements Listener {
                     return;
                 }
 
-                if (loggedIn) {
-                    e.setCancelled(true);
-                    messages.send(p, "already_logged_in");
-                    return;
-                }
-
-                long expiresAt = System.currentTimeMillis() + passwordInputTimeoutSec * 1000L;
-                if (cleanBase.equals("l") || cleanBase.equals("login")) {
-                    awaitingPassword.put(uuid, new PendingPassword(PasswordMode.LOGIN, expiresAt));
-                    messages.send(p, "enter_password_chat_login");
-                } else {
-                    awaitingPassword.put(uuid, new PendingPassword(PasswordMode.REGISTER, expiresAt));
-                    messages.send(p, "enter_password_chat_register");
-                }
                 e.setCancelled(true);
+                requestPasswordInput(p, isLoginCmd);
                 return;
             }
 
@@ -699,20 +1321,8 @@ public final class AuthListener implements Listener {
                     }
                     return;
                 }
-                if (loggedIn) {
-                    e.setCancelled(true);
-                    messages.send(p, "already_logged_in");
-                    return;
-                }
-                long expiresAt = System.currentTimeMillis() + passwordInputTimeoutSec * 1000L;
-                if (cleanBase.equals("l") || cleanBase.equals("login")) {
-                    awaitingPassword.put(uuid, new PendingPassword(PasswordMode.LOGIN, expiresAt));
-                    messages.send(p, "enter_password_chat_login");
-                } else {
-                    awaitingPassword.put(uuid, new PendingPassword(PasswordMode.REGISTER, expiresAt));
-                    messages.send(p, "enter_password_chat_register");
-                }
                 e.setCancelled(true);
+                requestPasswordInput(p, isLoginCmd);
                 return;
             }
 
@@ -745,7 +1355,7 @@ public final class AuthListener implements Listener {
                 return;
             }
 
-            if (cleanBase.equals("l") || cleanBase.equals("login")) {
+            if (isLoginCmd) {
                 loginInsecure(p, args);
             } else {
                 registerInsecure(p, args);
@@ -780,19 +1390,48 @@ public final class AuthListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onMove(PlayerMoveEvent e) {
         Player p = e.getPlayer();
-        if (sessionManager.isLoggedIn(p.getUniqueId())) {
-            return;
-        }
-        if (e.getTo() == null) {
-            return;
-        }
         UUID uuid = p.getUniqueId();
+        Location to = e.getTo();
+        if (sessionManager.isLoggedIn(uuid)) {
+            // Авторизованных пасёт AFK-детектор (afk.track_authed): активность —
+            // любой сдвиг (включая присед, вертикаль) и поворот камеры
+            if (afkTrackAuthed && afkService != null && to != null) {
+                Location from = e.getFrom();
+                if (from.getX() != to.getX() || from.getY() != to.getY() || from.getZ() != to.getZ()
+                        || from.getYaw() != to.getYaw() || from.getPitch() != to.getPitch()) {
+                    afkService.onActivity(uuid);
+                }
+            }
+            return;
+        }
+        if (to == null) {
+            return;
+        }
+        Location from = e.getFrom();
         if (afkService != null) {
             afkService.onMove(e);
             // В spectator-грейсе игрок летает свободно — клэмпы очереди
             // и заморозка не применяются, AFK-детектор следит сам.
             if (afkService.isSpectating(uuid)) {
                 return;
+            }
+        }
+        // afk_first: игрок сделал шаг — AFK-проверка пройдена, запускаем
+        // цепочку антибота. Микросдвиг пакетом (0.001) шагом не считается.
+        if (afkFirstPending.contains(uuid)) {
+            double dx = to.getX() - from.getX();
+            double dz = to.getZ() - from.getZ();
+            if (dx * dx + dz * dz >= AFK_FIRST_STEP_SQ) {
+                afkFirstPending.remove(uuid);
+                // Во время проверки таймаут авторизации не идёт — после неё
+                // continueAuthFlow запустит его заново
+                timeoutService.stop(p);
+                if (antiBotService == null || !antiBotService.isChecking(uuid)) {
+                    // Шаг на платформе не должен «уехать» — позицию держим
+                    e.setCancelled(true);
+                    startAntiBotOrAuth(p, uuid, true);
+                    return;
+                }
             }
         }
 
@@ -809,9 +1448,13 @@ public final class AuthListener implements Listener {
             return;
         }
 
-        // ВАЖНО: заморозка ДО любых других проверок — исключение выше
-        // по стеку не должно открывать движение в обычном мире.
-        e.setTo(e.getFrom());
+        // Заморозка отменой события: ядро само возвращает клиента на from
+        // без PlayerTeleportEvent. setTo(from) превращалось в PLUGIN-телепорт,
+        // который гасил наш же onTeleport — клиент не корректировался и
+        // раз в секунду летел на «безопасную» точку. Повороты камеры не мешаем.
+        if (from.getX() != to.getX() || from.getY() != to.getY() || from.getZ() != to.getZ()) {
+            e.setCancelled(true);
+        }
 
         teleportService.checkVoidFall(p);
     }
@@ -822,7 +1465,7 @@ public final class AuthListener implements Listener {
     public void onConsume(PlayerItemConsumeEvent e) {
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())
                 && !(antiBotService != null
-                    && antiBotService.isCheckWorld(e.getPlayer().getWorld()))) {
+                    && antiBotService.isCheckArea(e.getPlayer().getLocation()))) {
             e.setCancelled(true);
         }
     }
@@ -833,7 +1476,7 @@ public final class AuthListener implements Listener {
             return;
         }
         Player p = (Player) e.getEntity();
-        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+        if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
             e.setCancelled(true);
         }
     }
@@ -844,7 +1487,7 @@ public final class AuthListener implements Listener {
             return;
         }
         Player p = (Player) e.getEntity();
-        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+        if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
             // В PvP-зоне лобби стрельба разрешена (лук/арбалет из набора)
             if (antiBotService != null && antiBotService.isPvpArea(p.getLocation())) {
                 return;
@@ -864,7 +1507,7 @@ public final class AuthListener implements Listener {
             return;
         }
         Player p = (Player) src;
-        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+        if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
             if (antiBotService != null && antiBotService.isPvpArea(p.getLocation())) {
                 return;
             }
@@ -874,6 +1517,9 @@ public final class AuthListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInteract(PlayerInteractEvent e) {
+        // Активность авторизованных (клики, блоки, инвентарь, транспорт)
+        // AfkService слушает сам — здесь только правила авторизации
+        boolean loggedIn = sessionManager.isLoggedIn(e.getPlayer().getUniqueId());
         // Кнопка скорости — для всех, кто физически в мире лобби/проверки
         // (включая залогиненного админа, тестирующего лобби)
         if (antiBotService != null && e.getClickedBlock() != null
@@ -892,7 +1538,7 @@ public final class AuthListener implements Listener {
             antiBotService.openKitChest(e.getPlayer());
             return;
         }
-        if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
+        if (!loggedIn) {
             // Кнопка скорости / сундук-набор в лобби-PvP
             if (antiBotService != null && e.getClickedBlock() != null
                     && e.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
@@ -902,7 +1548,7 @@ public final class AuthListener implements Listener {
             // В мире лобби/проверки разрешены клики по воздуху и удары:
             // одеть броню ПКМ, поесть, размахнуться мечом. Открытие чужих
             // блоков (RIGHT_CLICK_BLOCK) остаётся запрещённым.
-            if (antiBotService != null && antiBotService.isCheckWorld(e.getPlayer().getWorld())) {
+            if (antiBotService != null && antiBotService.isCheckArea(e.getPlayer().getLocation())) {
                 // Сундук с инструментом этапа BLOCK — единственный открываемый
                 // блок на проверке (без инструмента целевой блок не сломать)
                 if (e.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
@@ -914,7 +1560,8 @@ public final class AuthListener implements Listener {
                     return;
                 }
                 // ПКМ по блоку с бронёй/едой/щитом в руке — это одевание/еда,
-                // а не открытие блока: разрешаем
+                // а не открытие блока: предмет использовать можно, сам блок
+                // (рычаг, дверь, калитка арены, повторитель) — нет
                 org.bukkit.inventory.ItemStack hand = e.getItem();
                 if (hand != null) {
                     String hn = hand.getType().name();
@@ -922,6 +1569,8 @@ public final class AuthListener implements Listener {
                             || hn.endsWith("_CHESTPLATE") || hn.endsWith("_LEGGINGS")
                             || hn.endsWith("_BOOTS") || hn.equals("SHIELD")
                             || hn.equals("TOTEM_OF_UNDYING")) {
+                        e.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+                        e.setUseItemInHand(org.bukkit.event.Event.Result.ALLOW);
                         return;
                     }
                 }
@@ -946,6 +1595,7 @@ public final class AuthListener implements Listener {
         }
         Player p = (Player) e.getPlayer();
         antiBotService.onPuzzleClose(p, e.getInventory());
+        antiBotService.onToolChestClose(p, e.getInventory());
         antiBotService.onKitClose(p, e.getInventory());
         antiBotService.onKitEditorClose(p, e.getInventory());
     }
@@ -955,7 +1605,7 @@ public final class AuthListener implements Listener {
         Player p = e.getPlayer();
         // Мир проверки/лобби — приватная зона: ломать может только этап BLOCK
         // (целевой блок) либо админ с registerplugin.admin.
-        if (antiBotService != null && antiBotService.isCheckWorld(e.getBlock().getWorld())) {
+        if (antiBotService != null && antiBotService.isCheckArea(e.getBlock().getLocation())) {
             if (antiBotService.isChecking(p.getUniqueId())) {
                 if (!antiBotService.onBlockBreak(p, e.getBlock())) {
                     e.setCancelled(true);
@@ -989,7 +1639,7 @@ public final class AuthListener implements Listener {
         Player p = e.getPlayer();
         // Мир проверки/лобби: строить могут только OP/registerplugin.admin
         // (queue_pvp.admin_modify), функциональные блоки watchdog восстановит
-        if (antiBotService != null && antiBotService.isCheckWorld(e.getBlock().getWorld())
+        if (antiBotService != null && antiBotService.isCheckArea(e.getBlock().getLocation())
                 && !antiBotService.canModifyCheckWorld(p)) {
             e.setCancelled(true);
             return;
@@ -1015,7 +1665,17 @@ public final class AuthListener implements Listener {
         }
 
         Player p = (Player) e.getEntity();
+        if (isNpc(p)) {
+            return;
+        }
         if (sessionManager.isLoggedIn(p.getUniqueId())) {
+            // F70: вошедший (тестер PvP-зоны лобби) — подобранный там лут тоже
+            // метим, иначе копии и лут арены уходят в мир без тега. Только
+            // PvP-арена: свои вещи админа в мире проверки не трогаем.
+            if (antiBotService != null && antiBotService.isPvpArea(p.getLocation())
+                    && antiBotService.isCheckArea(p.getLocation())) {
+                antiBotService.tagLobbyItem(e.getItem());
+            }
             return;
         }
         // Этап BLOCK: подобрать дроп сломанного блока — часть проверки
@@ -1044,47 +1704,117 @@ public final class AuthListener implements Listener {
         }
 
         Player p = (Player) e.getWhoClicked();
-        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
-            // Клики по GUI пазла — обрабатывает AntiBotService
-            if (antiBotService != null && antiBotService.isChecking(p.getUniqueId())) {
-                org.bukkit.inventory.Inventory top = e.getView().getTopInventory();
-                if (antiBotService.onPuzzleClick(p, top, e.getRawSlot())) {
-                    e.setCancelled(true);
-                    return;
-                }
-                // Сундук инструмента этапа BLOCK: брать из него — можно,
-                // класть своё внутрь — нельзя (вещи бы потерялись)
-                if (antiBotService.isToolChestTop(p, top)
-                        && e.getRawSlot() >= 0 && e.getRawSlot() < top.getSize()) {
-                    return;
-                }
+        UUID uuid = p.getUniqueId();
+        if (sessionManager.isLoggedIn(uuid)) {
+            return;
+        }
+        org.bukkit.inventory.Inventory top = e.getView().getTopInventory();
+        int topSize = top == null ? 0 : top.getSize();
+        int raw = e.getRawSlot();
+        boolean inTop = raw >= 0 && raw < topSize;
+        if (antiBotService != null && antiBotService.isChecking(uuid)) {
+            // Клики по GUI пазла — обрабатывает AntiBotService (только
+            // слоты самого окна: номер слота своего инвентаря в окне пазла
+            // вне диапазона)
+            if (inTop && antiBotService.onPuzzleClick(p, top, raw)) {
+                e.setCancelled(true);
+                return;
             }
-            // Лобби: можно брать лут из PvP-сундука (только верхний инвентарь —
-            // свои вещи в сундук положить нельзя, они бы потерялись)
-            // Виртуальный инвентарь набора: брать можно, положить своё — нет
-            if (antiBotService != null && antiBotService.isKitInv(e.getView().getTopInventory())) {
-                if (e.getRawSlot() >= 0 && e.getRawSlot() < e.getView().getTopInventory().getSize()
-                        && e.getClick() != org.bukkit.event.inventory.ClickType.NUMBER_KEY) {
+            // Сундук инструмента этапа BLOCK: из него — только забирать,
+            // в своём инвентаре — раскладывать (взял кирку — положил в
+            // хотбар). Положить своё в сундук нельзя — но это промах
+            // человека, а не бот: без нарушения слот-лока.
+            if (antiBotService.isToolChestTop(p, top)) {
+                if (inTop ? isTakeFromTop(e, p) : isOwnInvClick(e, topSize)) {
                     return;
                 }
                 e.setCancelled(true);
                 return;
             }
-            if (antiBotService != null && antiBotService.isInQueueLobby(p.getUniqueId())
-                    && antiBotService.isPvpArea(p.getLocation())) {
-                org.bukkit.inventory.Inventory topInv = e.getView().getTopInventory();
-                if (topInv != null && topInv.getType() == org.bukkit.event.inventory.InventoryType.CHEST
-                        && e.getRawSlot() >= 0 && e.getRawSlot() < topInv.getSize()
-                        && e.getClick() != org.bukkit.event.inventory.ClickType.NUMBER_KEY) {
-                    return;
-                }
+            // Окно пазла открыто, клик по своему инвентарю — просто отмена
+            if (!inTop && antiBotService.getCurrentStage(uuid) == AntiBotService.Stage.PUZZLE
+                    && top != null && top.getType() != org.bukkit.event.inventory.InventoryType.CRAFTING) {
+                e.setCancelled(true);
+                return;
+            }
+        }
+        // Виртуальный инвентарь набора и PvP-сундук лобби: из окна только
+        // забирать (PICKUP/shift-клик с пустым курсором). SWAP_OFFHAND (F),
+        // цифры и «положить» перенесли бы настоящую вещь в сундук/набор.
+        if (antiBotService != null && antiBotService.isKitInv(top)) {
+            if (inTop ? isTakeFromTop(e, p) : isOwnInvClick(e, topSize)) {
+                return;
             }
             e.setCancelled(true);
-            // Блокиратор слотов: попытка двигать вещи во время проверки —
-            // считаем нарушение, после лимита кик (antibot.slot_lock.*)
-            if (antiBotService != null) {
-                antiBotService.onSlotViolation(p);
+            return;
+        }
+        if (antiBotService != null && top != null
+                && top.getType() == org.bukkit.event.inventory.InventoryType.CHEST
+                && antiBotService.isInQueueLobby(uuid)
+                && antiBotService.isPvpArea(p.getLocation())) {
+            if (inTop ? isTakeFromTop(e, p) : isOwnInvClick(e, topSize)) {
+                return;
             }
+            e.setCancelled(true);
+            return;
+        }
+        e.setCancelled(true);
+        // Блокиратор слотов: попытка двигать вещи во время проверки —
+        // считаем нарушение, после лимита кик (antibot.slot_lock.*).
+        // Клик по пустому месту — не попытка.
+        if (antiBotService != null && (hasItem(e.getCurrentItem()) || hasItem(e.getCursor()))) {
+            antiBotService.onSlotViolation(p);
+        }
+    }
+
+    private static boolean hasItem(org.bukkit.inventory.ItemStack it) {
+        return it != null && it.getType() != org.bukkit.Material.AIR;
+    }
+
+    /**
+     * Клик по верхнему окну — чистое «забрать»: курсор пуст, предмет
+     * уходит на курсор/в свой инвентарь, либо цифрой в ПУСТОЙ слот хотбара.
+     */
+    private static boolean isTakeFromTop(InventoryClickEvent e, Player p) {
+        if (hasItem(e.getCursor())) {
+            return false;
+        }
+        switch (e.getAction()) {
+            case PICKUP_ALL:
+            case PICKUP_HALF:
+            case PICKUP_ONE:
+            case PICKUP_SOME:
+            case MOVE_TO_OTHER_INVENTORY:
+                return true;
+            case HOTBAR_SWAP: {
+                int btn = e.getHotbarButton();
+                return e.getClick() == org.bukkit.event.inventory.ClickType.NUMBER_KEY
+                        && btn >= 0 && btn <= 8 && !hasItem(p.getInventory().getItem(btn));
+            }
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Клик по своему (нижнему) инвентарю, который не переносит вещи в
+     * верхнее окно: shift-клик, сбор на курсор и выброс — запрещены.
+     */
+    private static boolean isOwnInvClick(InventoryClickEvent e, int topSize) {
+        if (e.getRawSlot() < topSize) {
+            return false;
+        }
+        switch (e.getAction()) {
+            case MOVE_TO_OTHER_INVENTORY:
+            case COLLECT_TO_CURSOR:
+            case DROP_ALL_CURSOR:
+            case DROP_ONE_CURSOR:
+            case DROP_ALL_SLOT:
+            case DROP_ONE_SLOT:
+            case UNKNOWN:
+                return false;
+            default:
+                return true;
         }
     }
 
@@ -1103,6 +1833,7 @@ public final class AuthListener implements Listener {
                     if (s == AntiBotService.Stage.BLOCK
                             && antiBotService.isToolChestTop(p, e.getInventory())) {
                         antiBotService.ensureToolChestNow(p);
+                        antiBotService.onToolChestOpen(p);
                     }
                     return;
                 }
@@ -1131,7 +1862,7 @@ public final class AuthListener implements Listener {
             // В лобби драг по СВОЕМУ инвентарю разрешён (раскладка лута)
             if (antiBotService != null
                     && (antiBotService.isInQueueLobby(p.getUniqueId())
-                        || (antiBotService.isCheckWorld(p.getWorld())
+                        || (antiBotService.isCheckArea(p.getLocation())
                             && !antiBotService.isChecking(p.getUniqueId())))) {
                 int topSize = e.getView().getTopInventory() == null ? 0
                         : e.getView().getTopInventory().getSize();
@@ -1152,7 +1883,7 @@ public final class AuthListener implements Listener {
     public void onSwap(PlayerSwapHandItemsEvent e) {
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())
                 && !(antiBotService != null
-                    && antiBotService.isCheckWorld(e.getPlayer().getWorld()))) {
+                    && antiBotService.isCheckArea(e.getPlayer().getLocation()))) {
             e.setCancelled(true);
         }
     }
@@ -1170,7 +1901,7 @@ public final class AuthListener implements Listener {
             return;
         }
         // В лобби-очереди крутить слоты можно — иначе меч не выбрать
-        if (antiBotService != null && antiBotService.isCheckWorld(p.getWorld())) {
+        if (antiBotService != null && antiBotService.isCheckArea(p.getLocation())) {
             return;
         }
         e.setCancelled(true);
@@ -1179,6 +1910,10 @@ public final class AuthListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onTeleport(PlayerTeleportEvent e) {
         if (sessionManager.isLoggedIn(e.getPlayer().getUniqueId())) {
+            return;
+        }
+        // NPC Citizens телепортирует сам плагин (tphere, путь, респавн)
+        if (isNpc(e.getPlayer())) {
             return;
         }
         if (teleportService.consumeAuthorizedTeleport(e.getPlayer().getUniqueId())) {
@@ -1190,6 +1925,18 @@ public final class AuthListener implements Listener {
             return;
         }
         e.setCancelled(true);
+        // Коррекция в пределах того же блока (плагин «вернул на место») —
+        // просто отмена: без броска на «безопасную» точку (крышу столба)
+        Location tf = e.getFrom();
+        Location tt = e.getTo();
+        PlayerTeleportEvent.TeleportCause cause = e.getCause();
+        if (tt != null && tt.getWorld() == tf.getWorld()
+                && (cause == PlayerTeleportEvent.TeleportCause.PLUGIN
+                    || cause == PlayerTeleportEvent.TeleportCause.UNKNOWN)
+                && tt.getBlockX() == tf.getBlockX() && tt.getBlockY() == tf.getBlockY()
+                && tt.getBlockZ() == tf.getBlockZ()) {
+            return;
+        }
         // Возврат в безопасную точку — не чаще раза в секунду,
         // иначе ядро/плагины могут вызвать шквал телепортов и лаг
         UUID uuid = e.getPlayer().getUniqueId();
@@ -1206,9 +1953,9 @@ public final class AuthListener implements Listener {
         if (antiBotService == null) {
             return;
         }
-        org.bukkit.World from = e.getFrom().getWorld();
-        org.bukkit.World to = e.getTo() == null ? null : e.getTo().getWorld();
-        if (from != null && antiBotService.isCheckWorld(from) && to != from) {
+        // Зона, а не мир: в режиме запасной арены лобби/арены висят
+        // в основном мире — выход из них тоже вычищает лут лобби
+        if (antiBotService.isCheckArea(e.getFrom()) && !antiBotService.isCheckArea(e.getTo())) {
             antiBotService.stripLobbyLoot(e.getPlayer());
         }
     }
@@ -1222,7 +1969,7 @@ public final class AuthListener implements Listener {
         }
 
         Player p = (Player) e.getEntered();
-        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+        if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
             e.setCancelled(true);
         }
     }
@@ -1234,7 +1981,7 @@ public final class AuthListener implements Listener {
         }
 
         Player p = (Player) e.getExited();
-        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+        if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
             e.setCancelled(true);
         }
     }
@@ -1249,7 +1996,22 @@ public final class AuthListener implements Listener {
         Player p = e.getPlayer();
         UUID uuid = p.getUniqueId();
 
+        // Чат — активность для AFK: засчитывает сам AfkService (MONITOR)
+        boolean loggedIn = sessionManager.isLoggedIn(uuid);
+
         PendingPassword pending = awaitingPassword.get(uuid);
+        // Пока ждали пароль, игрока перевели из очереди на проверку: ввод
+        // пароля снят — сообщение идёт ответом этапа (ниже), а не паролем
+        if (pending != null && !loggedIn && antiBotService != null && antiBotService.isChecking(uuid)) {
+            awaitingPassword.remove(uuid);
+            pending = null;
+            if (!antiBotService.expectsChat(uuid)) {
+                e.setCancelled(true);
+                e.setMessage("");
+                e.getRecipients().clear();
+                return;
+            }
+        }
         if (pending != null && plugin instanceof RegisterPlugin) {
             // Сначала читаем текст, затем мгновенно отменяем и стираем его,
             // чтобы пароль не ушёл дальше по конвейеру событий
@@ -1313,26 +2075,26 @@ public final class AuthListener implements Listener {
 
         // Код 2FA: игрок уже ввёл пароль, ждём только код
         if (totpService != null && totpService.hasChallenge(uuid)) {
-            String input = e.getMessage() == null ? "" : e.getMessage();
+            final String code = e.getMessage() == null ? "" : e.getMessage().trim();
             e.setCancelled(true);
             e.setMessage("");
             e.getRecipients().clear();
-            int res = totpService.submit(p, input, authService);
-            if (res == 1) {
-                Scheduler.runSync(plugin, () -> {
-                    if (p.isOnline()) {
-                        messages.send(p, "twofa_wrong_code");
-                    }
-                });
-            } else if (res == 2) {
-                Scheduler.runSync(plugin, () -> {
-                    if (p.isOnline()) {
-                        messages.send(p, "twofa_expired");
-                    }
-                });
-            } else {
-                Scheduler.runSync(plugin, () -> afterLoginSuccess(p, false));
+            if (afkService != null) {
+                afkService.onActivity(uuid);
             }
+            // submit завершает вход (AuthLoginEvent синхронный) — только в
+            // потоке игрока, не в асинхронном чат-потоке
+            Scheduler.runAtEntity(plugin, p, () -> {
+                if (!p.isOnline() || !totpService.hasChallenge(uuid)) {
+                    return;
+                }
+                int res = totpService.submit(p, code, authService);
+                if (res == 0) {
+                    afterLoginSuccess(p, false);
+                } else {
+                    messages.send(p, res == 1 ? "twofa_wrong_code" : "twofa_expired");
+                }
+            });
             return;
         }
 
@@ -1392,23 +2154,28 @@ public final class AuthListener implements Listener {
 
     private void handlePendingInput(Player p, UUID uuid, PendingPassword pending, String raw) {
         RegisterPlugin rp = (RegisterPlugin) plugin;
-        int maxLen = plugin.getConfig().getInt("password.max_length", 64);
-        if (maxLen < 8) {
-            maxLen = 8;
+        final int maxLen = passwordMaxLen;
+
+        // Шлюз антибота (D1) — защита в глубину: ожидание пароля могло
+        // начаться до перевода в очередь/окно afk_first
+        if (pending.mode == PasswordMode.LOGIN ? !mayLoginNow(uuid)
+                : (pending.mode == PasswordMode.REGISTER || pending.mode == PasswordMode.REGISTER_CONFIRM)
+                    && !mayRegisterNow(uuid)) {
+            awaitingPassword.remove(uuid);
+            sendGateRefusalAsync(p, pending.mode == PasswordMode.LOGIN);
+            return;
         }
-        if (maxLen > 256) {
-            maxLen = 256;
+        // Ввод пароля — активность для AFK-детектора (Fabric-клиент с
+        // открытым чатом не шлёт движения — иначе кик «за бездействие»)
+        if (afkService != null) {
+            afkService.onActivity(uuid);
         }
 
         switch (pending.mode) {
             case LOGIN:
             case REGISTER: {
                 if (raw.length() > maxLen) {
-                    Scheduler.runSync(plugin, () -> {
-                        if (p.isOnline()) {
-                            messages.send(p, "password_too_long");
-                        }
-                    });
+                    sendAsync(p, "password_too_long");
                     return;
                 }
 
@@ -1416,24 +2183,11 @@ public final class AuthListener implements Listener {
                 if (pending.mode == PasswordMode.REGISTER && requireConfirm) {
                     me.vorchun.registerplugin.service.PasswordValidator.ValidationResult vr =
                             me.vorchun.registerplugin.service.PasswordValidator.validate(raw,
-                                    plugin.getConfig().getInt("password.min_length", 8),
-                                    maxLen, enforceStrength,
+                                    passwordMinLen, maxLen, enforceStrength,
                                     easyPasswordList == null ? null : easyPasswordList.getAllowed());
-                    if (vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.TOO_SHORT) {
-                        sendAsync(p, "password_too_short");
-                        return;
-                    }
-                    if (vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.TOO_LONG) {
-                        sendAsync(p, "password_too_long");
-                        return;
-                    }
-                    if (vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.INVALID_WHITESPACE
-                            || vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.INVALID_NULL) {
-                        sendAsync(p, "password_invalid");
-                        return;
-                    }
-                    if (vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.TOO_WEAK) {
-                        sendAsync(p, "password_too_weak");
+                    String err = validationKey(vr);
+                    if (err != null) {
+                        sendAsync(p, err);
                         return;
                     }
                     awaitingPassword.put(uuid, new PendingPassword(PasswordMode.REGISTER_CONFIRM,
@@ -1448,7 +2202,7 @@ public final class AuthListener implements Listener {
                 // Хеширование/проверка уходят в фоновый пул (AuthService),
                 // главный поток не блокируется даже на 200k итераций PBKDF2
                 if (authService == null) {
-                    Scheduler.runSync(plugin, () -> {
+                    Scheduler.runAtEntity(plugin, p, () -> {
                         if (p.isOnline()) {
                             if (login) {
                                 rp.handleLogin(p, new String[]{pass});
@@ -1460,50 +2214,9 @@ public final class AuthListener implements Listener {
                     return;
                 }
                 if (login) {
-                    authService.login(p, pass, true, result -> {
-                        switch (result) {
-                            case OK:
-                                afterLoginSuccess(p, false);
-                                break;
-                            case WRONG_PASSWORD:
-                                messages.send(p, "wrong_password");
-                                break;
-                            case NOT_REGISTERED:
-                                messages.send(p, "not_registered");
-                                break;
-                            case LOCKED:
-                                messages.send(p, "too_many_attempts_kick");
-                                break;
-                            case NEED_2FA:
-                                break;
-                            default:
-                                messages.send(p, "wrong_password");
-                        }
-                    });
+                    loginViaService(p, pass, true, false);
                 } else {
-                    authService.register(p, pass, (result, validation) -> {
-                        if (result == me.vorchun.registerplugin.service.AuthService.Result.OK) {
-                            afterLoginSuccess(p, true);
-                            return;
-                        }
-                        switch (validation) {
-                            case TOO_SHORT:
-                                messages.send(p, "password_too_short");
-                                break;
-                            case TOO_LONG:
-                                messages.send(p, "password_too_long");
-                                break;
-                            case INVALID_WHITESPACE:
-                            case INVALID_NULL:
-                                messages.send(p, "password_invalid");
-                                break;
-                            case TOO_WEAK:
-                                messages.send(p, "password_too_weak");
-                                break;
-                            default:
-                                messages.send(p, "already_registered");
-                        }
-                    });
+                    registerViaService(p, pass, false);
                 }
                 return;
             }
@@ -1513,7 +2226,7 @@ public final class AuthListener implements Listener {
                 if (!raw.equals(pending.data)) {
                     sendAsync(p, "passwords_dont_match");
                     // возвращаем на шаг ввода пароля
-                    Scheduler.runSync(plugin, () -> {
+                    Scheduler.runAtEntity(plugin, p, () -> {
                         if (p.isOnline()) {
                             awaitingPassword.put(uuid, new PendingPassword(PasswordMode.REGISTER,
                                     System.currentTimeMillis() + passwordInputTimeoutSec * 1000L));
@@ -1523,11 +2236,17 @@ public final class AuthListener implements Listener {
                     return;
                 }
                 final String pass = pending.data;
-                Scheduler.runSync(plugin, () -> {
-                    if (p.isOnline()) {
-                        rp.handleRegister(p, new String[]{pass});
-                    }
-                });
+                // Тот же путь, что и без подтверждения: общий afterLoginSuccess
+                // (выход из очередей, маршрут after_auth, прокси-перенос)
+                if (authService == null) {
+                    Scheduler.runAtEntity(plugin, p, () -> {
+                        if (p.isOnline()) {
+                            rp.handleRegister(p, new String[]{pass});
+                        }
+                    });
+                    return;
+                }
+                registerViaService(p, pass, false);
                 return;
             }
 
@@ -1536,15 +2255,10 @@ public final class AuthListener implements Listener {
                     sendAsync(p, "password_too_long");
                     return;
                 }
-                me.vorchun.registerplugin.service.AccountRecord rec = accountStore.get(uuid);
-                boolean ok = rec != null && me.vorchun.registerplugin.service.PasswordHasher.verify(raw, rec.getPasswordHash());
-                if (!ok) {
-                    awaitingPassword.remove(uuid);
-                    sendAsync(p, "change_password_wrong_old");
-                    return;
-                }
+                // Старый пароль проверяется вместе со сменой — в пуле AuthService
+                // (PBKDF2 не в чат-потоке; неудача считается LoginAttemptService)
                 awaitingPassword.put(uuid, new PendingPassword(PasswordMode.CHANGE_NEW,
-                        System.currentTimeMillis() + passwordInputTimeoutSec * 1000L));
+                        System.currentTimeMillis() + passwordInputTimeoutSec * 1000L, null, raw));
                 sendAsync(p, "enter_password_chat_new");
                 return;
             }
@@ -1552,34 +2266,22 @@ public final class AuthListener implements Listener {
             case CHANGE_NEW: {
                 me.vorchun.registerplugin.service.PasswordValidator.ValidationResult vr =
                         me.vorchun.registerplugin.service.PasswordValidator.validate(raw,
-                                plugin.getConfig().getInt("password.min_length", 8),
-                                maxLen, enforceStrength,
+                                passwordMinLen, maxLen, enforceStrength,
                                 easyPasswordList == null ? null : easyPasswordList.getAllowed());
-                if (vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.TOO_SHORT) {
-                    sendAsync(p, "password_too_short");
-                    return;
-                }
-                if (vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.TOO_LONG) {
-                    sendAsync(p, "password_too_long");
-                    return;
-                }
-                if (vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.INVALID_WHITESPACE
-                        || vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.INVALID_NULL) {
-                    sendAsync(p, "password_invalid");
-                    return;
-                }
-                if (vr == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.TOO_WEAK) {
-                    sendAsync(p, "password_too_weak");
+                String err = validationKey(vr);
+                if (err != null) {
+                    sendAsync(p, err);
                     return;
                 }
                 if (requireConfirm) {
                     awaitingPassword.put(uuid, new PendingPassword(PasswordMode.CHANGE_CONFIRM,
-                            System.currentTimeMillis() + passwordInputTimeoutSec * 1000L, raw));
+                            System.currentTimeMillis() + passwordInputTimeoutSec * 1000L, raw,
+                            pending.oldPassword));
                     sendAsync(p, "enter_password_chat_confirm");
                     return;
                 }
                 awaitingPassword.remove(uuid);
-                applyNewPassword(p, uuid, raw);
+                applyNewPassword(p, pending.oldPassword, raw);
                 return;
             }
 
@@ -1589,35 +2291,113 @@ public final class AuthListener implements Listener {
                     sendAsync(p, "passwords_dont_match");
                     return;
                 }
-                applyNewPassword(p, uuid, pending.data);
+                applyNewPassword(p, pending.oldPassword, pending.data);
                 return;
             }
         }
     }
 
-    private void applyNewPassword(Player p, UUID uuid, String newPassword) {
+    private me.vorchun.registerplugin.service.LoginAttemptService loginAttempts() {
+        return plugin instanceof RegisterPlugin ? ((RegisterPlugin) plugin).getLoginAttemptService() : null;
+    }
+
+    /** Ключ сообщения об ошибке валидации пароля; null — пароль годен. */
+    private static String validationKey(me.vorchun.registerplugin.service.PasswordValidator.ValidationResult vr) {
+        if (vr == null) {
+            return "password_invalid";
+        }
+        switch (vr) {
+            case VALID:
+                return null;
+            case TOO_SHORT:
+                return "password_too_short";
+            case TOO_LONG:
+                return "password_too_long";
+            case TOO_WEAK:
+                return "password_too_weak";
+            default:
+                return "password_invalid";
+        }
+    }
+
+    /** Вход по паролю через AuthService (пул хеширования) + общий финализатор. */
+    private void loginViaService(Player p, String pass, boolean fromChat, boolean insecure) {
+        authService.login(p, pass, fromChat, result -> {
+            switch (result) {
+                case OK:
+                    afterLoginSuccess(p, false);
+                    if (insecure) {
+                        warnPasswordInLogs(p);
+                    }
+                    break;
+                case WRONG_PASSWORD:
+                    messages.send(p, "wrong_password");
+                    break;
+                case NOT_REGISTERED:
+                    messages.send(p, "not_registered");
+                    break;
+                case LOCKED:
+                    messages.send(p, "too_many_attempts_kick");
+                    break;
+                case NEED_2FA:
+                    break;
+                default:
+                    messages.send(p, "wrong_password");
+            }
+        });
+    }
+
+    /** Регистрация через AuthService + общий финализатор (все пути регистрации). */
+    private void registerViaService(Player p, String pass, boolean insecure) {
+        authService.register(p, pass, (result, validation) -> {
+            if (result == me.vorchun.registerplugin.service.AuthService.Result.OK) {
+                afterLoginSuccess(p, true);
+                if (insecure) {
+                    warnPasswordInLogs(p);
+                }
+                return;
+            }
+            String err = validation == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.VALID
+                    ? null : validationKey(validation);
+            if (err != null) {
+                messages.send(p, err);
+            } else if (accountStore.isRegistered(p.getUniqueId())) {
+                messages.send(p, "already_registered");
+            }
+            // Отказы шлюза антибота/хранилища/пула AuthService шлёт сам,
+            // без колбэка — здесь второе сообщение не нужно
+        });
+    }
+
+    /**
+     * Смена пароля: старый проверяется в пуле AuthService вместе с
+     * перехешированием нового. Неверный старый — попытка в LoginAttemptService
+     * (перебор текущего пароля через /cp упирается в тот же лимит, что и /login).
+     */
+    private void applyNewPassword(Player p, String oldPassword, String newPassword) {
         if (authService == null) {
             return;
         }
-        // Старый пароль уже проверен на предыдущем шаге — только перехешируем новый
-        authService.changePassword(p, null, newPassword, false, validation -> {
-            switch (validation) {
-                case VALID:
-                    messages.send(p, "change_password_success");
-                    break;
-                case TOO_SHORT:
-                    messages.send(p, "password_too_short");
-                    break;
-                case TOO_LONG:
-                    messages.send(p, "password_too_long");
-                    break;
-                case INVALID_WHITESPACE:
-                case INVALID_NULL:
-                    messages.send(p, "password_invalid");
-                    break;
-                default:
-                    messages.send(p, "password_too_weak");
+        final UUID uuid = p.getUniqueId();
+        authService.changePassword(p, oldPassword, newPassword, oldPassword != null, validation -> {
+            if (validation == null) {
+                messages.send(p, "change_password_wrong_old");
+                me.vorchun.registerplugin.service.LoginAttemptService la = loginAttempts();
+                if (la != null) {
+                    la.onFail(p);
+                }
+                return;
             }
+            if (validation == me.vorchun.registerplugin.service.PasswordValidator.ValidationResult.VALID) {
+                me.vorchun.registerplugin.service.LoginAttemptService la = loginAttempts();
+                if (la != null) {
+                    la.reset(uuid);
+                }
+                messages.send(p, "change_password_success");
+                return;
+            }
+            String err = validationKey(validation);
+            messages.send(p, err != null ? err : "password_too_weak");
         });
     }
 
@@ -1637,9 +2417,17 @@ public final class AuthListener implements Listener {
 
         Player p = (Player) e.getEntity();
         if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+            // NPC Citizens (Sentinel-стражи, боевые NPC) — урон как обычно
+            if (isNpc(p)) {
+                return;
+            }
             // PvP-урон внутри зоны — разрешён любому, кто физически за линией
-            // (очередь, entry-очередь, залогиненный — неважно)
-            if (e.getCause() == EntityDamageEvent.DamageCause.ENTITY_ATTACK
+            // (очередь, entry-очередь, залогиненный — неважно); стрелы из
+            // лука/арбалета набора — тоже PvP
+            EntityDamageEvent.DamageCause cause = e.getCause();
+            if ((cause == EntityDamageEvent.DamageCause.ENTITY_ATTACK
+                    || cause == EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK
+                    || cause == EntityDamageEvent.DamageCause.PROJECTILE)
                     && antiBotService != null
                     && antiBotService.isPvpArea(p.getLocation())) {
                 return;
@@ -1652,7 +2440,7 @@ public final class AuthListener implements Listener {
     public void onDamageBy(EntityDamageByEntityEvent e) {
         if (e.getDamager() instanceof Player) {
             Player p = (Player) e.getDamager();
-            if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+            if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
                 // Punch on puzzle item frame (PUZZLE stage) = remove extra tile
                 if (antiBotService != null
                         && antiBotService.onPuzzleFrameHit(p, e.getEntity())) {
@@ -1677,7 +2465,14 @@ public final class AuthListener implements Listener {
             ProjectileSource src = proj.getShooter();
             if (src instanceof Player) {
                 Player p = (Player) src;
-                if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+                if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
+                    // Стрелок и жертва-игрок в PvP-зоне лобби — выстрел засчитан
+                    if (e.getEntity() instanceof Player
+                            && antiBotService != null
+                            && antiBotService.isPvpArea(p.getLocation())
+                            && antiBotService.isPvpArea(e.getEntity().getLocation())) {
+                        return;
+                    }
                     e.setCancelled(true);
                 }
             }
@@ -1730,7 +2525,7 @@ public final class AuthListener implements Listener {
     public void onPlayerAnimation(org.bukkit.event.player.PlayerAnimationEvent e) {
         if (!sessionManager.isLoggedIn(e.getPlayer().getUniqueId())
                 && !(antiBotService != null
-                    && antiBotService.isCheckWorld(e.getPlayer().getWorld()))) {
+                    && antiBotService.isCheckArea(e.getPlayer().getLocation()))) {
             e.setCancelled(true);
         }
     }
@@ -1788,65 +2583,30 @@ public final class AuthListener implements Listener {
 
     /** Вход по паролю из команды (без передачи команды ядру). */
     private void loginInsecure(Player p, String password) {
+        if (!mayLoginNow(p.getUniqueId())) {
+            sendGateRefusal(p, true);
+            return;
+        }
         if (authService == null) {
             messages.send(p, "insecure_mode_warn");
             ((RegisterPlugin) plugin).handleLogin(p, new String[]{password});
             return;
         }
-        authService.login(p, password, false, result -> {
-            switch (result) {
-                case OK:
-                    afterLoginSuccess(p, false);
-                    warnPasswordInLogs(p);
-                    break;
-                case WRONG_PASSWORD:
-                    messages.send(p, "wrong_password");
-                    break;
-                case NOT_REGISTERED:
-                    messages.send(p, "not_registered");
-                    break;
-                case LOCKED:
-                    messages.send(p, "too_many_attempts_kick");
-                    break;
-                case NEED_2FA:
-                    break;
-                default:
-                    messages.send(p, "wrong_password");
-            }
-        });
+        loginViaService(p, password, false, true);
     }
 
     /** Регистрация по паролю из команды. */
     private void registerInsecure(Player p, String password) {
+        if (!mayRegisterNow(p.getUniqueId())) {
+            sendGateRefusal(p, false);
+            return;
+        }
         if (authService == null) {
             messages.send(p, "insecure_mode_warn");
             ((RegisterPlugin) plugin).handleRegister(p, new String[]{password});
             return;
         }
-        authService.register(p, password, (result, validation) -> {
-            if (result == me.vorchun.registerplugin.service.AuthService.Result.OK) {
-                afterLoginSuccess(p, true);
-                warnPasswordInLogs(p);
-                return;
-            }
-            switch (validation) {
-                case TOO_SHORT:
-                    messages.send(p, "password_too_short");
-                    break;
-                case TOO_LONG:
-                    messages.send(p, "password_too_long");
-                    break;
-                case INVALID_WHITESPACE:
-                case INVALID_NULL:
-                    messages.send(p, "password_invalid");
-                    break;
-                case TOO_WEAK:
-                    messages.send(p, "password_too_weak");
-                    break;
-                default:
-                    messages.send(p, "already_registered");
-            }
-        });
+        registerViaService(p, password, true);
     }
 
     /** Смена пароля командами /changepassword <old> <new>. */
@@ -1855,29 +2615,7 @@ public final class AuthListener implements Listener {
             messages.send(p, "change_password_usage");
             return;
         }
-        authService.changePassword(p, oldPassword, newPassword, true, validation -> {
-            if (validation == null) {
-                messages.send(p, "change_password_wrong_old");
-                return;
-            }
-            switch (validation) {
-                case VALID:
-                    messages.send(p, "change_password_success");
-                    break;
-                case TOO_SHORT:
-                    messages.send(p, "password_too_short");
-                    break;
-                case TOO_LONG:
-                    messages.send(p, "password_too_long");
-                    break;
-                case INVALID_WHITESPACE:
-                case INVALID_NULL:
-                    messages.send(p, "password_invalid");
-                    break;
-                default:
-                    messages.send(p, "password_too_weak");
-            }
-        });
+        applyNewPassword(p, oldPassword, newPassword);
     }
 
     /**
@@ -1894,17 +2632,52 @@ public final class AuthListener implements Listener {
     }
 
     /**
-     * Общая часть после успешного входа/регистрации.
+     * Общая часть после успешного входа/регистрации (пароль, регистрация).
      * Маршрут игрока: прокси-трансфер в лобби → спавны → лобби-локация.
      */
-    private void afterLoginSuccess(Player p, boolean firstTime) {
+    public void afterLoginSuccess(Player p, boolean firstTime) {
+        afterLoginSuccess(p, firstTime, firstTime ? "register_success" : "login_success");
+    }
+
+    /**
+     * ЕДИНЫЙ финализатор любого успешного входа: пароль, регистрация (с
+     * подтверждением и без), IP-сессия, премиум, Bedrock, админский
+     * forcelogin, API, TRUST от прокси. Сессия уже должна быть открыта
+     * (SessionManager.login). Снимает ожидания/проверку/очереди, выводит из
+     * check-мира, возвращает на точку входа, ведёт по after_auth / прокси.
+     * @param messageKey итоговое сообщение игроку; null — не отправлять
+     */
+    public void afterLoginSuccess(Player p, boolean firstTime, String messageKey) {
+        if (antiBotService != null) {
+            antiBotService.stopPacketWatch(p);
+        }
+        if (p == null) {
+            return;
+        }
+        if (!Scheduler.isPrimaryThread()) {
+            Scheduler.runAtEntity(plugin, p, () -> afterLoginSuccess(p, firstTime, messageKey));
+            return;
+        }
+        if (!p.isOnline()) {
+            return;
+        }
+        UUID uuid = p.getUniqueId();
+        awaitingPassword.remove(uuid);
+        riskyCommands.remove(uuid);
+        afkFirstPending.remove(uuid);
+        forgetSavedReturn(uuid);
         if (afkService != null) {
-            afkService.onLogin(p.getUniqueId());
+            afkService.onLogin(uuid);
         }
         timeoutService.stop(p);
         reminderService.stop(p);
         Compat.updateCommands(p);
         Compat.clearAuthDarkness(p);
+        // Вход в обход проверки (forcelogin, TRUST): проверку снимаем с
+        // возвратом инвентаря и точки входа — иначе вещи остались бы в стейте арены
+        if (antiBotService != null && antiBotService.isChecking(uuid)) {
+            antiBotService.cancelCheck(uuid, true);
+        }
         revealPlayer(p);
         // Игрок мог залогиниться, стоя в лобби-очереди — снимаем с очередей,
         // иначе он навсегда остался бы в лобби ожидания
@@ -1913,7 +2686,11 @@ public final class AuthListener implements Listener {
         }
         boolean proxyTransfer = plugin.getConfig().getBoolean("proxy_server.enabled", false)
                 && teleportService.isProxyMode();
-        if (proxyTransfer) {
+        // D2: цель entry-очереди ждала авторизации — теперь переносим туда
+        String entryTarget = antiBotService == null ? null : antiBotService.consumeEntryTarget(uuid);
+        if (entryTarget != null && teleportService.isProxyMode()) {
+            teleportService.transferToServer(p, entryTarget);
+        } else if (proxyTransfer) {
             teleportService.teleportToLobby(p);
         } else {
             // Куда отправить после входа. after_auth.target / new_target:
@@ -1980,7 +2757,7 @@ public final class AuthListener implements Listener {
                     teleportService.authorizeTeleport(p.getUniqueId());
                     Scheduler.runAtEntity(plugin, p, () -> {
                         if (p.isOnline()) {
-                            p.teleport(dest);
+                            Compat.teleport(p, dest);
                         }
                     });
                     done = true;
@@ -2005,7 +2782,7 @@ public final class AuthListener implements Listener {
                     teleportService.authorizeTeleport(p.getUniqueId());
                     Scheduler.runAtEntity(plugin, p, () -> {
                         if (p.isOnline()) {
-                            p.teleport(dest);
+                            Compat.teleport(p, dest);
                         }
                     });
                     done = true;
@@ -2016,7 +2793,34 @@ public final class AuthListener implements Listener {
                 teleportService.teleportToLobby(p);
             }
         }
-        messages.send(p, firstTime ? "register_success" : "login_success");
+        // Страховка: после входа игрок не должен остаться
+        // в check-мире — точка входа могла быть там
+        // (перезаход с арены/платформы), режим "last"/
+        // "none", прокси-фолбэк на спавн check-мира и т.п.
+        // Проверка отложенная: даём отложенным
+        // телепортам выше сработать, потом —
+        // принудительно на спавн основного мира.
+        final AntiBotService ab = antiBotService;
+        if (ab != null) {
+            final TeleportService ts = teleportService;
+            Scheduler.runAtEntityLater(plugin, p, new Runnable() {
+                @Override
+                public void run() {
+                    if (p.isOnline() && ab.isCheckArea(p.getLocation())) {
+                        org.bukkit.World main = Bukkit.getWorlds().isEmpty()
+                                ? null : Bukkit.getWorlds().get(0);
+                        if (main != null && !ab.isCheckWorld(main)) {
+                            ts.authorizeTeleport(p.getUniqueId());
+                            Compat.teleport(p, main.getSpawnLocation());
+                            p.setFallDistance(0f);
+                        }
+                    }
+                }
+            }, 10L);
+        }
+        if (messageKey != null) {
+            messages.send(p, messageKey);
+        }
     }
 
     // ---------- /2fa, /email, /recover ----------
@@ -2068,19 +2872,69 @@ public final class AuthListener implements Listener {
             messages.send(p, "twofa_usage");
             return;
         }
-        String sub = args.toLowerCase(Locale.ROOT);
+        String[] a = args.split("\\s+");
+        String sub = a[0].toLowerCase(Locale.ROOT);
+        AccountRecord rec = accountStore.get(uuid);
         if (sub.equals("off") || sub.equals("disable") || sub.equals("выкл")) {
+            // Выключение — только с кодом: иначе угнанная сессия (IP-сессия,
+            // чужой ПК) одной командой навсегда снимает второй фактор
+            if (rec != null && rec.hasTotp()) {
+                if (a.length < 2) {
+                    messages.sendOrDefault(p, "twofa_off_need_code",
+                            "{prefix}&#FFFFFFЧтобы выключить 2FA, введи код из приложения: &#A0FFA0/2fa off 123456");
+                    return;
+                }
+                if (!totpService.check(rec.getTotpSecret(), a[1])) {
+                    messages.send(p, "twofa_wrong_code");
+                    me.vorchun.registerplugin.service.LoginAttemptService la = loginAttempts();
+                    if (la != null) {
+                        la.onFail(p);
+                    }
+                    return;
+                }
+            }
             totpService.disable(p);
             messages.send(p, "twofa_disabled_done");
             return;
         }
         if (sub.equals("on") || sub.equals("enable") || sub.equals("вкл")) {
+            // Уже включена: новый секрет без кода от старого = та же дыра
+            if (rec != null && rec.hasTotp()) {
+                messages.sendOrDefault(p, "twofa_already_enabled",
+                        "{prefix}&#FFFF66Двухфакторка уже включена. Сменить секрет: сначала &#A0FFA0/2fa off <код>");
+                return;
+            }
             String secret = totpService.generateSecret();
             pending2faPassword.put(uuid, secret);
-            messages.send(p, "twofa_setup");
-            p.sendMessage(messages.format("&7Секрет: &f" + secret, new HashMap<>()));
-            p.sendMessage(messages.format("&7Ссылка: &f" + totpService.buildUrl(p.getName(), secret), new HashMap<>()));
+            String url = totpService.buildUrl(p.getName(), secret);
+            // Ссылку otpauth:// Minecraft не открывает — даём QR на карте в руке
+            // (сканируется камерой в приложении) и ключ текстом для ручного ввода
+            boolean qr = twoFactorQr != null && twoFactorQr.give(p, url);
+            messages.sendOrDefault(p, qr ? "twofa_setup_qr" : "twofa_setup",
+                    qr ? "{prefix}&#FFFFFFВ руке — &#FFD700QR-код&#FFFFFF. Открой Google Authenticator / Яндекс Ключ → «+» → «Сканировать QR-код» и наведи камеру на карту."
+                            : "{prefix}&#FFFFFFОткрой приложение-аутентификатор и добавь ключ ниже вручную.");
+            if (!qr) {
+                messages.sendOrDefault(p, "twofa_qr_no_slot",
+                        "{prefix}&#FF6666QR-код не выдан: освободи слот в хотбаре и снова напиши &#FFD700/2fa on&#FF6666 (или введи ключ вручную).");
+            }
+            // Ключ группами по 4 — так удобнее вводить вручную; клик копирует без пробелов
+            StringBuilder grouped = new StringBuilder();
+            for (int i = 0; i < secret.length(); i++) {
+                if (i > 0 && i % 4 == 0) {
+                    grouped.append(' ');
+                }
+                grouped.append(secret.charAt(i));
+            }
+            sendCopyable(p, messages.format("&7Ключ для ручного ввода (клик — скопировать): &f&l" + grouped, new HashMap<>()), secret);
             messages.send(p, "twofa_confirm_hint");
+            return;
+        }
+        if (sub.equals("cancel") || sub.equals("отмена")) {
+            pending2faPassword.remove(uuid);
+            if (twoFactorQr != null) {
+                twoFactorQr.take(p);
+            }
+            messages.sendOrDefault(p, "twofa_cancelled", "{prefix}&#FFFF66Включение 2FA отменено.");
             return;
         }
         // ввод кода для включения
@@ -2088,6 +2942,9 @@ public final class AuthListener implements Listener {
         if (secret != null && totpService.check(secret, args)) {
             pending2faPassword.remove(uuid);
             totpService.enable(p, secret);
+            if (twoFactorQr != null) {
+                twoFactorQr.take(p);
+            }
             messages.send(p, "twofa_enabled_done");
         } else if (secret != null) {
             messages.send(p, "twofa_wrong_code");
@@ -2096,9 +2953,21 @@ public final class AuthListener implements Listener {
         }
     }
 
+    private static final java.util.regex.Pattern EMAIL =
+            java.util.regex.Pattern.compile("^[A-Za-z0-9._%+\\-]{1,64}@[A-Za-z0-9.\\-]{1,190}\\.[A-Za-z]{2,24}$");
+
     private void handleEmail(Player p, String args) {
         if (mailService == null || !mailService.isEnabled()) {
             messages.send(p, "email_disabled");
+            if (p.hasPermission("registerplugin.admin")) {
+                p.sendMessage(org.bukkit.ChatColor.GRAY + "Админ: включи email.enabled и заполни email.smtp в config.yml, "
+                        + "затем проверь: /authadmin testmail <почта>");
+            }
+            return;
+        }
+        // Запасной ввод кода командой (/email 123456) — если чат-плагин перехватывает сообщения
+        if (args.matches("\\d{6}") && pendingEmailCode.containsKey(p.getUniqueId())) {
+            handleEmailCode(p, p.getUniqueId(), args);
             return;
         }
         UUID uuid = p.getUniqueId();
@@ -2110,7 +2979,7 @@ public final class AuthListener implements Listener {
             messages.send(p, "email_usage");
             return;
         }
-        if (args.indexOf('@') < 0 || args.length() < 5) {
+        if (!EMAIL.matcher(args).matches()) {
             messages.send(p, "email_invalid");
             return;
         }
@@ -2139,8 +3008,17 @@ public final class AuthListener implements Listener {
                 messages.send(p, "recover_no_email");
                 return;
             }
-            mailService.sendCode(uuid, r.getEmail(), "recover", p.getName(), ok ->
-                    messages.send(p, ok ? "recover_code_sent" : "email_send_failed"));
+            mailService.sendCode(uuid, r.getEmail(), "recover", p.getName(), ok -> {
+                if (!p.isOnline()) {
+                    return;
+                }
+                messages.send(p, ok ? "recover_code_sent" : "email_send_failed");
+                if (ok) {
+                    // Письмо + переход в почту + ввод кода — дольше минуты на вход:
+                    // продлеваем таймаут (не больше 5 мин, чтобы ник не держали)
+                    timeoutService.extend(p, Math.min(300, mailService.codeMinutes() * 60));
+                }
+            });
             return;
         }
         // /recover <код> <новый пароль>
@@ -2221,7 +3099,7 @@ public final class AuthListener implements Listener {
         if (e.getNewEffect() == null) {
             return;
         }
-        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+        if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
             org.bukkit.potion.PotionEffectType type = e.getNewEffect().getType();
             boolean dark = type.equals(org.bukkit.potion.PotionEffectType.BLINDNESS)
                     || type.getName().equalsIgnoreCase("darkness");
@@ -2342,7 +3220,7 @@ public final class AuthListener implements Listener {
             return;
         }
         Player p = e.getEntity();
-        if (!sessionManager.isLoggedIn(p.getUniqueId())) {
+        if (!sessionManager.isLoggedIn(p.getUniqueId()) && !isNpc(p)) {
             // PvP в очереди-лобби: убийца +N позиций, погибший −N (если включено)
             if (antiBotService != null) {
                 try {
@@ -2376,7 +3254,7 @@ public final class AuthListener implements Listener {
         if (sessionManager.isLoggedIn(p.getUniqueId())) {
             // Залогиненный умер в мире проверки (бездна и т.п.) —
             // не оставляем его там: перенаправляем в основной мир
-            if (antiBotService != null && antiBotService.isCheckWorld(e.getRespawnLocation().getWorld())) {
+            if (antiBotService != null && antiBotService.isCheckArea(e.getRespawnLocation())) {
                 java.util.List<org.bukkit.World> ws = Bukkit.getWorlds();
                 if (!ws.isEmpty()) {
                     e.setRespawnLocation(ws.get(0).getSpawnLocation());
@@ -2418,25 +3296,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = -111058282
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-;
+    private static final int READY = 866283002;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

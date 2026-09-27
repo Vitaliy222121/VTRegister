@@ -46,6 +46,16 @@ public final class MessageService {
 
     private volatile String languageMode = "auto";
     private volatile boolean useHex = true;
+    /** Готовые цветные строки: боссбары и частые сообщения не гоняют regex каждый раз. */
+    private final Map<String, String> colorCache = java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<String, String>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                    return size() > 512;
+                }
+            });
+    /** messages.prefix — кэш на reload (format() зовётся на каждое сообщение). */
+    private volatile String cachedPrefix;
 
     public MessageService(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -58,6 +68,9 @@ public final class MessageService {
         }
         languageMode = languageMode.toLowerCase(Locale.ROOT);
         useHex = plugin.getConfig().getBoolean("messages.use_hex", true);
+        colorCache.clear();
+        String pfx = plugin.getConfig().getString("messages.prefix");
+        cachedPrefix = pfx == null ? "" : pfx;
         languages.clear();
         loadLanguage("ru");
         loadLanguage("en");
@@ -100,6 +113,11 @@ public final class MessageService {
         } catch (Throwable t) {
             plugin.getLogger().warning("Не удалось загрузить язык " + code + ": " + t.getMessage());
         }
+    }
+
+    /** Код языка (ru/en) для получателя — для кэшей текстов по языку. */
+    public String languageOf(CommandSender to) {
+        return languageFor(to);
     }
 
     /** Язык для конкретного получателя. */
@@ -234,16 +252,27 @@ public final class MessageService {
         if (raw == null) {
             return null;
         }
-        Map<String, String> ph = new HashMap<>(placeholders == null ? new HashMap<>() : placeholders);
-        String prefix = plugin.getConfig().getString("messages.prefix");
+        Map<String, String> ph = placeholders == null ? new HashMap<>() : new HashMap<>(placeholders);
+        String prefix = cachedPrefix;
         if (prefix == null) {
-            prefix = "";
+            prefix = plugin.getConfig().getString("messages.prefix");
+            if (prefix == null) {
+                prefix = "";
+            }
         }
         ph.putIfAbsent("prefix", prefix);
 
         String msg = applyPlaceholders(raw, ph);
-        msg = useHex ? applyHexColors(msg) : removeHexColors(msg);
-        return org.bukkit.ChatColor.translateAlternateColorCodes('&', msg);
+        String done = colorCache.get(msg);
+        if (done != null) {
+            return done;
+        }
+        done = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                useHex ? applyHexColors(msg) : removeHexColors(msg));
+        if (msg.length() <= 300) {
+            colorCache.put(msg, done);
+        }
+        return done;
     }
 
     private Map<String, String> withPlayer(CommandSender to, Map<String, String> placeholders) {
@@ -312,7 +341,7 @@ public final class MessageService {
             String hex = m.group(1);
             String replacement;
             try {
-                replacement = net.md_5.bungee.api.ChatColor.of("#" + hex).toString();
+                replacement = me.vorchun.registerplugin.util.LegacyColor.of("#" + hex);
             } catch (Throwable t) {
                 replacement = "";
             }
@@ -322,7 +351,7 @@ public final class MessageService {
         return sb.toString();
     }
 
-    private static final int READY = -111058299;
+    private static final int READY = 866282985;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1018) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

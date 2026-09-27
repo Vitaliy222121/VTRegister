@@ -44,9 +44,37 @@ public final class Compat {
     }
 
     public static boolean isSupported() {
-        // 1.16.5 и новее, включая новую нумерацию 26.x (major > 1 всегда true)
-        return isVersionAtLeast(1, 16, 5);
+        // 1.13 и новее, включая новую нумерацию 26.x (major > 1 всегда true)
+        return isVersionAtLeast(1, 13, 0);
     }
+
+    /**
+     * Телепорт, безопасный для Folia: там Entity#teleport из чужого региона
+     * бросает исключение — используем teleportAsync (есть и в Paper 1.16.5).
+     * На Paper/Spigot — обычный синхронный teleport.
+     */
+    public static void teleport(org.bukkit.entity.Entity e, org.bukkit.Location loc) {
+        if (e == null || loc == null) {
+            return;
+        }
+        if (ServerCore.isFolia()) {
+            try {
+                Method m = teleportAsync;
+                if (m == null) {
+                    // метод интерфейса Entity — один на все реализации
+                    m = org.bukkit.entity.Entity.class.getMethod("teleportAsync", org.bukkit.Location.class);
+                    teleportAsync = m;
+                }
+                m.invoke(e, loc);
+                return;
+            } catch (Throwable ignored) {
+            }
+        }
+        e.teleport(loc);
+    }
+
+    /** Кэш Entity#teleportAsync (Folia) — рефлексия один раз, не на каждый телепорт. */
+    private static volatile Method teleportAsync;
 
     public static void updateCommands(Player player) {
         if (player == null) {
@@ -123,16 +151,25 @@ public final class Compat {
         }
     }
 
+    private static volatile PotionEffectType darknessType;
+    private static volatile boolean darknessResolved;
+
+    /** «Тьма» 1.19+ (null — нет): рефлексия через Registry — один раз за запуск. */
+    private static PotionEffectType darkness() {
+        if (!darknessResolved) {
+            darknessType = isVersionAtLeast(1, 19, 0) ? findEffect("darkness") : null;
+            darknessResolved = true;
+        }
+        return darknessType;
+    }
+
     @SuppressWarnings("deprecation")
     public static void applyAuthDarkness(Player player) {
         if (player == null) {
             return;
         }
 
-        PotionEffectType type = null;
-        if (isVersionAtLeast(1, 19, 0)) {
-            type = findEffect("darkness");
-        }
+        PotionEffectType type = darkness();
         if (type == null) {
             type = PotionEffectType.BLINDNESS;
         }
@@ -153,13 +190,11 @@ public final class Compat {
         }
 
         try {
-            if (isVersionAtLeast(1, 19, 0)) {
-                PotionEffectType darkness = findEffect("darkness");
-                if (darkness != null) {
-                    player.removePotionEffect(darkness);
-                }
+            PotionEffectType darkness = darkness();
+            if (darkness != null && player.hasPotionEffect(darkness)) {
+                player.removePotionEffect(darkness);
             }
-            if (PotionEffectType.BLINDNESS != null) {
+            if (PotionEffectType.BLINDNESS != null && player.hasPotionEffect(PotionEffectType.BLINDNESS)) {
                 player.removePotionEffect(PotionEffectType.BLINDNESS);
             }
         } catch (Throwable ignored) {
@@ -189,7 +224,7 @@ public final class Compat {
         }
     }
 
-    private static final int READY = -111058248;
+    private static final int READY = 866282964;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1025) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

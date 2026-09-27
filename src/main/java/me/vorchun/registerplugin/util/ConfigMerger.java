@@ -83,6 +83,8 @@ public final class ConfigMerger {
             }
         }
 
+        List<String> originalLines = new ArrayList<>(userLines);
+
         // Шаг 1: мёрдж ключей 2-го уровня внутри существующих секций
         boolean changedInner = false;
         for (Block def : defBlocks) {
@@ -95,8 +97,23 @@ public final class ConfigMerger {
         }
         boolean upgraded = resourceName.startsWith("lang/")
                 && upgradeStalePlaceholders(userLines, defBlocks);
+        if ("config.yml".equals(resourceName) && dropObsolete(userLines)) {
+            upgraded = true;
+        }
         if (changedInner || upgraded) {
-            rewriteFile(target, userLines);
+            // Никогда не пишем YAML, который потом не распарсится: битый
+            // конфиг молча сбросился бы на дефолты (storage/БД владельца).
+            if (yamlParses(String.join("\n", userLines))) {
+                rewriteFile(target, userLines);
+            } else {
+                plugin.getLogger().warning("ConfigMerger: " + target.getName()
+                        + " — слияние дало бы нечитаемый YAML (необычные отступы?), файл не тронут. "
+                        + "Недостающие ключи работают со значениями по умолчанию.");
+                userLines.clear();
+                userLines.addAll(originalLines);
+                changedInner = false;
+                upgraded = false;
+            }
         }
 
         // Шаг 2: отсутствующие топ-секции дописываем в конец файла
@@ -118,7 +135,13 @@ public final class ConfigMerger {
             }
         }
         if (tail.length() > 0) {
-            appendToFile(target, tail.toString());
+            if (yamlParses(String.join("\n", userLines) + "\n" + tail)) {
+                appendToFile(target, tail.toString());
+            } else {
+                plugin.getLogger().warning("ConfigMerger: " + target.getName()
+                        + " — дописывание новых секций дало бы нечитаемый YAML, файл не тронут");
+                tail.setLength(0);
+            }
         }
         if (changedInner || upgraded || tail.length() > 0) {
             plugin.getLogger().warning(resourceName
@@ -155,6 +178,10 @@ public final class ConfigMerger {
             if (start < 0) {
                 continue;
             }
+            int ind = sectionIndent(userLines, start, end);
+            if (ind <= 0) {
+                continue;
+            }
             for (String defLine : defSection.lines) {
                 String dk = keyAt(defLine, 2);
                 if (dk == null) {
@@ -165,12 +192,12 @@ public final class ConfigMerger {
                     continue;
                 }
                 for (int i = start + 1; i < end; i++) {
-                    String uk = keyAt(userLines.get(i), 2);
+                    String uk = keyAt(userLines.get(i), ind);
                     if (uk == null || !uk.equals(dk)) {
                         continue;
                     }
                     if (!placeholdersOf(userLines.get(i)).containsAll(need)) {
-                        userLines.set(i, defLine);
+                        userLines.set(i, reindent(defLine, ind));
                         changed = true;
                     }
                     break;
@@ -223,33 +250,254 @@ public final class ConfigMerger {
             return false;
         }
 
-        // Ключи 2-го уровня, уже существующие у пользователя
-        Set<String> userSecond = new LinkedHashSet<>();
-        for (int i = start + 1; i < end; i++) {
-            String k = keyAt(userLines.get(i), 2);
-            if (k != null) {
-                userSecond.add(k);
+        // Фактический отступ секции у пользователя (2, 4, …). Раньше
+        // считался ровно 2 — при 4 пробелах все ключи «терялись» и
+        // дописывались дубликатами с чужим отступом (YAML не парсился).
+        int ind = sectionIndent(userLines, start, end);
+        if (ind < 0) {
+            return false; // секция — список или скаляр: ключи не вставить
+        }
+        if (ind == 0) {
+            String top = userLines.get(start);
+            String after = top.substring(top.indexOf(':') + 1).trim();
+            if (!after.isEmpty() && !after.startsWith("#")) {
+                return false; // «key: value» / «key: {}» — не секция
             }
+            ind = 2;
         }
 
-        // Подблоки 2-го уровня в дефолтной секции
-        List<Block> defSecond = splitBlocks(defSection.lines.subList(1, defSection.lines.size()), 2);
-        List<String> insert = new ArrayList<>();
-        for (Block sb : defSecond) {
-            if (userSecond.contains(sb.key)) {
-                continue;
-            }
-            if (insert.isEmpty()) {
-                insert.add("  # -- добавлено обновлением RegisterPlugin --");
-            }
-            insert.addAll(sb.header);
-            insert.addAll(sb.lines);
-        }
-        if (insert.isEmpty()) {
+        // Недостающие ключи ЛЮБОЙ глубины (вместе с их #-описаниями):
+        // раньше восстанавливался только 2-й уровень, удалённый
+        // antibot.bans.permanent или global_blacklist.publish.port не возвращался.
+        List<Ins> ins = new ArrayList<>();
+        mergeSection(userLines, start, end, ind, ind,
+                defSection.lines.subList(1, defSection.lines.size()), 2, ins);
+        if (ins.isEmpty()) {
             return false;
         }
-        userLines.addAll(end, insert);
+        // Снизу вверх; при равной позиции — сначала родитель, потом вложенная секция
+        ins.sort((a, b) -> a.at != b.at ? Integer.compare(b.at, a.at) : Integer.compare(b.seq, a.seq));
+        for (Ins x : ins) {
+            userLines.addAll(x.at, x.lines);
+        }
         return true;
+    }
+
+    private static final class Ins {
+        final int at;
+        final int seq;
+        final List<String> lines;
+
+        Ins(int at, int seq, List<String> lines) {
+            this.at = at;
+            this.seq = seq;
+            this.lines = lines;
+        }
+    }
+
+    /**
+     * Рекурсивно дописать недостающие ключи в секцию пользователя.
+     * uStart — строка ключа секции, uEnd — её конец (не включая),
+     * childInd — отступ детей у пользователя, step — шаг отступа файла,
+     * defContent — содержимое секции в дефолте, defInd — отступ детей там.
+     */
+    private static void mergeSection(List<String> user, int uStart, int uEnd, int childInd, int step,
+                                     List<String> defContent, int defInd, List<Ins> out) {
+        java.util.Map<String, int[]> have = new java.util.LinkedHashMap<>();
+        for (int i = uStart + 1; i < uEnd; i++) {
+            String k = keyAt(user.get(i), childInd);
+            if (k == null) {
+                continue;
+            }
+            int j = i + 1;
+            while (j < uEnd) {
+                String l = user.get(j);
+                if (!isCommentOrBlank(l) && indentOf(l) <= childInd) {
+                    break;
+                }
+                j++;
+            }
+            have.put(k, new int[]{i, j});
+        }
+        List<String> add = new ArrayList<>();
+        for (Block b : splitBlocks(defContent, defInd)) {
+            int[] r = have.get(b.key);
+            if (r == null) {
+                if (add.isEmpty()) {
+                    add.add(spaces(childInd) + "# -- добавлено обновлением VTRegister --");
+                }
+                for (String l : b.header) {
+                    add.add(reindent(l, step));
+                }
+                for (String l : b.lines) {
+                    add.add(reindent(l, step));
+                }
+                continue;
+            }
+            String keyLine = user.get(r[0]);
+            String after = keyLine.substring(keyLine.indexOf(':') + 1).trim();
+            if ((after.isEmpty() || after.startsWith("#")) && b.lines.size() > 1) {
+                int ci = sectionIndent(user, r[0], r[1]);
+                if (ci < 0) {
+                    continue; // у пользователя там список — не трогаем
+                }
+                if (ci == 0) {
+                    ci = childInd + step;
+                }
+                mergeSection(user, r[0], r[1], ci, step, b.lines.subList(1, b.lines.size()), defInd + 2, out);
+            }
+        }
+        if (!add.isEmpty()) {
+            int at = uEnd;
+            // вставляем после последней значимой строки секции, а не после
+            // комментариев, которые уже относятся к следующему ключу
+            while (at - 1 > uStart && isCommentOrBlank(user.get(at - 1))) {
+                at--;
+            }
+            out.add(new Ins(at, out.size(), add));
+        }
+    }
+
+    /** Ключи, которые больше не действуют: удаляются вместе со своими # описаниями. */
+    private static final String[][] OBSOLETE = {
+            {"twofactor", "require_for_admins"}, // → twofactor.force_admins (по умолчанию выкл)
+            {"afk", "track_authed"}              // → afk.kick_after_login
+    };
+
+    static boolean dropObsolete(List<String> lines) {
+        boolean changed = false;
+        for (String[] k : OBSOLETE) {
+            int sec = -1;
+            for (int i = 0; i < lines.size(); i++) {
+                if (k[0].equals(keyAt(lines.get(i), 0))) {
+                    sec = i;
+                    break;
+                }
+            }
+            if (sec < 0) {
+                continue;
+            }
+            for (int i = sec + 1; i < lines.size(); i++) {
+                String l = lines.get(i);
+                if (isCommentOrBlank(l)) {
+                    continue;
+                }
+                int ind = indentOf(l);
+                if (ind == 0) {
+                    break; // следующая секция
+                }
+                if (!k[1].equals(keyAt(l, ind))) {
+                    continue;
+                }
+                int j = i + 1;
+                while (j < lines.size() && isCommentOrBlank(lines.get(j))) {
+                    j++;
+                }
+                if (j < lines.size() && indentOf(lines.get(j)) > ind) {
+                    break; // вложенная секция — не трогаем
+                }
+                int from = i;
+                while (from - 1 > sec && lines.get(from - 1).trim().startsWith("#")
+                        && indentOf(lines.get(from - 1)) == ind) {
+                    from--;
+                }
+                for (int r = i; r >= from; r--) {
+                    lines.remove(r);
+                }
+                changed = true;
+                break;
+            }
+        }
+        return changed;
+    }
+
+    private static int indentOf(String l) {
+        int n = 0;
+        while (n < l.length() && l.charAt(n) == ' ') {
+            n++;
+        }
+        return n;
+    }
+
+    private static String spaces(int n) {
+        StringBuilder sb = new StringBuilder(n);
+        for (int i = 0; i < n; i++) {
+            sb.append(' ');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * То же слияние в памяти (для тестов): шаг 1 — недостающие ключи внутри
+     * секций, шаг 2 — недостающие секции в конец. Возвращает новый текст.
+     */
+    static List<String> mergeLines(List<String> defLines, List<String> userLines) {
+        List<String> user = new ArrayList<>(userLines);
+        List<Block> defBlocks = splitBlocks(defLines, 0);
+        Set<String> top = new LinkedHashSet<>();
+        for (String line : user) {
+            String k = keyAt(line, 0);
+            if (k != null) {
+                top.add(k);
+            }
+        }
+        for (Block def : defBlocks) {
+            if (top.contains(def.key)) {
+                mergeSecondLevel(user, def);
+            }
+        }
+        for (Block def : defBlocks) {
+            if (!top.contains(def.key)) {
+                user.addAll(def.header);
+                user.addAll(def.lines);
+            }
+        }
+        return user;
+    }
+
+    /**
+     * Отступ первой значимой строки секции (start, end).
+     * 0 = у секции нет содержимого; -1 = содержимое — список/мусор.
+     */
+    private static int sectionIndent(List<String> lines, int start, int end) {
+        for (int i = start + 1; i < end; i++) {
+            String l = lines.get(i);
+            if (isCommentOrBlank(l)) {
+                continue;
+            }
+            int n = 0;
+            while (n < l.length() && l.charAt(n) == ' ') {
+                n++;
+            }
+            if (n == 0 || n >= l.length() || l.charAt(n) == '-' || l.charAt(n) == '\t') {
+                return -1;
+            }
+            return n;
+        }
+        return 0;
+    }
+
+    /**
+     * Переиндентировать строку дефолта (шаг 2 пробела) под шаг ind:
+     * уровень вложенности сохраняется, строка встаёт в отступы пользователя.
+     */
+    private static String reindent(String line, int ind) {
+        if (ind == 2 || line == null) {
+            return line;
+        }
+        int n = 0;
+        while (n < line.length() && line.charAt(n) == ' ') {
+            n++;
+        }
+        if (n == 0 || n == line.length()) {
+            return line;
+        }
+        int nn = (n / 2) * ind + (n % 2);
+        StringBuilder sb = new StringBuilder(nn + line.length() - n);
+        for (int i = 0; i < nn; i++) {
+            sb.append(' ');
+        }
+        return sb.append(line, n, line.length()).toString();
     }
 
     /**
@@ -386,15 +634,23 @@ public final class ConfigMerger {
             return;
         }
         String text = readTextTolerant(f, plugin);
-        if (text == null || yamlParses(text)) {
+        if (text != null && yamlParses(text)) {
+            String rep = repairMojibake(text);
+            if (!rep.equals(text) && yamlParses(rep)) {
+                writeUtf8(f, rep);
+                plugin.getLogger().warning("ConfigMerger: " + f.getName()
+                    + " содержал битую кодировку/символы — исправлен и пересохранён в UTF-8");
+            }
             return;
         }
-        for (String candidate : candidates(text)) {
-            if (yamlParses(candidate)) {
-                writeUtf8(f, candidate);
-                plugin.getLogger().warning("ConfigMerger: " + f.getName()
+        if (text != null) {
+            for (String candidate : candidates(text)) {
+                if (yamlParses(candidate)) {
+                    writeUtf8(f, candidate);
+                    plugin.getLogger().warning("ConfigMerger: " + f.getName()
                         + " содержал битую кодировку/символы — исправлен и пересохранён в UTF-8");
-                return;
+                    return;
+                }
             }
         }
         try {
@@ -458,13 +714,18 @@ public final class ConfigMerger {
         try {
             byte[] raw = java.nio.file.Files.readAllBytes(f.toPath());
             try {
-                return decodeStrict(raw, StandardCharsets.UTF_8);
+                String s = decodeStrict(raw, StandardCharsets.UTF_8);
+                if (!s.isEmpty() && s.charAt(0) == 0xFEFF) {
+                    s = s.substring(1);
+                    writeUtf8(f, s);
+                }
+                return s;
             } catch (Throwable bad) {
                 String s = decodeStrict(raw, java.nio.charset.Charset.forName("windows-1251"));
                 writeUtf8(f, s);
                 if (plugin != null) {
                     plugin.getLogger().warning("ConfigMerger: " + f.getName()
-                            + " был в ANSI/CP1251 — пересохранён в UTF-8");
+                        + " содержал битую кодировку/символы — исправлен и пересохранён в UTF-8");
                 }
                 return s;
             }
@@ -492,49 +753,82 @@ public final class ConfigMerger {
     }
 
     /**
-     * Обратный mojibake-ремонт: строки, где UTF-8 был прочитан как CP1251
-     * и сохранён как UTF-8 (мусор вида Ð¤Ð¾ÑЂ, â€), пакуются обратно
-     * в байты и декодируются как UTF-8.
+     * Обратный mojibake-ремонт построчно: строки, где UTF-8 был прочитан
+     * как windows-1252 (Поп, ) или windows-1251 (РџРѕРї  кириллица
+     * в диапазоне U+0400+), кодируются обратно в байты и декодируются
+     * как UTF-8. Настоящая кириллица не проходит проверку (байты-лиды
+     * без trail-байтов) и остаётся нетронутой.
      */
     private static String repairMojibake(String text) {
-        if (text.indexOf('Ð') < 0 && text.indexOf('Ñ') < 0
-                && text.indexOf('Ã') < 0 && text.indexOf('â') < 0) {
-            return text;
-        }
         String[] lines = text.split("\n", -1);
         StringBuilder out = new StringBuilder(text.length());
+        boolean touched = false;
         for (int li = 0; li < lines.length; li++) {
             String ln = lines[li];
             if (li > 0) {
                 out.append('\n');
             }
             int hi = 0;
-            boolean tooBig = false;
             for (int i = 0; i < ln.length(); i++) {
-                char c = ln.charAt(i);
-                if (c > 0xFF) {
-                    tooBig = true;
-                    break;
-                }
-                if (c >= 0x80) {
+                if (ln.charAt(i) >= 0x80) {
                     hi++;
                 }
             }
-            if (tooBig || hi < 2) {
+            if (hi < 2) {
                 out.append(ln);
                 continue;
             }
-            byte[] bs = new byte[ln.length()];
+            String fixed = null;
+            // latin-1: каждый символ <= 0xFF -> байт (реальный коррупт
+            // репозитория шёл именно этим путём, включая C1-символы)
+            boolean allLow = true;
             for (int i = 0; i < ln.length(); i++) {
-                bs[i] = (byte) ln.charAt(i);
+                if (ln.charAt(i) > 0xFF) {
+                    allLow = false;
+                    break;
+                }
             }
-            try {
-                out.append(decodeStrict(bs, StandardCharsets.UTF_8));
-            } catch (Throwable t) {
+            if (allLow) {
+                byte[] bs = new byte[ln.length()];
+                for (int i = 0; i < ln.length(); i++) {
+                    bs[i] = (byte) ln.charAt(i);
+                }
+                try {
+                    fixed = decodeStrict(bs, StandardCharsets.UTF_8);
+                } catch (Throwable t) {
+                    fixed = null;
+                }
+            }
+            if (fixed == null) {
+                fixed = tryRepair(ln, "windows-1252");
+            }
+            if (fixed == null) {
+                fixed = tryRepair(ln, "windows-1251");
+            }
+            if (fixed != null) {
+                out.append(fixed);
+                touched = true;
+            } else {
                 out.append(ln);
             }
         }
-        return out.toString();
+        return touched ? out.toString() : text;
+    }
+
+    /** Перекодировать строку: charset -> байты -> UTF-8. null = не удалось. */
+    private static String tryRepair(String line, String charset) {
+        try {
+            java.nio.ByteBuffer bb = java.nio.charset.Charset.forName(charset)
+                    .newEncoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .encode(java.nio.CharBuffer.wrap(line));
+            byte[] bs = new byte[bb.remaining()];
+            bb.get(bs);
+            return decodeStrict(bs, StandardCharsets.UTF_8);
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /**
@@ -551,6 +845,19 @@ public final class ConfigMerger {
             org.bukkit.configuration.file.YamlConfiguration c =
                     new org.bukkit.configuration.file.YamlConfiguration();
             c.loadFromString(text);
+            // Mojibake внутри валидного YAML тоже чиним: если ремонт дал
+            // другой текст и он парсится — предпочитаем отремонтированный.
+            String rep = repairMojibake(text);
+            if (!rep.equals(text)) {
+                try {
+                    org.bukkit.configuration.file.YamlConfiguration c2 =
+                            new org.bukkit.configuration.file.YamlConfiguration();
+                    c2.loadFromString(rep);
+                    writeUtf8(f, rep);
+                    return c2;
+                } catch (Throwable ignored) {
+                }
+            }
             return c;
         } catch (Throwable t) {
             for (String candidate : candidates(text)) {
@@ -586,30 +893,7 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int READY = -111058245
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-;
+    private static final int READY = 866282967;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1026) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

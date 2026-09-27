@@ -8,6 +8,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import me.vorchun.registerplugin.RegisterPlugin;
+import me.vorchun.registerplugin.listener.AuthListener;
 import me.vorchun.registerplugin.service.AccountStore;
 import me.vorchun.registerplugin.service.AuthService;
 import me.vorchun.registerplugin.service.AuthTimeoutService;
@@ -70,6 +71,13 @@ public final class RegisterCommand implements CommandExecutor {
             messages.send(player, "password_in_command_blocked");
             return true;
         }
+        // Команда дошла сюда в обход PlayerCommandPreprocessEvent (например,
+        // Bukkit.dispatchCommand другим плагином) — ввод пароля и шлюз
+        // антибота ведёт AuthListener, иначе подсказка «введи пароль» врала бы
+        if (plugin.getAuthListener() != null) {
+            plugin.getAuthListener().requestPasswordInput(player, false);
+            return true;
+        }
         messages.send(player, "enter_password_chat_register");
         return true;
     }
@@ -83,11 +91,25 @@ public final class RegisterCommand implements CommandExecutor {
         if (auth == null) {
             return true;
         }
+        // Шлюз антибота (D1): регистрация только после пройденной проверки
+        AuthListener al = plugin.getAuthListener();
+        if (al != null && !al.mayRegisterNow(player.getUniqueId())) {
+            messages.sendOrDefault(player, "antibot_wait_register",
+                    "{prefix}&#FF6666Регистрация откроется после проверки на бота — следуй инструкциям в чате");
+            return true;
+        }
         auth.register(player, password, (result, validation) -> {
             if (result == AuthService.Result.OK) {
+                loginAttemptService.reset(player.getUniqueId());
+                // Единый финализатор входа: очереди антибота, выход из
+                // check-мира, маршрут after_auth и прокси-перенос в лобби
+                AuthListener listener = plugin.getAuthListener();
+                if (listener != null) {
+                    listener.afterLoginSuccess(player, true);
+                    return;
+                }
                 timeoutService.stop(player);
                 reminderService.stop(player);
-                loginAttemptService.reset(player.getUniqueId());
                 Compat.updateCommands(player);
                 Compat.clearAuthDarkness(player);
                 if (plugin.getAuthListener() != null) {
@@ -116,7 +138,14 @@ public final class RegisterCommand implements CommandExecutor {
                     messages.send(player, "password_too_weak");
                     break;
                 default:
-                    messages.send(player, "already_registered");
+                    // Отказ без ошибки пароля и без аккаунта — шлюз антибота в AuthService
+                    if (validation == PasswordValidator.ValidationResult.VALID
+                            && !accountStore.isRegistered(player.getUniqueId())) {
+                        messages.sendOrDefault(player, "antibot_wait_register",
+                                "{prefix}&#FF6666Регистрация откроется после проверки на бота — следуй инструкциям в чате");
+                    } else {
+                        messages.send(player, "already_registered");
+                    }
             }
         });
         return true;
@@ -127,7 +156,7 @@ public final class RegisterCommand implements CommandExecutor {
         return plugin.validatePassword(password);
     }
 
-    private static final int READY = -111058283;
+    private static final int READY = 866283001;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1008) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

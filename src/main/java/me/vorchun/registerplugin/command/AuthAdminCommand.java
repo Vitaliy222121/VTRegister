@@ -131,6 +131,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
                     UUID uuid = target.getUniqueId();
                     accountStore.remove(uuid);
                     sessionManager.logout(uuid);
+                    forgetTotpTrust(uuid);
                     beginAuthentication(uuid);
                     audit(sender, "reset", target);
                     Map<String, String> ph = new HashMap<>();
@@ -171,8 +172,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
                         messages.send(sender, "admin_player_offline");
                         return;
                     }
-                    sessionManager.login(online);
-                    cleanupAfterLogin(online);
+                    forceLogin(online);
                     audit(sender, "forcelogin", target);
                     Map<String, String> ph = new HashMap<>();
                     ph.put("target", safeName(target));
@@ -187,6 +187,24 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
 
             case "unban":
                 return unban(sender, args);
+
+            case "testmail": {
+                // Проверка SMTP: письмо на указанный адрес и понятная причина ошибки
+                if (args.length < 2 || args[1].indexOf('@') < 0) {
+                    sender.sendMessage(org.bukkit.ChatColor.YELLOW + "/authadmin testmail <почта> — отправить проверочное письмо");
+                    return true;
+                }
+                RegisterPlugin rpm = plugin instanceof RegisterPlugin ? (RegisterPlugin) plugin : null;
+                if (rpm == null || rpm.getMailService() == null) {
+                    return true;
+                }
+                sender.sendMessage(org.bukkit.ChatColor.GRAY + "Отправляю проверочное письмо на " + args[1] + "…");
+                rpm.getMailService().sendTest(args[1], err -> sender.sendMessage(err == null
+                        ? org.bukkit.ChatColor.GREEN + "Письмо отправлено — почта работает. Проверь входящие и «Спам»."
+                        : org.bukkit.ChatColor.RED + "Почта НЕ работает: " + err
+                        + org.bukkit.ChatColor.GRAY + " (Gmail/Яндекс: нужен «пароль приложения»; порт 465 — ssl: true, 587 — STARTTLS)"));
+                return true;
+            }
 
             case "pvpkit": {
                 // GUI-редактор набора двойного сундука в лобби-PvP
@@ -238,12 +256,13 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
             messages.send(sender, "admin_usage");
             return true;
         }
-        OfflinePlayer target = resolveTarget(args[1]);
-        if (target == null) {
-            messages.send(sender, "admin_player_not_found");
-            return true;
-        }
-        action.run(sender, target);
+        resolveTarget(args[1], target -> {
+            if (target == null) {
+                messages.send(sender, "admin_player_not_found");
+                return;
+            }
+            action.run(sender, target);
+        });
         return true;
     }
 
@@ -260,7 +279,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
                 onlineWaiting++;
             }
         }
-        ph.put("total", String.valueOf(accountStore.snapshotCached().size()));
+        ph.put("total", String.valueOf(accountStore.cachedCount()));
         ph.put("logged", String.valueOf(onlineLogged));
         ph.put("waiting", String.valueOf(onlineWaiting));
         ph.put("mode", rp != null && rp.getAuthListener() != null && rp.getAuthListener().isSecureMode() ? "secure" : "insecure");
@@ -335,11 +354,19 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
             return true;
         }
         Player admin = (Player) sender;
-        OfflinePlayer target = resolveTarget(args[1]);
-        if (target == null) {
-            messages.send(sender, "admin_player_not_found");
-            return true;
-        }
+        resolveTarget(args[1], target -> {
+            if (target == null) {
+                messages.send(sender, "admin_player_not_found");
+                return;
+            }
+            if (admin.isOnline()) {
+                beginSetPassword(admin, target);
+            }
+        });
+        return true;
+    }
+
+    private void beginSetPassword(Player admin, OfflinePlayer target) {
         pendingSetpwTarget.put(admin.getUniqueId(), target.getUniqueId());
         me.vorchun.registerplugin.util.Scheduler.Task prev = pendingSetpwTimeout.remove(admin.getUniqueId());
         if (prev != null) {
@@ -356,7 +383,6 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         Map<String, String> ph = new HashMap<>();
         ph.put("target", safeName(target));
         messages.send(admin, "admin_setpw_prompt", ph);
-        return true;
     }
 
     private boolean setSpawn(CommandSender sender, String[] args) {
@@ -472,6 +498,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
                 }
                 sessionManager.logout(targetUuid);
                 accountStore.clearAuth(targetUuid);
+                forgetTotpTrust(targetUuid);
                 beginAuthentication(targetUuid);
                 if (admin != null) {
                     audit(admin, "setpw", Bukkit.getOfflinePlayer(targetUuid));
@@ -492,6 +519,25 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
     }
 
     // ---------- вспомогательное ----------
+
+    /**
+     * Вход без пароля — общим путём AuthListener (как вход через мост прокси):
+     * снятие проверок/очередей/таймеров, восстановление состояния, маршрут после входа.
+     * Старый ручной путь — только если общий недоступен.
+     */
+    private void forceLogin(Player online) {
+        if (sessionManager.isLoggedIn(online.getUniqueId())) {
+            return;
+        }
+        RegisterPlugin rp = plugin instanceof RegisterPlugin ? (RegisterPlugin) plugin : null;
+        if (rp != null && rp.getAuthListener() != null) {
+            rp.getAuthListener().loginWithoutPassword(online, null);
+        }
+        if (!sessionManager.isLoggedIn(online.getUniqueId())) {
+            sessionManager.login(online);
+            cleanupAfterLogin(online);
+        }
+    }
 
     private void cleanupAfterLogin(Player online) {
         RegisterPlugin rp = plugin instanceof RegisterPlugin ? (RegisterPlugin) plugin : null;
@@ -515,6 +561,13 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         me.vorchun.registerplugin.util.Compat.clearAuthDarkness(online);
     }
 
+    /** Сброс/смена пароля админом отзывает и «доверенное устройство» 2FA. */
+    private void forgetTotpTrust(UUID uuid) {
+        if (plugin instanceof RegisterPlugin && ((RegisterPlugin) plugin).getTotpService() != null) {
+            ((RegisterPlugin) plugin).getTotpService().forgetTrust(uuid);
+        }
+    }
+
     private void beginAuthentication(UUID targetUuid) {
         if (!(plugin instanceof RegisterPlugin)) {
             return;
@@ -526,25 +579,31 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
     }
 
     /**
-     * Поиск аккаунта. ВАЖНО: сначала смотрим свою базу и онлайн-игроков,
-     * и только потом Bukkit.getOfflinePlayer (он может ходить в Mojang API
-     * и подвешивать главный поток на online-mode серверах).
+     * Поиск аккаунта. ВАЖНО: сначала смотрим онлайн-игроков (кэш), офлайн-ник
+     * ищем в базе в IO-потоке (не в главном: сетевой round-trip MySQL), и только
+     * по UUID из базы берём Bukkit.getOfflinePlayer (по нику он может ходить в
+     * Mojang API и подвешивать главный поток на online-mode серверах).
+     * Колбэк — в главном потоке; null — не найдено.
      */
-    private OfflinePlayer resolveTarget(String name) {
+    private void resolveTarget(String name, java.util.function.Consumer<OfflinePlayer> callback) {
         if (name == null || name.trim().isEmpty()) {
-            return null;
+            callback.accept(null);
+            return;
         }
         String trimmed = name.trim();
         Player online = Bukkit.getPlayerExact(trimmed);
         if (online != null) {
-            return accountStore.isRegistered(online.getUniqueId()) ? online : null;
+            callback.accept(accountStore.isRegistered(online.getUniqueId()) ? online : null);
+            return;
         }
-        AccountRecord byName = accountStore.findByNameBlocking(trimmed);
-        if (byName == null) {
-            return null;
-        }
-        Player byUuid = Bukkit.getPlayer(byName.getUuid());
-        return byUuid != null ? byUuid : Bukkit.getOfflinePlayer(byName.getUuid());
+        accountStore.findByNameAsync(trimmed, byName -> {
+            if (byName == null) {
+                callback.accept(null);
+                return;
+            }
+            Player byUuid = Bukkit.getPlayer(byName.getUuid());
+            callback.accept(byUuid != null ? byUuid : Bukkit.getOfflinePlayer(byName.getUuid()));
+        });
     }
 
     private void audit(CommandSender sender, String action, OfflinePlayer target) {
@@ -564,16 +623,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         return r != null && !r.getName().isEmpty() ? r.getName() : p.getUniqueId().toString();
     }
 
-    private static final int READY = -111058280
-
-
-
-
-
-
-
-
-;
+    private static final int READY = 866282996;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1005) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

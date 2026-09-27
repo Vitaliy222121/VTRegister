@@ -17,7 +17,7 @@ import java.util.Locale;
  */
 public final class VtRegisterCommand implements CommandExecutor, TabCompleter {
 
-    private static final List<String> SUBS = Arrays.asList("help", "status", "cmds");
+    private static final List<String> SUBS = Arrays.asList("help", "status", "reload", "cmds");
     private final MessageService messages;
 
     public VtRegisterCommand(MessageService messages) {
@@ -31,6 +31,13 @@ public final class VtRegisterCommand implements CommandExecutor, TabCompleter {
             case "status":
                 if (sender.hasPermission("registerplugin.admin")) {
                     org.bukkit.Bukkit.dispatchCommand(sender, "authadmin status");
+                } else {
+                    sender.sendMessage(color("&cНет доступа."));
+                }
+                return true;
+            case "reload":
+                if (sender.hasPermission("registerplugin.admin")) {
+                    org.bukkit.Bukkit.dispatchCommand(sender, "authadmin reload");
                 } else {
                     sender.sendMessage(color("&cНет доступа."));
                 }
@@ -52,6 +59,7 @@ public final class VtRegisterCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(color("&e/email <адрес> — привязка почты, /recover — восстановление"));
         if (sender.hasPermission("registerplugin.admin")) {
             sender.sendMessage(color("&6&m——&r &cАдмин &6&m——"));
+            sender.sendMessage(color("&c/vtregister reload — перезагрузить конфиг и тексты"));
             sender.sendMessage(color("&c/authadmin status|list|info <ник> — состояние и аккаунты"));
             sender.sendMessage(color("&c/authadmin reset|unregister|setpw|logout|forcelogin <ник>"));
             sender.sendMessage(color("&c/authadmin setspawn <prelogin|postlogin|firstjoin>"));

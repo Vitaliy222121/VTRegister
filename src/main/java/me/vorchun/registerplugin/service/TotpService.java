@@ -98,11 +98,25 @@ public final class TotpService {
         for (long offset = -1; offset <= 1; offset++) {
             String expected = generate(key, counter + offset);
             if (constantTimeEquals(expected, code)) {
+                // Один код — один вход: подсмотренный/перехваченный код
+                // нельзя ввести второй раз, пока он ещё «живой» (≈90 с)
+                Long last = usedCounter.get(secret);
+                long c = counter + offset;
+                if (last != null && c <= last) {
+                    return false;
+                }
+                usedCounter.put(secret, c);
+                if (usedCounter.size() > 10_000) {
+                    usedCounter.clear();
+                }
                 return true;
             }
         }
         return false;
     }
+
+    /** Секрет → номер периода последнего принятого кода (защита от повтора). */
+    private final Map<String, Long> usedCounter = new ConcurrentHashMap<>();
 
     private static String generate(byte[] key, long counter) {
         try {
@@ -139,8 +153,9 @@ public final class TotpService {
     public String buildUrl(String playerName, String secret) {
         String issuer = plugin.getConfig().getString("twofactor.issuer", "Minecraft");
         try {
-            String enc = java.net.URLEncoder.encode(issuer + ":" + playerName, "UTF-8");
-            return "otpauth://totp/" + enc + "?secret=" + secret + "&issuer=" + issuer + "&digits=6&period=30";
+            String enc = java.net.URLEncoder.encode(issuer + ":" + playerName, "UTF-8").replace("+", "%20");
+            String iss = java.net.URLEncoder.encode(issuer, "UTF-8").replace("+", "%20");
+            return "otpauth://totp/" + enc + "?secret=" + secret + "&issuer=" + iss + "&digits=6&period=30";
         } catch (Throwable t) {
             return "otpauth://totp/" + playerName + "?secret=" + secret;
         }
@@ -191,6 +206,9 @@ public final class TotpService {
 
     /**
      * Игрок ввёл код. При успехе завершает вход (пароль уже проверен).
+     * Можно вызывать из async-потока чата: completeLogin сам уйдёт в поток игрока.
+     * Каждый неверный код — неудачная попытка входа (LoginAttemptService): иначе
+     * знающий пароль перебирал бы коды бесконечно, повторяя /login.
      * @return 0 — успех, 1 — неверный код, 2 — попытки исчерпаны/таймаут
      */
     public int submit(Player player, String code, AuthService authService) {
@@ -204,7 +222,13 @@ public final class TotpService {
             return 2;
         }
         AccountRecord r = accountStore.get(uuid);
-        if (r == null || !r.hasTotp()) {
+        if (r == null) {
+            // Запись недоступна — не знаем, включена ли 2FA: вход не завершаем
+            challenges.remove(uuid);
+            return 2;
+        }
+        if (!r.hasTotp()) {
+            // 2FA выключили, пока шёл челлендж (админ/другой сервер) — пароль уже проверен
             challenges.remove(uuid);
             authService.completeLogin(player, c.password);
             return 0;
@@ -215,13 +239,24 @@ public final class TotpService {
             authService.completeLogin(player, c.password);
             return 0;
         }
-        int attempts = c.attempts + 1;
-        if (attempts >= maxAttempts) {
+        LoginAttemptService attempts = loginAttempts();
+        if (attempts != null) {
+            attempts.onFail(player);
+        }
+        int n = c.attempts + 1;
+        if (n >= maxAttempts) {
             challenges.remove(uuid);
             return 2;
         }
-        challenges.put(uuid, new Challenge(c.password, c.fromChat, c.expiresAt, attempts));
+        challenges.put(uuid, new Challenge(c.password, c.fromChat, c.expiresAt, n));
         return 1;
+    }
+
+    private LoginAttemptService loginAttempts() {
+        if (plugin instanceof me.vorchun.registerplugin.RegisterPlugin) {
+            return ((me.vorchun.registerplugin.RegisterPlugin) plugin).getLoginAttemptService();
+        }
+        return null;
     }
 
     public void cancelChallenge(UUID uuid) {
@@ -305,7 +340,7 @@ public final class TotpService {
         return r == 0;
     }
 
-    private static final int READY = -111058243;
+    private static final int READY = 866282961;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1020) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

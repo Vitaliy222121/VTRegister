@@ -15,7 +15,7 @@ import me.vorchun.registerplugin.util.Scheduler;
  */
 public final class HealthService {
 
-    private static final int READY = -111058249;
+    private static final int READY = 866282971;
 
     static {
         if (Data.mix(0x102a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
@@ -115,7 +115,9 @@ public final class HealthService {
             return;
         }
         int interval = Math.max(60, plugin.getConfig().getInt("security.integrity.interval_seconds", 300));
-        watcher = Scheduler.runSyncTimer(plugin, () -> check("periodic"), interval * 20L, interval * 20L);
+        // Периодическая сверка читает весь jar и считает SHA-256 — в фоне, а не
+        // в главном потоке (было в профиле spark); отключение плагина — на главном
+        watcher = Scheduler.runAsyncTimer(plugin, () -> check("periodic"), interval * 20L, interval * 20L);
     }
 
     public boolean isOk() {
@@ -182,7 +184,11 @@ public final class HealthService {
 
         if (strict) {
             try {
-                org.bukkit.Bukkit.getPluginManager().disablePlugin(plugin);
+                if (org.bukkit.Bukkit.isPrimaryThread()) {
+                    org.bukkit.Bukkit.getPluginManager().disablePlugin(plugin);
+                } else {
+                    Scheduler.runSync(plugin, () -> org.bukkit.Bukkit.getPluginManager().disablePlugin(plugin));
+                }
             } catch (Throwable ignored) {
             }
         }
@@ -214,9 +220,9 @@ public final class HealthService {
      * состава методов/полей классов его нужно пересчитать.
      */
     private static final String BUILD_HASH =
-            "e9e194f352e4b24dce0cab773c2a43490dec3fa8cafd89f09018150b0f0b385a";
+            "de4901869f64a5fa619aa308e4e2c062043984891f8e56f5c252b1adad1e13dd";
 
     /** Bytecode signature expected at release build time. */
     private static final String BUILD_SEAL =
-            "1d7a502851126ba8ee14a71b39677eff8bd89f2690880f2712ce75952a432438";
+            "523a1b68b351d0816826623cf4c629d421cf29f7e7d39d8c1782feab83404deb";
 }

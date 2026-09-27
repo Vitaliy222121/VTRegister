@@ -24,14 +24,25 @@ public final class TeleportService implements PluginMessageListener {
 
     private final Map<UUID, Location> savedLocations = new ConcurrentHashMap<>();
     private final Map<UUID, Long> authorizedTeleports = new ConcurrentHashMap<>();
-    private boolean proxyMode = false;
-    private String proxyType = "bungeecord";
+    private volatile boolean proxyMode = false;
+    private volatile String proxyType = "bungeecord";
     private String lastLoggedProxyState;
     private boolean proxyTeleportEnabled = false;
     private String proxyTargetServer = "lobby";
     private Location lobbyLocation = null;
 
-    private boolean proxySecurityConfigured = false;
+    // --- окружение прокси (считается в reload(), читается из любых потоков) ---
+    // bungeeForwarding  — spigot.yml settings.bungeecord (legacy-forwarding, без подписи);
+    // velocityForwarding — Paper velocity modern forwarding (подписан секретом);
+    // velocitySecretSet  — секрет Velocity задан (или прочитать не удалось — Paper без него не стартует);
+    // firewallOk         — proxy.firewall.enabled и allowed_ips без «весь интернет».
+    private volatile boolean bungeeForwarding;
+    private volatile boolean velocityForwarding;
+    private volatile boolean velocitySecretSet;
+    private volatile boolean firewallOk;
+    private volatile String envSource = "";
+    private volatile boolean bungeeGuardSeen;
+    private volatile long lastServerListRequest;
 
     // автоопределение лобби по IP и безопасный перенос
     private String lobbyAddress = "";
@@ -39,6 +50,8 @@ public final class TeleportService implements PluginMessageListener {
     private boolean safeTransfer = true;
     private boolean fallbackToLobbyLocation = true;
     private int retrySeconds = 3;
+    // Сколько ждать ответа прокси до «сервер недоступен» + fallback (F120)
+    private int transferTimeoutSec = 8;
     private final java.util.List<String> knownServers = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Map<String, String> serverAddresses = new ConcurrentHashMap<>();
 
@@ -61,16 +74,18 @@ public final class TeleportService implements PluginMessageListener {
     public TeleportService(JavaPlugin plugin, SessionManager sessionManager) {
         this.plugin = plugin;
         this.sessionManager = sessionManager;
-        detectProxyMode();
         loadConfig();
         registerChannels();
     }
 
+    /**
+     * Канал "BungeeCord" (Bukkit сам мапит его в bungeecord:main) понимают и
+     * BungeeCord/Waterfall, и Velocity с bungee-plugin-message-channel = true.
+     * Канала "velocity:player" в Velocity не существует — Connect туда не работал.
+     */
     private void registerChannels() {
         plugin.getServer().getMessenger().registerOutgoingPluginChannel(plugin, "BungeeCord");
         plugin.getServer().getMessenger().registerIncomingPluginChannel(plugin, "BungeeCord", this);
-        plugin.getServer().getMessenger().registerOutgoingPluginChannel(plugin, "velocity:player");
-        plugin.getServer().getMessenger().registerIncomingPluginChannel(plugin, "velocity:player", this);
     }
 
     /**
@@ -79,6 +94,10 @@ public final class TeleportService implements PluginMessageListener {
      */
     @Override
     public void onPluginMessageReceived(String channel, Player player, byte[] message) {
+        // Без прокси эти ответы может прислать только сам клиент — не верим
+        if (!proxyMode) {
+            return;
+        }
         try {
             com.google.common.io.ByteArrayDataInput in = ByteStreams.newDataInput(message);
             String sub = in.readUTF();
@@ -140,7 +159,14 @@ public final class TeleportService implements PluginMessageListener {
                 return e.getKey();
             }
         }
-        // 2) ещё не знаем — попросим у прокси и подождём ответ на следующем входе
+        // 2) ещё не знаем — попросим у прокси и подождём ответ на следующем входе.
+        // Не чаще раза в минуту: иначе каждый вход шлёт N запросов ServerIP.
+        long now = System.currentTimeMillis();
+        if (now - lastServerListRequest < 60_000L) {
+            return null;
+        }
+        lastServerListRequest = now;
+        ensureBungeeChannel(player);
         if (knownServers.isEmpty()) {
             requestServerList(player);
         }
@@ -150,58 +176,322 @@ public final class TeleportService implements PluginMessageListener {
         return null;
     }
 
+    /**
+     * Окружение прокси. Факты о forwarding читаются ВСЕГДА (даже при ручном
+     * proxy.type) — от них зависит, можно ли верить UUID и IP игроков:
+     *   spigot.yml         settings.bungeecord                  — legacy BungeeCord/Velocity-legacy;
+     *   paper.yml          settings.velocity-support.enabled    — Velocity modern, Paper 1.13–1.18.2;
+     *   config/paper-global.yml proxies.velocity.enabled        — Velocity modern, Paper 1.19+.
+     * Сначала API (Bukkit.spigot().getConfig(), Server.Spigot#getPaperConfig),
+     * затем сами файлы из корня сервера.
+     */
     private void detectProxyMode() {
-        // 1) Явная ручная настройка в config.yml имеет приоритет
-        String manualType = plugin.getConfig().getString("proxy.type", "auto");
-        if (manualType != null && !manualType.equalsIgnoreCase("auto") && !manualType.trim().isEmpty()) {
-            proxyMode = true;
-            proxyType = manualType.trim().toLowerCase();
-            plugin.getLogger().info("Режим прокси: включён вручную (" + proxyType + ")");
-            return;
-        }
+        boolean bungee = false;
+        boolean velocity = false;
+        boolean secretSet = true;
+        StringBuilder src = new StringBuilder();
 
-        // 2) Автоопределение из spigot.yml (защищено — Bukkit.spigot() нет на чистом CraftBukkit)
-        boolean bungeeEnabled = false;
-        boolean velocityEnabled = false;
+        // 1) spigot.yml (Bukkit.spigot() нет на чистом CraftBukkit — защищено)
         try {
-            bungeeEnabled = Bukkit.spigot().getConfig().getBoolean("settings.bungeecord", false);
-            velocityEnabled = Bukkit.spigot().getConfig().getBoolean("settings.velocity-support.enabled", false);
+            bungee = Bukkit.spigot().getConfig().getBoolean("settings.bungeecord", false);
+            if (bungee) {
+                src.append("spigot.yml");
+            }
         } catch (Throwable ignored) {
+            org.bukkit.configuration.file.YamlConfiguration y = loadServerYaml("spigot.yml");
+            if (y != null && y.getBoolean("settings.bungeecord", false)) {
+                bungee = true;
+                src.append("spigot.yml");
+            }
         }
 
-        // Paper глобальный конфиг для Velocity (Paper 1.19+): proxies.velocity.enabled
+        // 2) Paper через API: getPaperConfig() объявлен у Server.Spigot, берём метод
+        // с публичного класса (у анонимной реализации invoke даёт IllegalAccess)
         try {
-            Object paperConfig = Bukkit.getServer().getClass().getMethod("getPaperConfig").invoke(Bukkit.getServer());
-            if (paperConfig != null) {
-                Object v = paperConfig.getClass().getMethod("getBoolean", String.class, boolean.class)
-                        .invoke(paperConfig, "proxies.velocity.enabled", false);
-                if (v instanceof Boolean && (Boolean) v) {
-                    velocityEnabled = true;
+            Object paperConfig = org.bukkit.Server.Spigot.class.getMethod("getPaperConfig").invoke(Bukkit.spigot());
+            if (paperConfig instanceof org.bukkit.configuration.ConfigurationSection) {
+                org.bukkit.configuration.ConfigurationSection pc =
+                        (org.bukkit.configuration.ConfigurationSection) paperConfig;
+                if (pc.getBoolean("settings.velocity-support.enabled", false)) {
+                    velocity = true;
+                    secretSet = !isBlank(pc.getString("settings.velocity-support.secret", "?"));
+                    append(src, "paper config (API)");
+                } else if (pc.getBoolean("proxies.velocity.enabled", false)) {
+                    velocity = true;
+                    secretSet = !isBlank(pc.getString("proxies.velocity.secret", "?"));
+                    append(src, "paper config (API)");
                 }
             }
         } catch (Throwable ignored) {
         }
 
-        if (velocityEnabled) {
-            proxyMode = true;
-            proxyType = "velocity";
-        } else if (bungeeEnabled) {
-            proxyMode = true;
-            proxyType = "bungeecord";
-        } else {
-            proxyMode = plugin.getConfig().getBoolean("proxy_mode", false) || plugin.getConfig().getBoolean("proxy.enabled", false);
-            String t = plugin.getConfig().getString("proxy_type", null);
-            if (t == null) {
-                t = plugin.getConfig().getString("proxy.type", "bungeecord");
+        // 3) Файлы: paper.yml (≤1.18.2) и config/paper-global.yml (1.19+)
+        if (!velocity) {
+            org.bukkit.configuration.file.YamlConfiguration y = loadServerYaml("paper.yml");
+            if (y != null && y.getBoolean("settings.velocity-support.enabled", false)) {
+                velocity = true;
+                secretSet = !isBlank(y.getString("settings.velocity-support.secret", "?"));
+                append(src, "paper.yml");
             }
-            proxyType = t.toLowerCase();
+        }
+        if (!velocity) {
+            org.bukkit.configuration.file.YamlConfiguration y = loadServerYaml("config/paper-global.yml");
+            if (y != null && y.getBoolean("proxies.velocity.enabled", false)) {
+                velocity = true;
+                secretSet = !isBlank(y.getString("proxies.velocity.secret", "?"));
+                append(src, "config/paper-global.yml");
+            }
         }
 
-        // reload() вызывается несколько раз при старте — логируем только при смене режима
-        String state = proxyMode + ":" + proxyType;
+        bungeeForwarding = bungee;
+        velocityForwarding = velocity;
+        velocitySecretSet = secretSet;
+        firewallOk = computeFirewallOk();
+        bungeeGuardSeen = lookupBungeeGuard();
+
+        // 4) Режим: ручной proxy.type имеет приоритет; "none" выключает перенос через прокси
+        String manualType = plugin.getConfig().getString("proxy.type", "auto");
+        String mt = manualType == null ? "auto" : manualType.trim().toLowerCase(java.util.Locale.ROOT);
+        if (mt.isEmpty() || mt.equals("auto")) {
+            if (velocity) {
+                proxyMode = true;
+                proxyType = "velocity";
+            } else if (bungee) {
+                proxyMode = true;
+                proxyType = "bungeecord";
+            } else {
+                // Старые ключи 1.0.x
+                proxyMode = plugin.getConfig().getBoolean("proxy_mode", false)
+                        || plugin.getConfig().getBoolean("proxy.enabled", false);
+                String t = plugin.getConfig().getString("proxy_type", "bungeecord");
+                proxyType = (t == null ? "bungeecord" : t).toLowerCase(java.util.Locale.ROOT);
+                if (proxyMode) {
+                    append(src, "config.yml proxy_mode");
+                }
+            }
+        } else if (mt.equals("none") || mt.equals("off") || mt.equals("false") || mt.equals("standalone")) {
+            proxyMode = false;
+            proxyType = "none";
+            append(src, "config.yml proxy.type=none");
+        } else {
+            proxyMode = true;
+            proxyType = mt.startsWith("velo") ? "velocity" : "bungeecord";
+            append(src, "config.yml proxy.type=" + mt);
+        }
+        envSource = src.length() == 0 ? "-" : src.toString();
+
+        // reload() вызывается несколько раз при старте — логируем только при смене
+        String state = proxyMode + ":" + proxyType + ":" + bungee + ":" + velocity + ":" + secretSet
+                + ":" + firewallOk + ":" + bungeeGuardSeen + ":" + envSource;
         if (!state.equals(lastLoggedProxyState)) {
             lastLoggedProxyState = state;
-            plugin.getLogger().info("Режим прокси: " + (proxyMode ? "включён (" + proxyType + ")" : "выключен"));
+            logEnvironment();
+        }
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+
+    private static void append(StringBuilder sb, String s) {
+        if (sb.length() > 0) {
+            sb.append(", ");
+        }
+        sb.append(s);
+    }
+
+    /**
+     * YAML из корня сервера. Корень = рабочая папка; на случай --world-dir
+     * пробуем ещё папку миров и её родителя. null — файла нет/не читается.
+     */
+    private org.bukkit.configuration.file.YamlConfiguration loadServerYaml(String rel) {
+        java.util.List<java.io.File> roots = new java.util.ArrayList<>();
+        roots.add(new java.io.File("."));
+        try {
+            java.io.File wc = Bukkit.getWorldContainer();
+            if (wc != null) {
+                roots.add(wc);
+                if (wc.getAbsoluteFile().getParentFile() != null) {
+                    roots.add(wc.getAbsoluteFile().getParentFile());
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        for (java.io.File root : roots) {
+            java.io.File f = new java.io.File(root, rel);
+            if (!f.isFile()) {
+                continue;
+            }
+            try {
+                org.bukkit.configuration.file.YamlConfiguration y = new org.bukkit.configuration.file.YamlConfiguration();
+                y.load(f);
+                return y;
+            } catch (Throwable t) {
+                plugin.getLogger().warning("Не удалось прочитать " + f.getPath() + ": " + t.getMessage());
+            }
+        }
+        return null;
+    }
+
+    /** Файрвол прокси включён и реально ограничивает (не 0.0.0.0/0, не пустой). */
+    private boolean computeFirewallOk() {
+        if (!plugin.getConfig().getBoolean("proxy.firewall.enabled", false)) {
+            return false;
+        }
+        java.util.List<String> ips = plugin.getConfig().getStringList("proxy.firewall.allowed_ips");
+        if (ips == null || ips.isEmpty()) {
+            return false;
+        }
+        boolean any = false;
+        for (String ip : ips) {
+            String n = me.vorchun.registerplugin.util.IpUtil.normalize(ip);
+            if (n.isEmpty()) {
+                continue;
+            }
+            if (n.equals("*") || n.equals("0.0.0.0") || n.equals("::") || n.endsWith("/0")) {
+                return false;
+            }
+            any = true;
+        }
+        return any;
+    }
+
+    /**
+     * BungeeGuard проверяет токен в хендшейке — подделать UUID/IP нельзя.
+     * Значение считается в reload(): ipsTrusted() зовётся из pre-login
+     * (асинхронный поток) на каждый вход — PluginManager там не трогаем.
+     */
+    private boolean bungeeGuardActive() {
+        return bungeeGuardSeen;
+    }
+
+    private static boolean lookupBungeeGuard() {
+        try {
+            // Плагин может включиться позже нас — достаточно, что он загружен
+            return Bukkit.getPluginManager().getPlugin("BungeeGuard") != null;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** Сервер получает настоящие IP/UUID клиентов от прокси (любой вид forwarding). */
+    public boolean isForwarding() {
+        return bungeeForwarding || velocityForwarding;
+    }
+
+    /**
+     * Forwarding защищён от подделки: Velocity modern (подпись секретом) или
+     * legacy BungeeCord + BungeeGuard / включённый proxy.firewall.
+     * Legacy без защиты: любой, кто достучался до порта бэкенда, пишет в
+     * хендшейк любой UUID и IP.
+     */
+    public boolean isForwardingSecure() {
+        if (velocityForwarding) {
+            return velocitySecretSet;
+        }
+        if (bungeeForwarding) {
+            return firewallOk || bungeeGuardActive();
+        }
+        return false;
+    }
+
+    /**
+     * Можно ли верить IP игроков (IpUtil.ipsTrusted): без прокси — да;
+     * за прокси — только при защищённом forwarding. Иначе все per-IP лимиты,
+     * баны и IP-сессии пропускаются (IP либо общий, либо поддельный).
+     */
+    public boolean ipsTrusted() {
+        if (isForwarding()) {
+            return isForwardingSecure();
+        }
+        return !proxyMode;
+    }
+
+    /**
+     * Можно ли верить UUID игрока (премиум-автологин по UUID): без прокси —
+     * да (UUID выдаёт сам сервер); за прокси — только при защищённом forwarding.
+     */
+    public boolean identityTrusted() {
+        if (isForwarding()) {
+            return isForwardingSecure();
+        }
+        return !proxyMode;
+    }
+
+    /** Одна строка для /authadmin и логов. */
+    public String describeEnvironment() {
+        String fw = velocityForwarding ? "Velocity modern" + (velocitySecretSet ? "" : " (секрет пуст!)")
+                : bungeeForwarding ? "BungeeCord legacy" + (bungeeGuardActive() ? " + BungeeGuard"
+                        : firewallOk ? " + proxy.firewall" : " БЕЗ ЗАЩИТЫ")
+                : "нет";
+        return "прокси " + (proxyMode ? "включён (" + proxyType + ")" : "выключен")
+                + ", источник: " + envSource
+                + ", IP-forwarding: " + fw
+                + ", IP игроков: " + (ipsTrusted() ? "доверяем" : "НЕ доверяем (лимиты/баны/сессии по IP выключены)")
+                + ", премиум по UUID: " + (identityTrusted() ? "разрешён" : "запрещён");
+    }
+
+    /** Текущая проблема настройки прокси (null — всё в порядке). Повторяется в консоль раз в минуту. */
+    private volatile String proxyProblem;
+    private volatile Scheduler.Task problemTask;
+
+    private void logEnvironment() {
+        plugin.getLogger().info("Окружение: " + describeEnvironment());
+        String p = null;
+        if (bungeeForwarding && !velocityForwarding && !isForwardingSecure()) {
+            p = "spigot.yml bungeecord: true без BungeeGuard и без proxy.firewall — "
+                    + "бэкенд принимает поддельный хендшейк (любой UUID и IP). Премиум-автологин, "
+                    + "IP-сессии и лимиты/баны по IP ОТКЛЮЧЕНЫ. Исправь одно из: "
+                    + "proxy.firewall.enabled: true + allowed_ips: [IP прокси]; плагин BungeeGuard; "
+                    + "Velocity modern forwarding. Подробно — PROXY_SETUP.txt.";
+        } else if (velocityForwarding && !velocitySecretSet) {
+            p = "Velocity modern forwarding включён, но секрет пуст — "
+                    + "премиум-автологин и проверки по IP отключены.";
+        } else if (proxyMode && !isForwarding()) {
+            p = "Режим прокси включён, но IP-forwarding не найден "
+                    + "(spigot.yml settings.bungeecord / paper velocity). У всех игроков адрес прокси: "
+                    + "лимиты/баны/сессии по IP и премиум по UUID отключены. См. PROXY_SETUP.txt.";
+        }
+        proxyProblem = p;
+        if (p != null) {
+            spamProblem(p);
+        }
+        if (problemTask == null) {
+            // Раз в минуту: пока настройка не исправлена — напоминаем в консоль;
+            // плюс ловим «сервер за прокси, но прокси не настроен» по адресам игроков.
+            problemTask = Scheduler.runSyncTimer(plugin, this::problemTick, 1200L, 1200L);
+        }
+    }
+
+    private void spamProblem(String p) {
+        plugin.getLogger().severe("==================== VTRegister: ПРОКСИ НЕ НАСТРОЕН ====================");
+        plugin.getLogger().severe(p);
+        plugin.getLogger().severe("=========================================================================");
+    }
+
+    private void problemTick() {
+        if (!plugin.getConfig().getBoolean("proxy.warn_misconfigured", true)) {
+            return;
+        }
+        String p = proxyProblem;
+        if (p == null && !proxyMode) {
+            // Адрес 127.x/10.x/192.168.x у игрока при выключенном прокси-режиме —
+            // почти всегда прокси на той же машине/в той же сети без настройки.
+            for (Player pl : Bukkit.getOnlinePlayers()) {
+                java.net.InetSocketAddress a = pl.getAddress();
+                java.net.InetAddress ia = a == null ? null : a.getAddress();
+                if (ia != null && (ia.isLoopbackAddress() || ia.isSiteLocalAddress())) {
+                    p = "Игрок " + pl.getName() + " зашёл с адреса " + ia.getHostAddress()
+                            + " — похоже, сервер стоит за прокси (Velocity/BungeeCord), но прокси-режим "
+                            + "не настроен. Включи переадресацию: Velocity — paper.yml settings.velocity-support "
+                            + "(Paper ≤1.18.2) или config/paper-global.yml proxies.velocity (1.19+); "
+                            + "BungeeCord — spigot.yml settings.bungeecord: true. Инструкция — PROXY_SETUP.txt.";
+                    break;
+                }
+            }
+        }
+        if (p != null) {
+            spamProblem(p);
         }
     }
 
@@ -219,6 +509,8 @@ public final class TeleportService implements PluginMessageListener {
         safeTransfer = plugin.getConfig().getBoolean("proxy_server.safe_transfer", true);
         fallbackToLobbyLocation = plugin.getConfig().getBoolean("proxy_server.fallback_to_lobby_location", true);
         retrySeconds = Math.max(1, plugin.getConfig().getInt("proxy_server.retry_seconds", 3));
+        transferTimeoutSec = Math.max(retrySeconds + 1,
+                plugin.getConfig().getInt("proxy_server.transfer_timeout_seconds", 8));
 
         waitEnabled = plugin.getConfig().getBoolean("proxy_server.wait_for_server.enabled", false);
         waitHost = plugin.getConfig().getString("proxy_server.wait_for_server.host", "");
@@ -227,9 +519,12 @@ public final class TeleportService implements PluginMessageListener {
         waitCheckMs = Math.max(3, plugin.getConfig().getInt("proxy_server.wait_for_server.check_interval_seconds", 10)) * 1000L;
         waitBarEnabled = plugin.getConfig().getBoolean("proxy_server.wait_for_server.bossbar", true);
 
-        proxySecurityConfigured = plugin.getConfig().getBoolean("proxy_security.enabled", false);
-        if (proxySecurityConfigured) {
-            plugin.getLogger().warning("proxy_security в TeleportService не может проверять подлинность игрока на backend-сервере и не используется для auth-решений");
+        // proxy_security из старых инструкций никогда не работал — подсказываем настоящий ключ
+        if (plugin.getConfig().getBoolean("proxy_security.enabled", false)
+                && !plugin.getConfig().getBoolean("proxy.firewall.enabled", false)) {
+            plugin.getLogger().warning("proxy_security.* не существует и ни на что не влияет. "
+                    + "Защита от прямого входа мимо прокси — proxy.firewall.enabled: true и "
+                    + "proxy.firewall.allowed_ips: [IP прокси, как его видит сервер].");
         }
 
         if (plugin.getConfig().getBoolean("lobby.enabled", false)) {
@@ -254,12 +549,16 @@ public final class TeleportService implements PluginMessageListener {
     }
 
     public void saveJoinLocation(Player player) {
+        saveJoinLocation(player, player.getLocation());
+    }
+
+    public void saveJoinLocation(Player player, org.bukkit.Location where) {
         if (proxyMode && !sessionManager.isLoggedIn(player.getUniqueId())) {
             if (!isProxyConnectionValid(player)) {
                 plugin.getLogger().warning("Не удалось сохранить точку входа для игрока " + player.getName() + ": адрес соединения недоступен");
                 return;
             }
-            savedLocations.put(player.getUniqueId(), player.getLocation().clone());
+            savedLocations.put(player.getUniqueId(), (where != null ? where : player.getLocation()).clone());
         }
     }
 
@@ -270,10 +569,10 @@ public final class TeleportService implements PluginMessageListener {
 
         Location safeLoc = findSafeLocation(player);
         if (safeLoc != null) {
-            Scheduler.runSync(plugin, () -> {
+            Scheduler.runAtEntity(plugin, player, () -> {
                 if (player.isOnline()) {
                     authorizeTeleport(player.getUniqueId());
-                    player.teleport(safeLoc);
+                    me.vorchun.registerplugin.util.Compat.teleport(player, safeLoc);
                 }
             });
         }
@@ -312,8 +611,12 @@ public final class TeleportService implements PluginMessageListener {
      */
     private void transferSafely(Player player, String serverName) {
         final UUID uuid = player.getUniqueId();
+        if (!sessionManager.isLoggedIn(uuid)) {
+            refuseUnauthed(player, serverName);
+            return;
+        }
         if (safeTransfer) {
-            Scheduler.runSync(plugin, () -> {
+            Scheduler.runAtEntity(plugin, player, () -> {
                 if (!player.isOnline()) {
                     return;
                 }
@@ -326,36 +629,51 @@ public final class TeleportService implements PluginMessageListener {
                         ? lobbyLocation
                         : player.getLocation();
                 authorizeTeleport(uuid);
-                player.teleport(anchor);
+                me.vorchun.registerplugin.util.Compat.teleport(player, anchor);
             });
         }
         connectWithRetry(player, serverName);
     }
 
     /**
-     * Отправка Connect с fail-safe: первая попытка через 2 тика,
-     * повтор через retry_seconds, затем уведомление игроку и fallback.
+     * Перенос на другой сервер сети ДО входа в аккаунт запрещён (иначе прокси
+     * пустит неавторизованного в лобби). Игрок остаётся здесь на безопасной точке.
+     */
+    private void refuseUnauthed(Player player, String serverName) {
+        plugin.getLogger().warning("Перенос " + player.getName() + " → '" + serverName
+                + "' отменён: игрок ещё не вошёл в аккаунт (перенос только после входа)");
+        fallbackLocal(player);
+    }
+
+    /**
+     * Отправка Connect с fail-safe: первая попытка через 5 тиков (к этому
+     * моменту мост уже отправил прокси AUTH — иначе модуль прокси отклонит
+     * смену сервера), повтор через retry_seconds, затем уведомление и fallback.
      */
     public void connectWithRetry(Player player, String serverName) {
         final UUID uuid = player.getUniqueId();
-        // 2 тика — чтобы клиент успел применить состояние после авторизации
-        Scheduler.runSyncLater(plugin, () -> {
+        if (!sessionManager.isLoggedIn(uuid)) {
+            refuseUnauthed(player, serverName);
+            return;
+        }
+        Scheduler.runAtEntityLater(plugin, player, () -> {
             if (!player.isOnline()) {
                 return;
             }
             clearForTransfer(player);
             sendConnect(player, serverName);
-        }, 2L);
+        }, 5L);
         // Fail-safe №1: повторная отправка через retry_seconds
-        Scheduler.runSyncLater(plugin, () -> {
+        Scheduler.runAtEntityLater(plugin, player, () -> {
             if (player.isOnline()) {
                 plugin.getLogger().info("Повторный Connect для " + player.getName()
                         + " → '" + serverName + "' (первая попытка не сработала)");
                 sendConnect(player, serverName);
             }
-        }, 2L + retrySeconds * 20L);
-        // Fail-safe №2: повторная тоже не помогла — уведомляем и возвращаем
-        Scheduler.runSyncLater(plugin, () -> {
+        }, 5L + retrySeconds * 20L);
+        // Fail-safe №2: за transfer_timeout_seconds прокси так и не перенёс —
+        // уведомляем и возвращаем
+        Scheduler.runAtEntityLater(plugin, player, () -> {
             if (!player.isOnline()) {
                 return;
             }
@@ -375,7 +693,7 @@ public final class TeleportService implements PluginMessageListener {
             if (fallbackToLobbyLocation) {
                 fallbackLocal(player);
             }
-        }, 2L + retrySeconds * 40L);
+        }, 5L + transferTimeoutSec * 20L);
     }
 
     /** Снять лобби-ограничения перед Connect: эффекты темноты/слепоты, падение. */
@@ -388,7 +706,7 @@ public final class TeleportService implements PluginMessageListener {
                     continue;
                 }
                 if (t.equals(org.bukkit.potion.PotionEffectType.BLINDNESS)
-                        || t.equals(org.bukkit.potion.PotionEffectType.CONFUSION)
+                        || t.getName().equalsIgnoreCase("confusion") || t.getName().equalsIgnoreCase("nausea")
                         || t.getName().equalsIgnoreCase("darkness")) {
                     player.removePotionEffect(t);
                 }
@@ -429,26 +747,50 @@ public final class TeleportService implements PluginMessageListener {
         return org.bukkit.ChatColor.translateAlternateColorCodes('&', s == null ? "" : s);
     }
 
-    /** Одна отправка Connect на оба канала прокси (BungeeCord + Velocity-legacy). */
+    /**
+     * Connect через канал "BungeeCord" — его понимают BungeeCord/Waterfall и
+     * Velocity (bungee-plugin-message-channel = true). Только после входа.
+     */
     private void sendConnect(Player player, String serverName) {
+        if (!sessionManager.isLoggedIn(player.getUniqueId())) {
+            return;
+        }
         try {
+            ensureBungeeChannel(player);
             ByteArrayDataOutput out = ByteStreams.newDataOutput();
             out.writeUTF("Connect");
             out.writeUTF(serverName);
-            // "BungeeCord" работает и на Velocity (bungee-plugin-message-channel=true)
             player.sendPluginMessage(plugin, "BungeeCord", out.toByteArray());
             plugin.getLogger().info("Игрок " + player.getName() + " → Connect '" + serverName + "'");
         } catch (Throwable t) {
             plugin.getLogger().warning("Connect для " + player.getName() + " не отправлен: " + t);
         }
-        if ("velocity".equals(proxyType)) {
-            try {
-                ByteArrayDataOutput out = ByteStreams.newDataOutput();
-                out.writeUTF("Connect");
-                out.writeUTF(serverName);
-                player.sendPluginMessage(plugin, "velocity:player", out.toByteArray());
-            } catch (Throwable ignored) {
+    }
+
+    private volatile java.lang.reflect.Method addChannel;
+    private volatile boolean addChannelResolved;
+
+    /**
+     * Bukkit молча выбрасывает plugin message, если клиент (точнее прокси за
+     * него) ещё не прислал REGISTER канала bungeecord:main — так бывает сразу
+     * после входа. Прокси перехватывает этот канал сам, регистрация ему не
+     * нужна, поэтому добавляем канал игроку сами (CraftPlayer#addChannel).
+     */
+    private void ensureBungeeChannel(Player player) {
+        try {
+            java.util.Set<String> ch = player.getListeningPluginChannels();
+            if (ch.contains("bungeecord:main") || ch.contains("BungeeCord")) {
+                return;
             }
+            if (!addChannelResolved) {
+                addChannelResolved = true;
+                addChannel = player.getClass().getMethod("addChannel", String.class);
+            }
+            java.lang.reflect.Method m = addChannel;
+            if (m != null) {
+                m.invoke(player, "bungeecord:main");
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -457,18 +799,44 @@ public final class TeleportService implements PluginMessageListener {
         if (player == null || !player.isOnline()) {
             return;
         }
+        // Точки в check-мире (мир проверки над бездной) непригодны:
+        // ни сохранённая точка входа, ни его спавн — фильтруем их.
+        String cw = plugin.getConfig().getString("antibot.world_name", "auth_verify");
         Location target = lobbyLocation;
+        if (target != null && target.getWorld() != null
+                && cw != null && cw.equalsIgnoreCase(target.getWorld().getName())) {
+            target = null;
+        }
         if (target == null || target.getWorld() == null) {
             target = savedLocations.remove(player.getUniqueId());
+            if (target != null && target.getWorld() != null
+                    && cw != null && cw.equalsIgnoreCase(target.getWorld().getName())) {
+                target = null;
+            }
         }
         if (target == null || target.getWorld() == null) {
-            target = player.getWorld().getSpawnLocation();
+            org.bukkit.World w = player.getWorld();
+            if (w == null || (cw != null && cw.equalsIgnoreCase(w.getName()))) {
+                w = null;
+                for (org.bukkit.World cand : org.bukkit.Bukkit.getWorlds()) {
+                    if (cw == null || !cw.equalsIgnoreCase(cand.getName())) {
+                        w = cand;
+                        break;
+                    }
+                }
+            }
+            if (w != null) {
+                target = w.getSpawnLocation();
+            }
+        }
+        if (target == null || target.getWorld() == null) {
+            return;
         }
         final Location dest = target;
-        Scheduler.runSync(plugin, () -> {
+        Scheduler.runAtEntity(plugin, player, () -> {
             if (player.isOnline()) {
                 authorizeTeleport(player.getUniqueId());
-                player.teleport(dest);
+                me.vorchun.registerplugin.util.Compat.teleport(player, dest);
                 player.setFallDistance(0f);
             }
         });
@@ -485,6 +853,10 @@ public final class TeleportService implements PluginMessageListener {
         }
         if (!proxyMode) {
             plugin.getLogger().warning("transferToServer('" + serverName + "') вызван при выключенном прокси-режиме — игрок остаётся здесь");
+            return;
+        }
+        if (!sessionManager.isLoggedIn(player.getUniqueId())) {
+            refuseUnauthed(player, serverName);
             return;
         }
         if (waitEnabled && waitHost != null && !waitHost.isEmpty()) {
@@ -542,14 +914,21 @@ public final class TeleportService implements PluginMessageListener {
         Location waitLoc = waitLocation();
         if (waitLoc != null && waitLoc.getWorld() != null) {
             authorizeTeleport(uuid);
-            player.teleport(waitLoc);
+            me.vorchun.registerplugin.util.Compat.teleport(player, waitLoc);
         }
         player.sendMessage(colorize(msg("proxy_wait_start",
                 "&eСервер &f%server% &eсейчас недоступен — жди включения, я перекину автоматически.")
                 .replace("%server%", serverName)));
         waiters.put(uuid, w);
-        w.task = me.vorchun.registerplugin.util.Scheduler.runSyncTimer(plugin,
-                () -> tickWait(uuid), waitCheckMs / 50L, waitCheckMs / 50L);
+        // Таймер глобальный, а работа с игроком (бар, кик, Connect) — в его потоке (Folia)
+        w.task = me.vorchun.registerplugin.util.Scheduler.runSyncTimer(plugin, () -> {
+            Player online = Bukkit.getPlayer(uuid);
+            if (online == null) {
+                cancelWait(uuid);
+                return;
+            }
+            me.vorchun.registerplugin.util.Scheduler.runAtEntity(plugin, online, () -> tickWait(uuid));
+        }, waitCheckMs / 50L, waitCheckMs / 50L);
     }
 
     private void tickWait(UUID uuid) {
@@ -715,24 +1094,7 @@ public final class TeleportService implements PluginMessageListener {
         return proxyType;
     }
 
-    private static final int READY = -111058302
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-;
+    private static final int READY = 866282990;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

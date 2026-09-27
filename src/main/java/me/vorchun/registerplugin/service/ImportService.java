@@ -65,7 +65,12 @@ public final class ImportService {
             importLimboAuth(new File(plugins, "LimboAuth/limboauth.db"), overwrite, report);
             importLimboAuth(new File(plugins, "LimboAuth/auth.db"), overwrite, report);
             importLegacyYaml(new File(plugin.getDataFolder(), "accounts.yml"), overwrite, report);
-            importLegacyYaml(new File(AccountStore.dataFolder(plugin), "accounts.yml"), overwrite, report);
+            // data/accounts.yml — рабочая база YAML-бэкенда: импортировать её в саму себя
+            // бессмысленно и опасно. На SQL это может быть устаревший файл —
+            // только добавляем отсутствующие аккаунты, никогда не перезаписываем
+            if (!"YAML".equals(store.backendName())) {
+                importLegacyYaml(new File(AccountStore.dataFolder(plugin), "accounts.yml"), false, report);
+            }
             importGeneric(new File(plugin.getDataFolder(), "import.yml"), overwrite, report);
 
             Scheduler.runSync(plugin, () -> callback.accept(report));
@@ -81,9 +86,25 @@ public final class ImportService {
         report.sources.add("AuthMe");
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db.getAbsolutePath());
              Statement st = c.createStatement();
-             ResultSet rs = st.executeQuery("SELECT username, password, ip, lastlogin FROM authme")) {
+             ResultSet rs = st.executeQuery("SELECT * FROM authme")) {
+            // username у AuthMe в нижнем регистре; offline-UUID считается от ника
+            // с учётом регистра — берём realname (как игрок реально пишет ник)
+            boolean hasReal = false;
+            java.sql.ResultSetMetaData md = rs.getMetaData();
+            for (int i = 1; i <= md.getColumnCount(); i++) {
+                if ("realname".equalsIgnoreCase(md.getColumnName(i))) {
+                    hasReal = true;
+                    break;
+                }
+            }
             while (rs.next()) {
                 String name = rs.getString("username");
+                if (hasReal) {
+                    String real = rs.getString("realname");
+                    if (real != null && !real.isEmpty() && real.equalsIgnoreCase(name)) {
+                        name = real;
+                    }
+                }
                 String hash = rs.getString("password");
                 String ip = safe(rs.getString("ip"));
                 long lastLogin = rs.getLong("lastlogin");
@@ -172,7 +193,11 @@ public final class ImportService {
             report.sources.add("accounts.yml");
         }
         try {
-            YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
+            YamlConfiguration cfg = me.vorchun.registerplugin.util.ConfigMerger
+                    .loadYamlTolerant(file, plugin);
+            if (cfg == null) {
+                return;
+            }
             ConfigurationSection root = cfg.getConfigurationSection("accounts");
             if (root == null) {
                 return;
@@ -192,8 +217,26 @@ public final class ImportService {
                 if (hash == null || hash.isEmpty()) {
                     continue;
                 }
-                saveWithUuid(uuid, s.getString("name", ""), hash, s.getString("lastIp", ""),
-                        s.getLong("lastAuth", 0L), overwrite, report);
+                // Переносим запись целиком (2FA, почта, IP-сессии), как YamlStorage.open —
+                // иначе импорт молча выключил бы 2FA и отвязал почту
+                java.util.Map<String, Long> ipAuth = new java.util.HashMap<>();
+                ConfigurationSection ips = s.getConfigurationSection("ipAuth");
+                if (ips != null) {
+                    for (String ipKey : ips.getKeys(false)) {
+                        String ip = decodeIp(ipKey);
+                        long ts = ips.getLong(ipKey, 0L);
+                        if (ip != null && !ip.isEmpty() && ts > 0) {
+                            ipAuth.put(ip, ts);
+                        }
+                    }
+                }
+                long lastAuth = s.getLong("lastAuth", 0L);
+                long registeredAt = s.getLong("registeredAt", 0L);
+                AccountRecord full = new AccountRecord(uuid, s.getString("name", ""), hash,
+                        registeredAt > 0 ? registeredAt : (lastAuth > 0 ? lastAuth : System.currentTimeMillis()),
+                        s.getString("registeredIp", ""), s.getString("lastIp", ""), lastAuth, ipAuth,
+                        s.getString("totp", null), s.getString("email", null), s.getBoolean("emailVerified", false));
+                saveRecord(full, overwrite, report);
             }
         } catch (Throwable t) {
             plugin.getLogger().warning("Импорт accounts.yml: " + t.getMessage());
@@ -208,7 +251,11 @@ public final class ImportService {
         }
         report.sources.add("import.yml");
         try {
-            YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
+            YamlConfiguration cfg = me.vorchun.registerplugin.util.ConfigMerger
+                    .loadYamlTolerant(file, plugin);
+            if (cfg == null) {
+                return;
+            }
             ConfigurationSection root = cfg.getConfigurationSection("players");
             if (root == null) {
                 plugin.getLogger().warning("import.yml: нужна секция players (ник -> password/ip/uuid)");
@@ -249,27 +296,48 @@ public final class ImportService {
      */
     private void saveWithUuid(UUID uuid, String name, String hash, String ip, long lastLogin,
                               boolean overwrite, Report report) {
+        UUID id = uuid != null ? uuid : offlineUuid(name);
+        AccountRecord r = new AccountRecord(id, name, hash,
+                lastLogin > 0 ? lastLogin : System.currentTimeMillis(),
+                ip == null ? "" : ip,
+                ip == null ? "" : ip,
+                lastLogin,
+                java.util.Collections.emptyMap(),
+                null, null, false);
+        saveRecord(r, overwrite, report);
+    }
+
+    /**
+     * Новая запись — добавляем целиком. Существующая при --overwrite — меняем
+     * ТОЛЬКО хеш пароля: 2FA, почта и IP-сессии аккаунта остаются.
+     * Ошибка чтения базы = ошибка импорта (не «аккаунта нет»).
+     */
+    private void saveRecord(AccountRecord r, boolean overwrite, Report report) {
         try {
-            UUID id = uuid != null ? uuid : offlineUuid(name);
-            AccountRecord existing = store.getCached(id);
-            if (existing == null) {
-                existing = store.findBlocking(id);
-            }
-            if (existing != null && !overwrite) {
-                report.skipped++;
+            AccountRecord existing = store.findBlockingStrict(r.getUuid());
+            if (existing != null) {
+                if (!overwrite) {
+                    report.skipped++;
+                    return;
+                }
+                existing.setPasswordHash(r.getPasswordHash());
+                store.markDirty(existing);
+                report.imported++;
                 return;
             }
-            AccountRecord r = new AccountRecord(id, name, hash,
-                    lastLogin > 0 ? lastLogin : System.currentTimeMillis(),
-                    ip == null ? "" : ip,
-                    ip == null ? "" : ip,
-                    lastLogin,
-                    java.util.Collections.emptyMap(),
-                    null, null, false);
             store.put(r);
             report.imported++;
         } catch (Throwable t) {
             report.failed++;
+        }
+    }
+
+    // IP как ключ YAML закодирован base64url (см. YamlStorage)
+    private static String decodeIp(String key) {
+        try {
+            return new String(java.util.Base64.getUrlDecoder().decode(key), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return key; // очень старый формат — ключ был «сырым» IP
         }
     }
 
@@ -282,19 +350,7 @@ public final class ImportService {
         return s == null ? "" : s;
     }
 
-    private static final int READY = -111058296
-
-
-
-
-
-
-
-
-
-
-
-;
+    private static final int READY = 866282980;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1015) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

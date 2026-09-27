@@ -89,7 +89,7 @@ public final class Data {
 
     private static volatile String cache;
 
-    private static final int READY = -111058250;
+    private static final int READY = 866282970;
 
     private static boolean ready() {
         return mix(0x102b) == READY;

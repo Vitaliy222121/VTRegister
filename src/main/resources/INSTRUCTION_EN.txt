@@ -1,117 +1,123 @@
 ================================================================================
- VTRegister — FULL ANTI-BOT, QUEUE AND LOBBY GUIDE (EN)
+  VTRegister — quick guide (EN)
 ================================================================================
+
+0. INSTALL IN 1 MINUTE
+   * Put VTRegister.jar into plugins/ of your server (Paper/Spigot/Purpur/Folia
+     and forks, 1.13 → 1.21.x → 26.x and newer; Java 8 → 25 — see 10).
+   * Start the server — config.yml, advanced.yml, lang/ru.yml, lang/en.yml appear.
+   * Works out of the box; usually nothing needs changing.
+   * Behind a proxy (Velocity/BungeeCord)? Put the SAME jar on the proxy too — see 7.
+   * Updating: just replace the jar. New settings and texts are added
+     automatically; your values and comments are kept. A line you deleted by
+     accident comes back with its default value on the next start.
 
 1. HOW THE BOT CHECK WORKS
---------------------------------------------------------------------------------
-On join the player is moved to an empty `auth_verify` world and passes
-stages in order (each toggled in config.yml -> antibot.stages):
+   A new player is moved to an empty world (auth_verify) and passes stages
+   (antibot.stages in config.yml):
+     fall    — physics: 5 repetitions in a smart random plan (normal fall,
+               high fall with acceleration, cobweb, launch upwards, another fall).
+     puzzle  — "remove the extra pictures", pictures are random every time.
+     block   — walk the path, OPEN AND CLOSE the chest at the start, take the
+               tool, break the target block, pick up the drop.
+     click   — press "I'M NOT A BOT" among decoy buttons; button order is
+               reshuffled on every send, colors — antibot.click_buttons.
+     captcha — code on a map in hand. antibot.captcha_strike: true — "crossed out"
+               captcha: lines through the text confuse OCR, humans read it. OFF by default.
+     air_captcha — (OFF by default) the player hangs in the air and turns the
+               camera — a code of big multi-colored blocks appears across the whole
+               screen on a random diagonal; type it in chat. Size — air_captcha.scale.
+     math    — an addition example (multiplication — antibot.math_operations).
+     secret / camera / slots — extra stages.
+   Only new players are checked (only_new_players: true). Bedrock players
+   (Geyser/Floodgate) get softer physics tolerances. Clients of any version:
+   1.8 → latest via ViaVersion + ViaBackwards (1.7 — plus ViaRewind).
 
-  fall    — the plugin lifts the player to a random height; they must
-            actually land on the platform. Special physics platforms:
-            SLIME (client must bounce up), COBWEB (slow sinking),
-            HONEY (soft landing). Bots cannot reproduce this.
-  camera  — accumulate N full camera turns (camera_turns). Slow is fine,
-            pauses allowed, any direction. camera_linearity kicks bots
-            rotating with a perfectly identical delta.
-  slots   — switch hotbar slot slots_required times. Anti-cheat:
-            the server ITSELF changes the slot and waits for a real
-            change (slot_grace_millis prevents ping-related false kicks).
-            During the stage the camera is jolted slot_camera_jolts times —
-            a live client answers with Look packets, a bot does not.
-  captcha — type the code shown in chat.
-  click   — click the chat message.
-  puzzle  — "remove the odd ones": an animal GUI, remove only the target
-            set (puzzle_remove), then type puzzle_confirm_word (default
-            "vse") — a 3...2...1 check runs.
-  math    — equation shown in chat/bossbar (math_where), answer in chat.
-            Off by default.
-  secret  — type an exact string (.bind, #help, custom or random —
-            secret_mode: default|custom|random). Cheat clients swallow
-            such commands and never send them to chat. Off by default.
-  block   — walk a RANDOM zigzag path (block_path_length), take the
-            special tool from the chest (block_tool_chest), break the
-            target block and pick up the drop. Falling off the path:
-            block_max_falls attempts, then a kick.
+2. CHECK MODES
+   Default: normal mode WITHOUT lobby — overflow waits in place with a bossbar
+   (queue_mode: bossbar). antibot.fast_mode: true — check starts right on join,
+   no queues and no "make a step" test; stages from antibot.fast_stages.
+   queue_mode: lobby — waiting lobby with parkour and a PvP zone.
 
-Background checks: packet_check (move-packet limit per tick),
-kick_flyers (flying where not allowed = kick), per-stage timeouts.
+3. BANS AND LIMITS
+   antibot.bans (mode: auto) — IP bans ONLY FOR PROVEN bots:
+     * Proven fail — wrong physics, packet flood, robot-like answers, decoy
+       button, a mistake in the puzzle or block stage.
+     * Timeout, lag, AFK — never a ban, only a kick.
+     * The first 2 proven fails only kick (free_fails: 2). From the 3rd — IP ban:
+       1 minute, then 5, then 15 (tiers_minutes). Forever only with permanent: true.
+     * One mistake in the puzzle/block stage = kick; captcha tries — captcha_attempts.
+     Bans survive restarts. Remove all bans: /authadmin unban
+   antibot.connection_limit — connections per second / per minute, total and
+     per IP. Registered players are not limited (registered_bypass).
 
-2. QUEUE (queue_mode)
---------------------------------------------------------------------------------
-When active checks exceed max_concurrent_checks players wait in a queue.
+4. SHARED BLACKLIST BETWEEN SERVERS (global_blacklist, OFF by default)
+   Partner servers exchange bans: a bot or cheater banned on one server cannot
+   join the others.
+     1) Both servers: global_blacklist.enabled: true and their own server_name.
+     2) The server that SHARES its list: publish.enabled: true, open
+        publish.port (8765). The access token appears in
+        plugins/VTRegister/data/blacklist-token.txt — give it to the partner.
+     3) The server that READS: add to peers
+          - url: "http://partner-ip:8765/vtregister/blacklist"
+            token: "partner token"
+   Shared: anti-bot bans from tier 3 and server bans (/ban, /ban-ip).
+   Only IPs/names and ban expiry — no passwords or other data.
 
-  none    — stand still, position shown in chat.
-  bossbar — plus a "Queue: N/M" bossbar.
-  lobby   — shared waiting PLATFORM: players walk around, 3-level parkour,
-            position bossbar + hologram counter, chat reminders every
-            queue_spam_seconds seconds. Falling = safe return, no damage.
+4.1 JOIN PROTECTION (everything can be toggled in config.yml)
+   antibot.ping_check       — a real client pings the server list first, bots
+                              connect directly. mode: attack (default) / always / off.
+   antibot.datacenter_block — block hosting/VPN IPs (list auto-downloaded, OFF by default).
+   antibot.surge            — surge mode: during a join wave checks start at a
+                              controlled rate, others wait with a bossbar.
 
-Queue settings: queue_max_size (online limit, 0=none), queue_chat_allowed
-(chat only between queued players), queue_hide_players, queue_flight
-(fly while waiting), queue_kick_flyers (kick cheating flyers).
+4.2 ACCOUNT PROTECTION
+   2FA (Google Authenticator, Aegis…): /2fa on → a map with a QR code is put in
+     your hand → scan it in the app → /2fa 123456. No free slot — the key is shown
+     in chat (click copies). /2fa cancel — abort, /2fa off — disable.
+   twofactor.force_admins — mandatory 2FA for admins. OFF by default.
+   Passwords are hashed with Argon2id; one account — one session.
+   security.login_log   — login journal in logs/logins/YYYY-MM-DD.log.
+   security.admin_alerts — Discord/Telegram alert when an admin joins from a new IP.
+   E-mail (/email, /recover): email.enabled: true, email.provider: gmail | yandex |
+     mailru (server settings are filled in) or custom. smtp.password is an APP
+     PASSWORD, not your normal one. Test: /authadmin testmail <address>.
 
-3. PvP ZONE IN THE LOBBY (queue_pvp)
---------------------------------------------------------------------------------
-A rectangle set by corner1/corner2 coordinates (verify world). PvP is
-allowed only inside; damage outside is cancelled. The chest at
-chest_x/chest_z refills every chest_seconds with items:
+5. AFK
+   Before login: idle players are kicked (typing the password counts as activity).
+   After login the plugin does NOT kick for AFK (afk.kick_after_login: false).
 
-  "MATERIAL[:ENCHANTMENT:LEVEL][:AMOUNT]"
-  examples: "NETHERITE_CHESTPLATE:PROTECTION:25"
-            "DIAMOND_SWORD:SHARPNESS:1"
-            "GOLDEN_APPLE:25"        <- 2 fields = material + amount
+6. OPTIMISATION
+   Empty check world, no chunks kept in memory, puzzle pictures prepared in the
+   background, passwords hashed off the main thread, lobby built once and only
+   in lobby mode. Players spawn right on the login platform
+   (security.spawn_on_platform) and go from the arena straight to it — no extra
+   trips through the main world. Measure with /spark profiler.
 
-4. CUSTOM LOBBY PLATFORM / SCHEMATIC
---------------------------------------------------------------------------------
-Want your own lobby instead of the built-in platform?
+7. PROXY (Velocity / BungeeCord / Waterfall and forks)
+   * The same jar goes into the proxy plugins/ folder. Proxy settings:
+     plugins/vtregister/config.yml (Velocity) or plugins/VTRegister/config.yml.
+   * auth_servers — the server name from velocity.toml where VTRegister runs.
+     Unknown name — players are not kicked, the console reminds every minute.
+   * Enable forwarding on Paper: Velocity — paper.yml settings.velocity-support
+     (≤1.18.2) or config/paper-global.yml proxies.velocity (1.19+);
+     BungeeCord — spigot.yml settings.bungeecord: true + BungeeGuard or
+     proxy.firewall. Details — PROXY_SETUP.txt.
 
-  1. queue_build_lobby: false — the plugin builds nothing (hologram aside).
-  2. Build/paste your schematic in the auth_verify world around
-     (0, ~65, -512) — that is the lobby spawn. WorldEdit: //schem load,
-     //paste at the right spot.
-  3. Parkour / PvP area can also be built manually — PvP coordinates are
-     still taken from the config and work on any build.
+8. COMMANDS
+   /authadmin reload | status | info <name> | unregister <name> | setpw <name> <pass>
+   /authadmin unban  |  /authadmin setspawn <prelogin|postlogin|firstjoin>
+   /authadmin testmail <address>  |  /vtregister reload  |  /vtregister help
 
-5. EMERGENCY MODE
---------------------------------------------------------------------------------
-If the verify world fails to load the plugin does NOT silently pass bots:
-  - fallback_main_world: true -> arenas are built high in the sky of the
-    main world.
-  - The console is spammed emergency.alert_times times every
-    emergency.alert_interval_seconds seconds (default 10 / 5 min).
-
-6. BOSSBARS
---------------------------------------------------------------------------------
-  bossbar: true          — check progress + countdown.
-  bossbar_color: auto    — per-stage colour OR fixed (BLUE/RED/...).
-  bossbar_title: ""      — custom template: {stage_num} {stage_total} {seconds}.
-  bossbar2_enabled       — second (promo) bar, bossbar2_title/color.
-
-7. PROXY (BungeeCord/Velocity)
---------------------------------------------------------------------------------
-The queue is local to each server (queue_proxy_sync is reserved).
-Do NOT redirect waiting players to another server — the queue only exists
-where the check runs. After passing, players can be sent to the network
-lobby via proxy_server (see config.yml).
-
-8. OPTIMISATION
---------------------------------------------------------------------------------
-  - One shared ticker (10 ticks) drives all checks and the queue — no
-    per-player tasks.
-  - The verify world is empty (VoidGenerator), autoSave off,
-    keepSpawnInMemory off.
-  - Arenas are reused (bounded slots), state is cleaned on
-    quit/kick/timeout/pass.
-  - Hologram and bossbars update once per tick at most.
+10. VERSIONS
+   Server: 1.13 → 1.21.x and Mojang's new numbering 26.x and newer (built and
+     checked against API 1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4, 26.2).
+   Java: built for Java 8, runs on Java 8 … 25; the server core decides which
+     Java it needs. 1.8–1.12 server cores are not supported — use a 1.13+ core
+     with ViaVersion/ViaBackwards/ViaRewind for old clients.
 
 ================================================================================
 
-9. BUILD CONSISTENCY
---------------------------------------------------------------------------------
-  - The plugin ships only as a ready-made .jar via MineLeak
-    (author vitaliy21, SerclStudio, official Telegram channel).
-    Sources are not published.
-  - On load a build-consistency check runs: a jar corrupted in transit or
-    repacked by a third party will refuse to start ("build corrupted" in
-    console). Download the original from the author.
+11. BUILD INTEGRITY
+   The plugin is distributed only as a ready .jar via MineLeak (author vitaliy21,
+   SerclStudio). A damaged or repacked build refuses to start — download the original.

@@ -16,8 +16,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
@@ -72,9 +72,21 @@ public final class SqlStorage implements AccountStorage {
     private final Logger log;
     private final String table;
 
-    private BlockingQueue<Connection> pool;
+    /**
+     * Пул: слоты считает семафор, а простаивающие соединения лежат в очереди.
+     * Слот возвращается ВСЕГДА (и при ошибке пересоздания соединения), поэтому
+     * краткое падение БД не «съедает» пул навсегда — после подъёма базы
+     * следующий acquire просто откроет новое соединение.
+     */
+    private volatile Semaphore permits;
+    private final ConcurrentLinkedQueue<Connection> idle = new ConcurrentLinkedQueue<>();
+    private volatile int poolSize = 1;
     private final Object sqliteLock = new Object();
     private volatile boolean open;
+
+    /** Таймауты сети (сек): зависшая БД не должна вешать IO-поток и главный поток. */
+    private static final int CONNECT_TIMEOUT_SEC = 5;
+    private static final int SOCKET_TIMEOUT_SEC = 15;
 
     public SqlStorage(Settings settings, File dataFolder, Logger log) {
         this.settings = settings;
@@ -98,29 +110,44 @@ public final class SqlStorage implements AccountStorage {
 
     @Override
     public void open() throws Exception {
+        // Повторный open() (ретрай после недоступной БД) — начинаем с чистого пула
+        close();
         DriverLoader.ensureDriver(settings.dialect, dataFolder, log);
-        int size = settings.dialect == Dialect.SQLITE ? 1 : Math.max(1, Math.min(16, settings.poolSize));
-        pool = new ArrayBlockingQueue<>(size);
-        for (int i = 0; i < size; i++) {
-            pool.offer(newConnection());
+        if (settings.dialect != Dialect.SQLITE) {
+            DriverManager.setLoginTimeout(CONNECT_TIMEOUT_SEC);
         }
+        int size = settings.dialect == Dialect.SQLITE ? 1 : Math.max(1, Math.min(16, settings.poolSize));
+        poolSize = size;
+        // Одно соединение сразу: проверяем, что база доступна; остальные — по требованию
+        Connection first = newConnection();
+        idle.offer(first);
+        permits = new Semaphore(size, true);
         open = true;
-        createSchema();
+        try {
+            createSchema();
+        } catch (SQLException e) {
+            close();
+            throw e;
+        }
         log.info(name() + ": подключение установлено, таблица " + table);
     }
 
     @Override
     public void close() {
         open = false;
-        if (pool == null) {
+        Connection c;
+        while ((c = idle.poll()) != null) {
+            closeQuietly(c);
+        }
+    }
+
+    private static void closeQuietly(Connection c) {
+        if (c == null) {
             return;
         }
-        Connection c;
-        while ((c = pool.poll()) != null) {
-            try {
-                c.close();
-            } catch (SQLException ignored) {
-            }
+        try {
+            c.close();
+        } catch (SQLException ignored) {
         }
     }
 
@@ -136,57 +163,92 @@ public final class SqlStorage implements AccountStorage {
                 return c;
             }
             case POSTGRESQL: {
+                // Таймауты pgJDBC — в секундах; без них зависшая сеть держит поток часами
                 String url = "jdbc:postgresql://" + settings.host + ":" + settings.port + "/" + settings.database
-                        + (settings.useSsl ? "?ssl=true&sslmode=require" : "");
+                        + "?connectTimeout=" + CONNECT_TIMEOUT_SEC + "&socketTimeout=" + SOCKET_TIMEOUT_SEC
+                        + "&tcpKeepAlive=true"
+                        + (settings.useSsl ? "&ssl=true&sslmode=require" : "");
                 return DriverManager.getConnection(url, settings.user, settings.password);
             }
             default: {
+                // Таймауты Connector/J — в миллисекундах
                 String url = "jdbc:mysql://" + settings.host + ":" + settings.port + "/" + settings.database
                         + "?useSSL=" + settings.useSsl + "&allowPublicKeyRetrieval=true&characterEncoding=utf8"
-                        + "&autoReconnect=true&serverTimezone=UTC";
+                        + "&autoReconnect=true&serverTimezone=UTC"
+                        + "&connectTimeout=" + (CONNECT_TIMEOUT_SEC * 1000)
+                        + "&socketTimeout=" + (SOCKET_TIMEOUT_SEC * 1000)
+                        + "&tcpKeepAlive=true";
                 return DriverManager.getConnection(url, settings.user, settings.password);
             }
         }
     }
 
-    /** Взять соединение из пула; мёртвое — пересоздать. */
+    /**
+     * Взять соединение: сначала слот семафора, потом простаивающее соединение
+     * (мёртвое — закрыть) или новое. При любой ошибке слот возвращается.
+     * В главном потоке ждём слот недолго — лучше ошибка, чем фриз сервера.
+     */
     private Connection acquire() throws SQLException {
-        if (!open) {
+        Semaphore p = permits;
+        if (!open || p == null) {
             throw new SQLException("Хранилище закрыто");
         }
-        Connection c;
+        long waitMs = onPrimaryThread() ? 2000L : 10_000L;
         try {
-            c = pool.poll(10, TimeUnit.SECONDS);
+            if (!p.tryAcquire(waitMs, TimeUnit.MILLISECONDS)) {
+                throw new SQLException("Нет свободных соединений (pool_size=" + poolSize + ")");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new SQLException("Прервано ожидание соединения");
         }
-        if (c == null) {
-            throw new SQLException("Нет свободных соединений (pool_size=" + pool.size() + ")");
-        }
         try {
-            if (c.isClosed() || !c.isValid(2)) {
+            Connection c;
+            while ((c = idle.poll()) != null) {
+                boolean alive;
                 try {
-                    c.close();
-                } catch (SQLException ignored) {
+                    alive = !c.isClosed() && c.isValid(2);
+                } catch (SQLException e) {
+                    alive = false;
                 }
-                c = newConnection();
+                if (alive) {
+                    return c;
+                }
+                closeQuietly(c);
             }
-        } catch (SQLException e) {
-            c = newConnection();
+            return newConnection();
+        } catch (SQLException | RuntimeException e) {
+            p.release();
+            throw e;
         }
-        return c;
     }
 
     private void release(Connection c) {
         if (c == null) {
             return;
         }
-        if (!open || !pool.offer(c)) {
-            try {
-                c.close();
-            } catch (SQLException ignored) {
-            }
+        Semaphore p = permits;
+        boolean alive;
+        try {
+            alive = open && !c.isClosed();
+        } catch (SQLException e) {
+            alive = false;
+        }
+        if (alive) {
+            idle.offer(c);
+        } else {
+            closeQuietly(c);
+        }
+        if (p != null) {
+            p.release();
+        }
+    }
+
+    private static boolean onPrimaryThread() {
+        try {
+            return org.bukkit.Bukkit.isPrimaryThread();
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -212,21 +274,43 @@ public final class SqlStorage implements AccountStorage {
         Connection c = acquire();
         try (Statement st = c.createStatement()) {
             st.executeUpdate(sql);
-            // Индексы: поиск по нику и по IP регистрации (лимит мультиаккаунтов)
-            tryExec(st, "CREATE INDEX IF NOT EXISTS idx_" + table + "_name ON " + table + " (name_lower)");
-            tryExec(st, "CREATE INDEX IF NOT EXISTS idx_" + table + "_regip ON " + table + " (registered_ip)");
+            // Индексы: поиск по нику (каждый пре-логин) и по IP (лимит мультиаккаунтов)
+            ensureIndex(c, st, "idx_" + table + "_name", "name_lower");
+            ensureIndex(c, st, "idx_" + table + "_regip", "registered_ip");
+            ensureIndex(c, st, "idx_" + table + "_lastip", "last_ip");
         } finally {
             release(c);
         }
+    }
+
+    /**
+     * MySQL/MariaDB (включая 8.0) не понимают CREATE INDEX IF NOT EXISTS —
+     * проверяем наличие индекса через метаданные и создаём обычным CREATE INDEX.
+     * SQLite и PostgreSQL IF NOT EXISTS поддерживают.
+     */
+    private void ensureIndex(Connection c, Statement st, String index, String column) {
+        if (settings.dialect == Dialect.MYSQL || settings.dialect == Dialect.MARIADB) {
+            try (ResultSet rs = c.getMetaData().getIndexInfo(c.getCatalog(), null, table, false, false)) {
+                while (rs.next()) {
+                    if (index.equalsIgnoreCase(rs.getString("INDEX_NAME"))) {
+                        return;
+                    }
+                }
+            } catch (SQLException e) {
+                log.warning(name() + ": не удалось прочитать индексы " + table + ": " + e.getMessage());
+            }
+            tryExec(st, "CREATE INDEX " + index + " ON " + table + " (" + column + ")");
+            return;
+        }
+        tryExec(st, "CREATE INDEX IF NOT EXISTS " + index + " ON " + table + " (" + column + ")");
     }
 
     private void tryExec(Statement st, String sql) {
         try {
             st.executeUpdate(sql);
         } catch (SQLException e) {
-            // MySQL < 8 не знает IF NOT EXISTS для индексов — индекс уже есть, это не ошибка
-            if (!e.getMessage().toLowerCase(Locale.ROOT).contains("duplicate")
-                    && !e.getMessage().toLowerCase(Locale.ROOT).contains("exists")) {
+            // Индекс уже есть: MySQL 1061 (ER_DUP_KEYNAME), PostgreSQL 42P07 — это не ошибка
+            if (e.getErrorCode() != 1061 && !"42P07".equals(e.getSQLState())) {
                 log.warning(name() + ": " + e.getMessage());
             }
         }
@@ -360,53 +444,114 @@ public final class SqlStorage implements AccountStorage {
      * (ON CONFLICT / ON DUPLICATE KEY у каждого свой синтаксис).
      */
     @Override
-    public void saveBatch(java.util.Collection<AccountRecord> records) throws SQLException {
+    public void saveBatch(java.util.Collection<AccountRecord> records) throws SQLException, DuplicateAccountException {
         if (records == null || records.isEmpty()) {
             return;
         }
-        if (records.size() == 1) {
-            save(records.iterator().next());
-            return;
+        // Новые регистрации — по одной, только INSERT и вне общей транзакции
+        // (на PostgreSQL ошибка ключа ломает всю транзакцию пакета)
+        List<AccountRecord> existing = new ArrayList<>(records.size());
+        List<AccountRecord> conflicts = null;
+        for (AccountRecord r : records) {
+            if (!r.isNew()) {
+                existing.add(r);
+                continue;
+            }
+            try {
+                save(r);
+            } catch (DuplicateAccountException e) {
+                if (conflicts == null) {
+                    conflicts = new ArrayList<>();
+                }
+                conflicts.addAll(e.getConflicts());
+            }
         }
-        // Пакетная запись в ОДНОЙ транзакции: меньше round-trip, меньше fsync, быстрее
+        if (existing.size() == 1) {
+            save(existing.get(0));
+        } else if (!existing.isEmpty()) {
+            // Пакетная запись в ОДНОЙ транзакции: меньше round-trip, меньше fsync, быстрее
+            Connection c = acquire();
+            try {
+                synchronized (sqliteLock) {
+                    boolean prevAuto = c.getAutoCommit();
+                    c.setAutoCommit(false);
+                    try {
+                        for (AccountRecord r : existing) {
+                            saveOne(c, r);
+                        }
+                        c.commit();
+                        for (AccountRecord r : existing) {
+                            r.clearDirty();
+                        }
+                    } catch (SQLException e) {
+                        try {
+                            c.rollback();
+                        } catch (SQLException ignored) {
+                        }
+                        throw e;
+                    } finally {
+                        c.setAutoCommit(prevAuto);
+                    }
+                }
+            } finally {
+                release(c);
+            }
+        }
+        if (conflicts != null) {
+            throw new DuplicateAccountException(conflicts);
+        }
+    }
+
+    @Override
+    public void save(AccountRecord r) throws SQLException, DuplicateAccountException {
         Connection c = acquire();
         try {
-            synchronized (sqliteLock) {
-                boolean prevAuto = c.getAutoCommit();
-                c.setAutoCommit(false);
+            if (r.isNew()) {
                 try {
-                    for (AccountRecord r : records) {
-                        saveOne(c, r);
-                    }
-                    c.commit();
-                    for (AccountRecord r : records) {
-                        r.clearDirty();
+                    synchronized (sqliteLock) {
+                        insertOne(c, r);
                     }
                 } catch (SQLException e) {
-                    try {
-                        c.rollback();
-                    } catch (SQLException ignored) {
+                    if (isDuplicateKey(e)) {
+                        throw new DuplicateAccountException(java.util.Collections.singletonList(r));
                     }
                     throw e;
-                } finally {
-                    c.setAutoCommit(prevAuto);
+                }
+                r.clearNew();
+            } else {
+                synchronized (sqliteLock) {
+                    saveOne(c, r);
                 }
             }
+            r.clearDirty();
         } finally {
             release(c);
         }
     }
 
-    @Override
-    public void save(AccountRecord r) throws SQLException {
-        Connection c = acquire();
-        try {
-            synchronized (sqliteLock) {
-                saveOne(c, r);
-            }
-            r.clearDirty();
-        } finally {
-            release(c);
+    /** Нарушение первичного ключа: SQLState 23xxx (MySQL/PostgreSQL), код 19 SQLITE_CONSTRAINT. */
+    private static boolean isDuplicateKey(SQLException e) {
+        if (e instanceof java.sql.SQLIntegrityConstraintViolationException) {
+            return true;
+        }
+        String state = e.getSQLState();
+        if (state != null && state.startsWith("23")) {
+            return true;
+        }
+        if (e.getErrorCode() == 19 || e.getErrorCode() == 1555 || e.getErrorCode() == 2067) {
+            return true;
+        }
+        String m = e.getMessage();
+        return m != null && m.toLowerCase(Locale.ROOT).contains("constraint");
+    }
+
+    private void insertOne(Connection c, AccountRecord r) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement("INSERT INTO " + table
+                + " (name,name_lower,password,registered_at,registered_ip,last_ip,last_auth,ip_auth,totp,email,email_verified,uuid)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")) {
+            bind(ps, r);
+            ps.setString(12, r.getUuid().toString());
+            ps.executeUpdate();
         }
     }
 
@@ -419,13 +564,7 @@ public final class SqlStorage implements AccountStorage {
             updated = ps.executeUpdate();
         }
         if (updated == 0) {
-            try (PreparedStatement ps = c.prepareStatement("INSERT INTO " + table
-                    + " (name,name_lower,password,registered_at,registered_ip,last_ip,last_auth,ip_auth,totp,email,email_verified,uuid)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")) {
-                bind(ps, r);
-                ps.setString(12, r.getUuid().toString());
-                ps.executeUpdate();
-            }
+            insertOne(c, r);
         }
     }
 
@@ -490,7 +629,7 @@ public final class SqlStorage implements AccountStorage {
         return map;
     }
 
-    private static final int READY = -111058242;
+    private static final int READY = 866282962;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1023) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

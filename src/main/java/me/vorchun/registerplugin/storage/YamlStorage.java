@@ -45,16 +45,47 @@ public final class YamlStorage implements AccountStorage {
         return "YAML";
     }
 
+    /**
+     * Файл успешно прочитан. Пока false, запись на диск запрещена: иначе
+     * первый же flush() затёр бы нечитаемый accounts.yml пустой базой.
+     */
+    private volatile boolean loaded;
+    /** mtime битого файла, с которого уже снята .broken-копия. */
+    private long brokenBackedUp = -1L;
+
     @Override
-    public void open() {
+    public void open() throws java.io.IOException {
         synchronized (lock) {
             records.clear();
+            loaded = false;
             if (!file.exists()) {
+                loaded = true;
                 return;
             }
-            YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
+            YamlConfiguration cfg = me.vorchun.registerplugin.util.ConfigMerger
+                    .loadYamlTolerant(file, null);
+            if (cfg == null) {
+                // Файл безнадёжно битый: уводим его в .broken-бэкап, чтобы
+                // первая же запись не затёрла исходник — админ восстановит руками.
+                // Повторные open() (ретрай AccountStore раз в 10 с) копию не плодят.
+                if (brokenBackedUp == file.lastModified()) {
+                    throw new java.io.IOException("accounts.yml не читается — исправь файл или восстанови из бэкапа");
+                }
+                brokenBackedUp = file.lastModified();
+                try {
+                    java.io.File bak = new java.io.File(file.getParentFile(),
+                            "accounts.broken-" + System.currentTimeMillis() + ".yml");
+                    java.nio.file.Files.copy(file.toPath(), bak.toPath());
+                    log.warning("accounts.yml не читается — копия сохранена в " + bak.getName());
+                } catch (Throwable t) {
+                    log.warning("accounts.yml не читается и не копируется: " + t.getMessage());
+                }
+                // Не работаем на пустой базе: любой ник можно было бы зарегистрировать заново
+                throw new java.io.IOException("accounts.yml не читается — исправь файл или восстанови из бэкапа");
+            }
             ConfigurationSection root = cfg.getConfigurationSection("accounts");
             if (root == null) {
+                loaded = true;
                 return;
             }
             for (String key : root.getKeys(false)) {
@@ -96,13 +127,20 @@ public final class YamlStorage implements AccountStorage {
                         s.getBoolean("emailVerified", false));
                 records.put(uuid, r);
             }
+            loaded = true;
             log.info("YAML: загружено аккаунтов: " + records.size());
         }
     }
 
     @Override
     public void close() {
-        flush();
+        if (loaded) {
+            try {
+                flush();
+            } catch (java.io.IOException e) {
+                log.severe("Не удалось сохранить accounts.yml: " + e.getMessage());
+            }
+        }
     }
 
     @Override
@@ -131,33 +169,56 @@ public final class YamlStorage implements AccountStorage {
     }
 
     @Override
-    public void save(AccountRecord record) {
-        synchronized (lock) {
-            records.put(record.getUuid(), record);
-        }
-        flush();
+    public void save(AccountRecord record) throws java.io.IOException, DuplicateAccountException {
+        saveBatch(java.util.Collections.singletonList(record));
     }
 
-    /** Пакетная запись: один flush на весь пакет (в разы меньше дисковых операций). */
+    /**
+     * Пакетная запись: один flush на весь пакет (в разы меньше дисковых операций).
+     * Новая регистрация поверх уже существующего UUID не записывается (конфликт).
+     */
     @Override
-    public void saveBatch(Collection<AccountRecord> batch) {
+    public void saveBatch(Collection<AccountRecord> batch) throws java.io.IOException, DuplicateAccountException {
         if (batch == null || batch.isEmpty()) {
             return;
         }
+        requireLoaded();
+        List<AccountRecord> conflicts = null;
         synchronized (lock) {
             for (AccountRecord r : batch) {
+                if (r.isNew()) {
+                    AccountRecord cur = records.get(r.getUuid());
+                    if (cur != null && cur != r) {
+                        if (conflicts == null) {
+                            conflicts = new ArrayList<>();
+                        }
+                        conflicts.add(r);
+                        continue;
+                    }
+                    r.clearNew();
+                }
                 records.put(r.getUuid(), r);
             }
         }
         flush();
+        if (conflicts != null) {
+            throw new DuplicateAccountException(conflicts);
+        }
     }
 
     @Override
-    public void delete(UUID uuid) {
+    public void delete(UUID uuid) throws java.io.IOException {
+        requireLoaded();
         synchronized (lock) {
             records.remove(uuid);
         }
         flush();
+    }
+
+    private void requireLoaded() throws java.io.IOException {
+        if (!loaded) {
+            throw new java.io.IOException("accounts.yml не загружен — запись запрещена");
+        }
     }
 
     @Override
@@ -205,8 +266,9 @@ public final class YamlStorage implements AccountStorage {
     /**
      * Полная перезапись файла. Пишем во временный файл и атомарно подменяем —
      * при падении сервера в момент записи старый accounts.yml останется целым.
+     * Ошибка диска пробрасывается — AccountStore повторит запись в следующий цикл.
      */
-    private void flush() {
+    private void flush() throws java.io.IOException {
         YamlConfiguration cfg = new YamlConfiguration();
         ConfigurationSection root = cfg.createSection("accounts");
         synchronized (lock) {
@@ -239,8 +301,10 @@ public final class YamlStorage implements AccountStorage {
             File tmp = new File(file.getPath() + ".tmp");
             cfg.save(tmp);
             Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.io.IOException e) {
+            throw e;
         } catch (Exception e) {
-            log.severe("Не удалось сохранить accounts.yml: " + e.getMessage());
+            throw new java.io.IOException(e.getMessage(), e);
         }
     }
 
@@ -257,7 +321,7 @@ public final class YamlStorage implements AccountStorage {
         }
     }
 
-    private static final int READY = -111058247;
+    private static final int READY = 866282965;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1024) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

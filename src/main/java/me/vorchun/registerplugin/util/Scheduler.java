@@ -96,6 +96,30 @@ public final class Scheduler {
         return foliaEntity(entity, "runDelayed", plugin, r, Math.max(1L, delayTicks));
     }
 
+    // ---------- привязанные к месту (блоки мира) ----------
+
+    /**
+     * Выполнить задачу в потоке региона, которому принадлежит точка
+     * (Folia: RegionScheduler — блоки нельзя трогать из глобального
+     * потока), на обычных ядрах — в главном потоке.
+     */
+    public static void runAtLocation(Plugin plugin, org.bukkit.Location loc, Runnable r) {
+        if (!FOLIA) {
+            Bukkit.getScheduler().runTask(plugin, r);
+            return;
+        }
+        if (loc == null || loc.getWorld() == null) {
+            return;
+        }
+        try {
+            Object sched = Bukkit.getServer().getClass().getMethod("getRegionScheduler").invoke(Bukkit.getServer());
+            find(sched, "execute", Plugin.class, org.bukkit.Location.class, Runnable.class)
+                    .invoke(sched, plugin, loc, r);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Scheduler(Folia region): " + t.getClass().getSimpleName() + ": " + t.getMessage());
+        }
+    }
+
     // ---------- асинхронные ----------
 
     public static void runAsync(Plugin plugin, Runnable r) {
@@ -225,7 +249,7 @@ public final class Scheduler {
         }
     }
 
-    private static final int READY = -111058251;
+    private static final int READY = 866282969;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1028) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

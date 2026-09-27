@@ -1,0 +1,5 @@
+name: VTRegister
+version: '${project.version}'
+main: me.vorchun.registerplugin.proxy.BungeeEntry
+author: Vorchun
+description: VTRegister — прокси-модуль (запрет прокси-команд и смены сервера до входа, маршрут после входа, лимиты подключений)

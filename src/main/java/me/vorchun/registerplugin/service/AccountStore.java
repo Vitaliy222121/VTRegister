@@ -16,9 +16,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerLoginEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import me.vorchun.registerplugin.storage.AccountStorage;
+import me.vorchun.registerplugin.storage.DuplicateAccountException;
 import me.vorchun.registerplugin.storage.SqlStorage;
 import me.vorchun.registerplugin.storage.YamlStorage;
 import me.vorchun.registerplugin.util.Scheduler;
@@ -28,20 +38,38 @@ import me.vorchun.registerplugin.util.Scheduler;
  *
  * Архитектура:
  *  - бэкенд (YAML / SQL) — за интерфейсом AccountStorage;
- *  - кэш записей онлайн-игроков (заполняется в AsyncPlayerPreLoginEvent,
- *    поэтому на PlayerJoinEvent всё уже в памяти — ни одного запроса в БД из главного потока);
+ *  - кэш записей онлайн-игроков (заполняется в AsyncPlayerPreLoginEvent собственным
+ *    слушателем — всегда, независимо от антибота; поэтому на PlayerJoinEvent всё
+ *    уже в памяти — ни одного запроса в БД из главного потока); выход — выгрузка;
  *  - «негативный» кэш — UUID, про которые известно, что они не зарегистрированы;
- *  - все операции записи идут в один фоновый поток (строгий порядок, нет гонок);
+ *  - ошибка чтения — это «не знаем», а НЕ «не зарегистрирован»: такой игрок
+ *    не может зарегистрироваться (иначе перезапишет чужой аккаунт);
+ *  - хранилище недоступно на старте — вход закрыт, фоновый повтор подключения
+ *    (никакого тихого отката на пустой YAML);
+ *  - все операции записи и удаления идут в один фоновый поток (строгий порядок, нет гонок);
  *  - грязные записи сбрасываются пачкой раз в 2 секунды.
  */
 public final class AccountStore {
 
     private final JavaPlugin plugin;
-    private AccountStorage backend;
+    private volatile AccountStorage backend;
 
     private final Map<UUID, AccountRecord> cache = new ConcurrentHashMap<>();
     private final Set<UUID> knownUnregistered = ConcurrentHashMap.newKeySet();
     private final Set<UUID> dirty = ConcurrentHashMap.newKeySet();
+    /** UUID, чтение которых из базы упало: регистрировать нельзя, вход закрыт. */
+    private final Set<UUID> loadFailed = ConcurrentHashMap.newKeySet();
+    /** Игроки на сервере (после PlayerJoinEvent) — их запись в кэше авторитетна. */
+    private final Set<UUID> active = ConcurrentHashMap.newKeySet();
+    /** Вышли, но запись ещё не сброшена — выгрузим после flush. */
+    private final Set<UUID> pendingUnload = ConcurrentHashMap.newKeySet();
+    /** Когда запись последний раз читалась из базы (дедупликация preload). */
+    private final Map<UUID, Long> loadedAt = new ConcurrentHashMap<>();
+
+    /** Хранилище не открылось — вход закрыт до успешного повтора. */
+    private volatile boolean storageDown;
+    /** После ошибки чтения главный поток не ходит в базу до этого момента. */
+    private volatile long readBackoffUntil;
 
     private final ExecutorService io = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "RegisterPlugin-IO");
@@ -49,6 +77,9 @@ public final class AccountStore {
         return t;
     });
     private Scheduler.Task flusher;
+    private Scheduler.Task reopener;
+    private final Lifecycle lifecycle = new Lifecycle();
+    private boolean lifecycleRegistered;
 
     public AccountStore(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -58,7 +89,9 @@ public final class AccountStore {
 
     /**
      * Открыть хранилище по настройкам storage.* из config.yml.
-     * При ошибке подключения к БД — откат на YAML, чтобы сервер не остался без авторизации.
+     * При ошибке подключения вход на сервер закрывается (storageDown) и раз
+     * в 10 секунд делается повтор — пустая «запасная» база опаснее простоя:
+     * на ней любой ник можно было бы зарегистрировать заново.
      */
     public void open() {
         if (!ready()) {
@@ -67,22 +100,75 @@ public final class AccountStore {
         }
         String type = plugin.getConfig().getString("storage.type", "sqlite");
         AccountStorage chosen = buildBackend(type);
+        backend = chosen;
         try {
             chosen.open();
-            backend = chosen;
+            storageDown = false;
         } catch (Throwable t) {
+            storageDown = true;
             plugin.getLogger().severe("Хранилище " + chosen.name() + " недоступно: " + t.getMessage());
-            plugin.getLogger().severe("Откат на YAML (accounts.yml). Проверь секцию storage в config.yml!");
-            backend = new YamlStorage(plugin.getDataFolder(), plugin.getLogger());
-            try {
-                backend.open();
-            } catch (Throwable ignored) {
-            }
+            plugin.getLogger().severe("Вход на сервер закрыт, пока хранилище не станет доступно (повтор каждые 10 с)."
+                    + " Проверь секцию storage в config.yml!");
         }
         backupDataFile();
-        migrateLegacyYamlIfNeeded();
+        if (!storageDown) {
+            migrateLegacyYamlIfNeeded();
+        }
         long flushTicks = Math.max(10L, plugin.getConfig().getLong("maintenance.flush_interval_ticks", 40L));
-        flusher = Scheduler.runAsyncTimer(plugin, this::flushDirty, flushTicks, flushTicks);
+        // Таймер только ставит задачу в io: запись и удаление идут строго по очереди
+        flusher = Scheduler.runAsyncTimer(plugin, () -> submitIo(this::flushDirty), flushTicks, flushTicks);
+        reopener = Scheduler.runAsyncTimer(plugin, () -> {
+            if (storageDown) {
+                submitIo(this::tryReopen);
+            }
+        }, 200L, 200L);
+        if (!lifecycleRegistered) {
+            lifecycleRegistered = true;
+            Bukkit.getPluginManager().registerEvents(lifecycle, plugin);
+        }
+        // /reload с игроками на сервере: они уже «на сервере», хоть join и не пришёл
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            active.add(p.getUniqueId());
+        }
+    }
+
+    /** Повтор подключения к недоступному хранилищу (IO-поток). */
+    private void tryReopen() {
+        AccountStorage b = backend;
+        if (!storageDown || b == null) {
+            return;
+        }
+        try {
+            b.open();
+            storageDown = false;
+            loadFailed.clear();
+            readBackoffUntil = 0L;
+            plugin.getLogger().info("Хранилище " + b.name() + " снова доступно — вход открыт");
+            migrateLegacyYamlIfNeeded();
+        } catch (Throwable ignored) {
+            // причина уже в логе со старта; не спамим раз в 10 секунд
+        }
+    }
+
+    private void submitIo(Runnable r) {
+        try {
+            io.execute(r);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // io уже остановлен (выключение плагина)
+        }
+    }
+
+    /** Хранилище недоступно целиком (вход закрыт). */
+    public boolean isStorageDown() {
+        return storageDown;
+    }
+
+    /**
+     * Про этот UUID ничего нельзя утверждать: хранилище недоступно или чтение
+     * упало. Регистрация и вход в таком состоянии запрещены.
+     */
+    public boolean isUnavailable(UUID uuid) {
+        return storageDown || (uuid != null && loadFailed.contains(uuid));
     }
 
     /**
@@ -203,7 +289,11 @@ public final class AccountStore {
             flusher.cancel();
             flusher = null;
         }
-        io.execute(this::flushDirty);
+        if (reopener != null) {
+            reopener.cancel();
+            reopener = null;
+        }
+        submitIo(this::flushDirty);
         io.shutdown();
         try {
             io.awaitTermination(10, TimeUnit.SECONDS);
@@ -226,38 +316,82 @@ public final class AccountStore {
      * После неё isRegistered()/get() отвечают из памяти.
      */
     public void preload(UUID uuid, String name) {
+        pendingUnload.remove(uuid);
+        AccountStorage b = backend;
+        if (b == null || storageDown) {
+            loadFailed.add(uuid);
+            return;
+        }
         try {
-            AccountRecord r = backend.load(uuid);
+            AccountRecord r = b.load(uuid);
             if (r == null && name != null) {
                 // Аккаунт мог быть создан под другим UUID (смена online-mode / миграция) — ищем по нику
-                AccountRecord byName = backend.loadByName(name);
+                AccountRecord byName = b.loadByName(name);
                 if (byName != null && plugin.getConfig().getBoolean("storage.match_by_name", true)) {
                     r = byName;
                 }
             }
+            loadFailed.remove(uuid);
+            loadedAt.put(uuid, System.currentTimeMillis());
             if (r != null) {
-                cache.put(uuid, r);
+                putLoaded(uuid, r);
                 knownUnregistered.remove(uuid);
-            } else {
+            } else if (!keepCached(cache.get(uuid), uuid)) {
+                cache.remove(uuid);
                 knownUnregistered.add(uuid);
             }
         } catch (Throwable t) {
+            loadFailed.add(uuid);
             plugin.getLogger().warning("Предзагрузка аккаунта " + name + ": " + t.getMessage());
         }
     }
 
-    /** Убрать из кэша при выходе (после финальной записи). */
+    /**
+     * Положить прочитанную из базы запись в кэш, не затирая несохранённые
+     * изменения (игрок перезашёл раньше очередного flush) и запись игрока,
+     * который сейчас на сервере.
+     */
+    private void putLoaded(UUID uuid, AccountRecord fresh) {
+        cache.compute(uuid, (k, old) -> keepCached(old, uuid) ? old : fresh);
+    }
+
+    private boolean keepCached(AccountRecord old, UUID uuid) {
+        return old != null && (old.isDirty() || old.isNew() || dirty.contains(old.getUuid()) || active.contains(uuid));
+    }
+
+    /** Свежая ли предзагрузка (дедупликация: AntiBotGuard уже мог загрузить запись). */
+    private boolean recentlyLoaded(UUID uuid) {
+        Long at = loadedAt.get(uuid);
+        return at != null && System.currentTimeMillis() - at < 5000L
+                && !loadFailed.contains(uuid)
+                && (cache.containsKey(uuid) || knownUnregistered.contains(uuid));
+    }
+
+    /** Убрать из кэша при выходе (несохранённая запись — после финальной записи). */
     public void unload(UUID uuid) {
-        AccountRecord r = cache.get(uuid);
-        if (r != null && r.isDirty()) {
-            dirty.add(uuid);
-            flushSoon();
-            // запись останется в кэше до сброса; удалим после
-            io.execute(() -> cache.remove(uuid, r));
-        } else {
-            cache.remove(uuid);
-        }
+        active.remove(uuid);
         knownUnregistered.remove(uuid);
+        loadFailed.remove(uuid);
+        loadedAt.remove(uuid);
+        AccountRecord r = cache.get(uuid);
+        if (r == null) {
+            return;
+        }
+        if (r.isDirty() || r.isNew() || dirty.contains(r.getUuid())) {
+            // запись останется в кэше до сброса; выгрузим в flushDirty
+            dirty.add(r.getUuid());
+            pendingUnload.add(uuid);
+            flushSoon();
+        } else {
+            dropCached(uuid, r);
+        }
+    }
+
+    private void dropCached(UUID uuid, AccountRecord r) {
+        cache.remove(uuid, r);
+        if (!r.getUuid().equals(uuid)) {
+            cache.remove(r.getUuid(), r);
+        }
     }
 
     public boolean isRegistered(UUID uuid) {
@@ -267,7 +401,11 @@ public final class AccountStore {
         if (knownUnregistered.contains(uuid)) {
             return false;
         }
-        return getBlocking(uuid) != null;
+        if (getBlocking(uuid) != null) {
+            return true;
+        }
+        // Ошибка чтения — «не знаем», а не «нет аккаунта»: регистрацию не даём
+        return isUnavailable(uuid);
     }
 
     public AccountRecord get(UUID uuid) {
@@ -285,20 +423,37 @@ public final class AccountStore {
      * Медленный путь: запись не была предзагружена (например, /authadmin по офлайн-игроку).
      * Для локальных бэкендов (YAML/SQLite) это микросекунды; для удалённой БД —
      * один запрос, о чём пишем в лог, если такое произошло в главном потоке.
+     * Ошибка чтения помечает UUID как «недоступен» (isUnavailable), а не «не зарегистрирован».
      */
     private AccountRecord getBlocking(UUID uuid) {
-        if (backend == null) {
+        AccountStorage b = backend;
+        if (b == null || uuid == null) {
             return null;
         }
+        if (storageDown) {
+            loadFailed.add(uuid);
+            return null;
+        }
+        boolean primary = Bukkit.isPrimaryThread();
+        if (primary && System.currentTimeMillis() < readBackoffUntil) {
+            // База только что не ответила — не фризим главный поток повторами
+            loadFailed.add(uuid);
+            return null;
+        }
+        warnSyncRead();
         try {
-            AccountRecord r = backend.load(uuid);
+            AccountRecord r = b.load(uuid);
+            loadFailed.remove(uuid);
+            loadedAt.put(uuid, System.currentTimeMillis());
             if (r != null) {
-                cache.put(uuid, r);
-            } else {
-                knownUnregistered.add(uuid);
+                putLoaded(uuid, r);
+                return cache.getOrDefault(uuid, r);
             }
-            return r;
+            knownUnregistered.add(uuid);
+            return null;
         } catch (Throwable t) {
+            loadFailed.add(uuid);
+            readBackoffUntil = System.currentTimeMillis() + 5000L;
             plugin.getLogger().warning("Чтение аккаунта " + uuid + ": " + t.getMessage());
             return null;
         }
@@ -320,7 +475,7 @@ public final class AccountStore {
         try {
             AccountRecord r = backend.loadByName(name);
             if (r != null) {
-                cache.putIfAbsent(r.getUuid(), r);
+                cacheLookup(r);
             }
             return r;
         } catch (Throwable t) {
@@ -340,11 +495,42 @@ public final class AccountStore {
         try {
             AccountRecord r = backend.load(uuid);
             if (r != null) {
-                cache.put(uuid, r);
+                putLoaded(uuid, r);
             }
             return r;
         } catch (Throwable t) {
             return null;
+        }
+    }
+
+    /**
+     * Прочитать с признаком ошибки (для импорта): null — записи нет,
+     * исключение — база не ответила (не путать с «нет записи»).
+     */
+    public AccountRecord findBlockingStrict(UUID uuid) throws Exception {
+        AccountRecord cached = cache.get(uuid);
+        if (cached != null) {
+            return cached;
+        }
+        AccountStorage b = backend;
+        if (b == null || storageDown) {
+            throw new IllegalStateException("хранилище недоступно");
+        }
+        AccountRecord r = b.load(uuid);
+        if (r != null) {
+            putLoaded(uuid, r);
+            return cache.getOrDefault(uuid, r);
+        }
+        return null;
+    }
+
+    /**
+     * Запись офлайн-игрока, найденная по нику (админ-команды, API): в кэш — с
+     * меткой загрузки, чтобы purgeAbandoned выгрузил её, а не держал до рестарта.
+     */
+    private void cacheLookup(AccountRecord r) {
+        if (cache.putIfAbsent(r.getUuid(), r) == null) {
+            loadedAt.putIfAbsent(r.getUuid(), System.currentTimeMillis());
         }
     }
 
@@ -365,7 +551,7 @@ public final class AccountStore {
             try {
                 r = backend.loadByName(name);
                 if (r != null) {
-                    cache.putIfAbsent(r.getUuid(), r);
+                    cacheLookup(r);
                 }
             } catch (Throwable t) {
                 plugin.getLogger().warning("Поиск по нику " + name + ": " + t.getMessage());
@@ -437,6 +623,9 @@ public final class AccountStore {
 
     public AccountRecord register(UUID uuid, String name, String passwordHash, String ip) {
         AccountRecord r = new AccountRecord(uuid, name, passwordHash, ip, System.currentTimeMillis());
+        // Только INSERT: если строка с этим UUID в базе уже есть — это чужой
+        // аккаунт, который не удалось прочитать; перезаписывать его нельзя
+        r.markNew();
         cache.put(uuid, r);
         knownUnregistered.remove(uuid);
         markDirty(r);
@@ -451,12 +640,24 @@ public final class AccountStore {
     }
 
     public void remove(UUID uuid) {
-        cache.remove(uuid);
+        AccountRecord r = cache.remove(uuid);
+        // Запись могла быть найдена по нику (match_by_name) и лежать в базе под другим UUID
+        final UUID alt = r != null && !r.getUuid().equals(uuid) ? r.getUuid() : null;
         dirty.remove(uuid);
+        pendingUnload.remove(uuid);
+        loadFailed.remove(uuid);
         knownUnregistered.add(uuid);
-        io.execute(() -> {
+        if (alt != null) {
+            cache.remove(alt);
+            dirty.remove(alt);
+            knownUnregistered.add(alt);
+        }
+        submitIo(() -> {
             try {
                 backend.delete(uuid);
+                if (alt != null) {
+                    backend.delete(alt);
+                }
             } catch (Throwable t) {
                 plugin.getLogger().warning("Удаление аккаунта " + uuid + ": " + t.getMessage());
             }
@@ -511,33 +712,166 @@ public final class AccountStore {
     }
 
     private void flushSoon() {
-        io.execute(this::flushDirty);
+        submitIo(this::flushDirty);
     }
 
-    /** Сброс всех грязных записей в бэкенд. Выполняется в IO-потоке. */
+    /** Сброс всех грязных записей в бэкенд. Выполняется ТОЛЬКО в IO-потоке. */
     private void flushDirty() {
-        if (dirty.isEmpty() || backend == null) {
+        if (backend == null || storageDown) {
             return;
         }
-        List<AccountRecord> batch = new ArrayList<>();
-        for (UUID uuid : new ArrayList<>(dirty)) {
+        if (!dirty.isEmpty()) {
+            List<AccountRecord> batch = new ArrayList<>();
+            for (UUID uuid : new ArrayList<>(dirty)) {
+                AccountRecord r = cache.get(uuid);
+                dirty.remove(uuid);
+                if (r != null) {
+                    batch.add(r);
+                }
+            }
+            if (!batch.isEmpty()) {
+                try {
+                    backend.saveBatch(batch);
+                } catch (DuplicateAccountException e) {
+                    onRegisterConflict(e.getConflicts());
+                } catch (Throwable t) {
+                    plugin.getLogger().severe("Ошибка записи аккаунтов (" + batch.size() + "): " + t.getMessage());
+                    for (AccountRecord r : batch) {
+                        dirty.add(r.getUuid()); // попробуем в следующий цикл
+                    }
+                }
+            }
+        }
+        // Вышедшие игроки: запись сохранена — выгружаем из кэша
+        if (!pendingUnload.isEmpty()) {
+            for (UUID uuid : new ArrayList<>(pendingUnload)) {
+                AccountRecord r = cache.get(uuid);
+                if (active.contains(uuid)) {
+                    pendingUnload.remove(uuid);
+                } else if (r == null) {
+                    pendingUnload.remove(uuid);
+                } else if (!r.isDirty() && !r.isNew() && !dirty.contains(r.getUuid())) {
+                    pendingUnload.remove(uuid);
+                    dropCached(uuid, r);
+                }
+            }
+        }
+        purgeAbandoned();
+    }
+
+    private long lastPurge;
+
+    /**
+     * Отключились между пре-логином и входом (боты, обрыв) — PlayerQuitEvent не
+     * приходит, и предзагруженные записи висели бы в памяти до рестарта.
+     * Раз в минуту чистим то, что загружено давно и так и не зашло.
+     */
+    private void purgeAbandoned() {
+        long now = System.currentTimeMillis();
+        if (now - lastPurge < 60_000L) {
+            return;
+        }
+        lastPurge = now;
+        for (Map.Entry<UUID, Long> en : loadedAt.entrySet()) {
+            UUID uuid = en.getKey();
+            if (now - en.getValue() < 300_000L || active.contains(uuid)) {
+                continue;
+            }
+            loadedAt.remove(uuid, en.getValue());
+            knownUnregistered.remove(uuid);
+            loadFailed.remove(uuid);
             AccountRecord r = cache.get(uuid);
-            dirty.remove(uuid);
-            if (r != null) {
-                batch.add(r);
+            if (r != null && !r.isDirty() && !r.isNew() && !dirty.contains(r.getUuid())) {
+                dropCached(uuid, r);
             }
         }
-        if (batch.isEmpty()) {
-            return;
+    }
+
+    /**
+     * Регистрация не записана: строка с этим UUID в базе уже есть (аккаунт не
+     * прочитался из-за сбоя, и игроку предложили регистрацию). Чужую строку НЕ
+     * трогаем, запись из кэша убираем, игрока отключаем.
+     */
+    private void onRegisterConflict(List<AccountRecord> conflicts) {
+        for (AccountRecord r : conflicts) {
+            UUID id = r.getUuid();
+            plugin.getLogger().severe("Регистрация " + r.getName() + " (" + id + ") отклонена: аккаунт уже есть в базе."
+                    + " Вероятен сбой чтения БД — существующая запись не тронута.");
+            dirty.remove(id);
+            cache.remove(id, r);
+            knownUnregistered.remove(id);
+            loadFailed.add(id);
+            Scheduler.runSync(plugin, () -> {
+                Player p = Bukkit.getPlayer(id);
+                if (p != null) {
+                    String reason = storageKickMessage();
+                    Scheduler.runAtEntity(plugin, p, () -> p.kickPlayer(reason));
+                }
+            });
         }
-        try {
-            backend.saveBatch(batch);
-        } catch (Throwable t) {
-            plugin.getLogger().severe("Ошибка записи аккаунтов (" + batch.size() + "): " + t.getMessage());
-            for (AccountRecord r : batch) {
-                dirty.add(r.getUuid()); // попробуем в следующий цикл
+    }
+
+    /** Текст отказа при недоступном хранилище (lang: storage_unavailable). */
+    private String storageKickMessage() {
+        if (plugin instanceof me.vorchun.registerplugin.RegisterPlugin) {
+            MessageService ms = ((me.vorchun.registerplugin.RegisterPlugin) plugin).getMessageService();
+            if (ms != null) {
+                String m = ms.message("storage_unavailable");
+                if (m != null && !m.isEmpty()) {
+                    return m;
+                }
             }
         }
+        return "§cХранилище аккаунтов временно недоступно. Попробуй зайти через минуту.";
+    }
+
+    /**
+     * Собственный слушатель хранилища: предзагрузка на КАЖДОМ пре-логине
+     * (не зависит от antibot.guard), отказ во входе при сбое чтения и выгрузка
+     * кэша при выходе.
+     */
+    public final class Lifecycle implements Listener {
+
+        @EventHandler(priority = EventPriority.MONITOR)
+        public void onPreLogin(AsyncPlayerPreLoginEvent e) {
+            if (e.getLoginResult() != AsyncPlayerPreLoginEvent.Result.ALLOWED) {
+                return;
+            }
+            UUID uuid = e.getUniqueId();
+            if (!storageDown && !recentlyLoaded(uuid)) {
+                preload(uuid, e.getName());
+            }
+            if (isUnavailable(uuid)) {
+                e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, storageKickMessage());
+            }
+        }
+
+        /** Вход отклонён после пре-логина (вайтлист, бан, дубль сессии) — не держим запись. */
+        @EventHandler(priority = EventPriority.MONITOR)
+        public void onLoginDenied(PlayerLoginEvent e) {
+            if (e.getResult() == PlayerLoginEvent.Result.ALLOWED) {
+                return;
+            }
+            UUID uuid = e.getPlayer().getUniqueId();
+            if (!active.contains(uuid)) {
+                unload(uuid);
+            }
+        }
+
+        @EventHandler(priority = EventPriority.LOWEST)
+        public void onJoin(PlayerJoinEvent e) {
+            active.add(e.getPlayer().getUniqueId());
+        }
+
+        @EventHandler(priority = EventPriority.MONITOR)
+        public void onQuit(PlayerQuitEvent e) {
+            unload(e.getPlayer().getUniqueId());
+        }
+    }
+
+    /** Размер кэша без копирования (плейсхолдеры, /authadmin status). */
+    public int cachedCount() {
+        return cache.size();
     }
 
     /** Кэш онлайн-игроков (для /authadmin status). */
@@ -545,7 +879,7 @@ public final class AccountStore {
         return Collections.unmodifiableMap(new java.util.HashMap<>(cache));
     }
 
-    private static final int READY = -111058288;
+    private static final int READY = 866283004;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

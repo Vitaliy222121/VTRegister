@@ -20,8 +20,9 @@ import me.vorchun.registerplugin.util.Scheduler;
 
 /**
  * Премиум-автологин: если сервер работает в online-mode (или за прокси с
- * корректным IP-forwarding), UUID игрока совпадает с UUID его лицензионного
- * аккаунта. Тогда пароль вводить не нужно.
+ * ЗАЩИЩЁННЫМ forwarding: Velocity modern, BungeeGuard или proxy.firewall),
+ * UUID игрока совпадает с UUID его лицензионного аккаунта. Тогда пароль
+ * вводить не нужно. Без защиты UUID подделывается — вход запрещён.
  *
  * Как проверяем:
  *  1. берём UUID игрока, как его видит сервер;
@@ -47,12 +48,20 @@ public final class PremiumService {
 
     private final JavaPlugin plugin;
     private final Map<String, Entry> cache = new ConcurrentHashMap<>();
+    /** Отрицательный ответ Mojang (ника нет в лицензии) — тоже кэшируем. */
+    private static final UUID NOT_PREMIUM = new UUID(0L, 0L);
+    /** Ник Mojang: 1–16 символов [A-Za-z0-9_]; остальное (Bedrock «.Ник») в API не шлём. */
+    private static final java.util.regex.Pattern MOJANG_NAME = java.util.regex.Pattern.compile("^[A-Za-z0-9_]{1,16}$");
+    private final Object rateLock = new Object();
 
     private volatile boolean enabled;
     private volatile boolean onlyFirstJoin;
     private volatile long cacheMinutes;
     private volatile long lastRequestAt;
     private volatile long minIntervalMs;
+    // Можно ли верить UUID игрока (TeleportService#identityTrusted, ставит RegisterPlugin)
+    private volatile java.util.function.BooleanSupplier identityTrusted = () -> true;
+    private volatile boolean untrustedWarned;
 
     public PremiumService(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -63,6 +72,37 @@ public final class PremiumService {
         onlyFirstJoin = plugin.getConfig().getBoolean("premium.only_first_join", false);
         cacheMinutes = Math.max(1, plugin.getConfig().getInt("premium.cache_minutes", 60));
         minIntervalMs = Math.max(0, plugin.getConfig().getInt("premium.min_interval_ms", 250));
+        untrustedWarned = false;
+        if (enabled && !identityOk()) {
+            warnUntrusted();
+        }
+    }
+
+    /**
+     * Источник доверия к UUID. За прокси с legacy-forwarding без защиты
+     * UUID приходит из хендшейка и подделывается — тогда премиум-вход
+     * запрещён (fail-closed), игрок вводит пароль.
+     */
+    public void setIdentityTrust(java.util.function.BooleanSupplier src) {
+        identityTrusted = src == null ? () -> true : src;
+    }
+
+    private boolean identityOk() {
+        try {
+            return identityTrusted.getAsBoolean();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void warnUntrusted() {
+        if (untrustedWarned) {
+            return;
+        }
+        untrustedWarned = true;
+        plugin.getLogger().severe("premium.enabled: true, но UUID игроков нельзя доверять "
+                + "(прокси с legacy BungeeCord-forwarding без BungeeGuard/proxy.firewall или без forwarding) — "
+                + "премиум-автологин отключён, все вводят пароль. Настройка — PROXY_SETUP.txt.");
     }
 
     public boolean isEnabled() {
@@ -71,15 +111,25 @@ public final class PremiumService {
 
     /**
      * Асинхронно проверить, лицензионный ли игрок.
-     * Колбэк вызывается в главном потоке; true = можно авторизовать без пароля.
+     * Колбэк вызывается в потоке игрока; true = можно авторизовать без пароля.
      */
     public void check(Player player, Consumer<Boolean> callback) {
         if (!enabled || !ready()) {
             callback.accept(false);
             return;
         }
+        if (!identityOk()) {
+            warnUntrusted();
+            callback.accept(false);
+            return;
+        }
         String name = player.getName();
         UUID serverUuid = player.getUniqueId();
+        if (name == null || !MOJANG_NAME.matcher(name).matches()) {
+            callback.accept(false);
+            return;
+        }
+        String key = name.toLowerCase(java.util.Locale.ROOT);
 
         // Периодически вычищаем просроченные записи, чтобы кэш не рос бесконечно
         if (cache.size() > 1000) {
@@ -87,40 +137,46 @@ public final class PremiumService {
             cache.entrySet().removeIf(e -> e.getValue().expiresAt < now);
         }
 
-        Entry cached = cache.get(name.toLowerCase(java.util.Locale.ROOT));
+        Entry cached = cache.get(key);
         if (cached != null && cached.expiresAt > System.currentTimeMillis()) {
-            callback.accept(cached.uuid.equals(serverUuid));
+            callback.accept(!NOT_PREMIUM.equals(cached.uuid) && cached.uuid.equals(serverUuid));
             return;
         }
 
         Scheduler.runAsync(plugin, () -> {
             UUID premium = fetchUuid(name);
             if (premium != null) {
-                cache.put(name.toLowerCase(java.util.Locale.ROOT),
-                        new Entry(premium, System.currentTimeMillis() + cacheMinutes * 60_000L));
+                cache.put(key, new Entry(premium, System.currentTimeMillis() + cacheMinutes * 60_000L));
             }
-            boolean match = premium != null && premium.equals(serverUuid);
-            Scheduler.runSync(plugin, () -> callback.accept(match));
+            boolean match = premium != null && !NOT_PREMIUM.equals(premium) && premium.equals(serverUuid);
+            Scheduler.runAtEntity(plugin, player, () -> callback.accept(match));
         });
     }
 
-    /** Синхронный запрос к Mojang — вызывать только из фонового потока. */
+    /**
+     * Синхронный запрос к Mojang — вызывать только из фонового потока.
+     * @return UUID лицензии, NOT_PREMIUM — ника нет в лицензии, null — ошибка (не кэшируем).
+     */
     private UUID fetchUuid(String name) {
         try {
-            long now = System.currentTimeMillis();
-            long wait = minIntervalMs - (now - lastRequestAt);
-            if (wait > 0) {
-                Thread.sleep(wait);
+            // Пауза между запросами общая для всех потоков пула
+            synchronized (rateLock) {
+                long now = System.currentTimeMillis();
+                long wait = minIntervalMs - (now - lastRequestAt);
+                if (wait > 0) {
+                    Thread.sleep(wait);
+                }
+                lastRequestAt = System.currentTimeMillis();
             }
-            lastRequestAt = System.currentTimeMillis();
 
-            HttpURLConnection conn = (HttpURLConnection) new URL(API + name).openConnection();
+            HttpURLConnection conn = (HttpURLConnection) new URL(API
+                    + java.net.URLEncoder.encode(name, "UTF-8")).openConnection();
             conn.setConnectTimeout(8_000);
             conn.setReadTimeout(8_000);
             conn.setRequestProperty("User-Agent", "RegisterPlugin/VTRegister");
             int code = conn.getResponseCode();
             if (code == 204 || code == 404) {
-                return null; // игрока нет в лицензии
+                return NOT_PREMIUM; // игрока нет в лицензии
             }
             if (code != 200) {
                 plugin.getLogger().warning("Premium: Mojang API вернул HTTP " + code);
@@ -182,7 +238,7 @@ public final class PremiumService {
         return Bukkit.getOfflinePlayer(name).getUniqueId();
     }
 
-    private static final int READY = -111058297;
+    private static final int READY = 866282987;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

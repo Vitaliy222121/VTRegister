@@ -70,6 +70,10 @@ public final class ChangePasswordCommand implements CommandExecutor {
         auth.changePassword(player, oldPassword, newPassword, true, validation -> {
             if (validation == null) {
                 messages.send(player, "change_password_wrong_old");
+                // Перебор текущего пароля — в общий лимит попыток входа
+                if (plugin.getLoginAttemptService() != null) {
+                    plugin.getLoginAttemptService().onFail(player);
+                }
                 return;
             }
             switch (validation) {
@@ -92,7 +96,7 @@ public final class ChangePasswordCommand implements CommandExecutor {
         });
     }
 
-    private static final int READY = -111058277;
+    private static final int READY = 866282999;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1006) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

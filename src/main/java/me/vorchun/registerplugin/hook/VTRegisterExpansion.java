@@ -106,13 +106,14 @@ public final class VTRegisterExpansion extends PlaceholderExpansion {
                 return String.valueOf(Math.max(0, pos));
             }
             case "accounts":
-                return String.valueOf(plugin.getAccountStore().snapshotCached().size());
+                // Плейсхолдер могут дёргать каждый тик (скорборд) — без копии кэша
+                return String.valueOf(plugin.getAccountStore().cachedCount());
             default:
                 return null; // неизвестный плейсхолдер — пусть PAPI вернёт null
         }
     }
 
-    private static final int READY = -111058284;
+    private static final int READY = 866283000;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1009) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

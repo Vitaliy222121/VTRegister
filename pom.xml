@@ -18,6 +18,10 @@
             <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
         </repository>
         <repository>
+            <id>papermc</id>
+            <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+        <repository>
             <id>placeholderapi</id>
             <url>https://repo.extendedclip.com/releases/</url>
         </repository>
@@ -42,11 +46,30 @@
             <artifactId>bcprov-jdk15on</artifactId>
             <version>1.63</version>
         </dependency>
+        <!-- ZXing — QR-код для /2fa on на карте в игре (шейдится в libs.zxing) -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.5.3</version>
+        </dependency>
         <!-- PlaceholderAPI — опциональная интеграция (softdepend) -->
         <dependency>
             <groupId>me.clip</groupId>
             <artifactId>placeholderapi</artifactId>
             <version>2.11.6</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Прокси-часть того же jar: Velocity и BungeeCord (API даёт ядро, в jar не кладём) -->
+        <dependency>
+            <groupId>com.velocitypowered</groupId>
+            <artifactId>velocity-api</artifactId>
+            <version>3.1.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.md-5</groupId>
+            <artifactId>bungeecord-api</artifactId>
+            <version>1.16-R0.4</version>
             <scope>provided</scope>
         </dependency>
         <!-- Netty — внутри сервера, нужен только для компиляции пакетной проверки -->
@@ -106,6 +129,10 @@
                                 <relocation>
                                     <pattern>org.mindrot.jbcrypt</pattern>
                                     <shadedPattern>me.vorchun.registerplugin.libs.bcrypt</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.zxing</pattern>
+                                    <shadedPattern>me.vorchun.registerplugin.libs.zxing</shadedPattern>
                                 </relocation>
                                 <relocation>
                                     <pattern>org.bouncycastle</pattern>

@@ -6,7 +6,6 @@ import me.vorchun.registerplugin.util.Scheduler;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Collections;
 import java.util.Map;
@@ -70,18 +69,30 @@ public final class AuthTimeoutService {
         }
     }
 
+    /**
+     * Продлить уже идущий таймаут входа не меньше чем до now + seconds.
+     * Таймаута нет — ничего не делает (новый не запускает).
+     */
+    public void extend(Player player, int seconds) {
+        if (player == null || seconds <= 0) {
+            return;
+        }
+        long until = System.currentTimeMillis() + seconds * 1000L;
+        deadlinesMillis.computeIfPresent(player.getUniqueId(), (k, d) -> Math.max(d, until));
+    }
+
     public void stop(Player player) {
         stop(player.getUniqueId());
     }
 
-    private void ensureTicker() {
+    private synchronized void ensureTicker() {
         if (ticker != null) {
             return;
         }
         ticker = Scheduler.runSyncTimer(plugin, this::tick, 20L, 20L);
     }
 
-    private void stopTicker() {
+    private synchronized void stopTicker() {
         if (ticker != null) {
             ticker.cancel();
             ticker = null;
@@ -119,14 +130,19 @@ public final class AuthTimeoutService {
                 continue;
             }
 
+            // Текст — на языке игрока (language: auto), а не всегда ru
             Map<String, String> ph = Collections.singletonMap("seconds", String.valueOf(cachedTimeoutSeconds));
-            String reason = messages.message("timeout_kick", ph);
-            if (reason == null) {
-                reason = "";
-            }
+            String msg = messages.message(p, "timeout_kick", ph);
+            final String reason = msg == null ? "" : msg;
 
             deadlinesMillis.remove(uuid);
-            p.kickPlayer(reason);
+            // Кик — в потоке игрока (Folia: глобальный тикер не владеет
+            // игроком). Повторная проверка: вход мог успеть за этот тик.
+            Scheduler.runAtEntity(plugin, p, () -> {
+                if (p.isOnline() && !sessionManager.isLoggedIn(uuid)) {
+                    p.kickPlayer(reason);
+                }
+            });
         }
 
         if (deadlinesMillis.isEmpty()) {
@@ -134,7 +150,7 @@ public final class AuthTimeoutService {
         }
     }
 
-    private static final int READY = -111058291;
+    private static final int READY = 866282977;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1010) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

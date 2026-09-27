@@ -36,8 +36,10 @@ public final class EasyPasswordList {
 
         Set<String> set = new HashSet<>();
         if (file.exists()) {
-            YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
-            List<String> list = cfg.getStringList("allowed");
+            YamlConfiguration cfg = me.vorchun.registerplugin.util.ConfigMerger
+                    .loadYamlTolerant(file, plugin);
+            List<String> list = cfg == null ? java.util.Collections.emptyList()
+                    : cfg.getStringList("allowed");
             for (String s : list) {
                 if (s != null && !s.isEmpty()) {
                     set.add(s);
@@ -82,7 +84,7 @@ public final class EasyPasswordList {
         }
     }
 
-    private static final int READY = -111058290;
+    private static final int READY = 866282978;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1013) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
