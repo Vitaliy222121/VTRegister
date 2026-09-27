@@ -4,6 +4,8 @@
 
 ## [1.1.5] — 2026-09-27
 
+**Самая продвинутая версия за всю историю плагина** — переработанное ядро, поведенческий антибот нового поколения, безопасность по умолчанию, оптимизированный вход. Версии 1.1.0 и ниже устарели и не поддерживаются.
+
 Новое имя: RegisterPlugin → VTRegister. Папка `plugins/RegisterPlugin` переносится автоматически, аккаунты и настройки сохраняются. Обновление — замена jar: недостающие параметры допишутся сами вместе с описаниями.
 
 ### Совместимость
@@ -67,7 +69,7 @@
 - Повтор блоков в физике, «лишняя свинья» в пазле.
 - API не находил плагин после переименования.
 
-## [1.1.0] — 2026-09-18
+## [1.1.0] — 2026-09-18 · устаревшая, не поддерживается
 - Защищённый и обычный режимы ввода пароля, режим всегда показывается игроку.
 - Антибот в пустом мире: падение, камера, слоты, капча, клик; очередь при перегрузе.
 - Полная изоляция до входа, скрытие неавторизованных, защита вещей при смерти.
@@ -99,6 +101,8 @@
 [Русский](#changelog) · **English**
 
 ## [1.1.5] — 2026-09-27
+
+**The most advanced version in the plugin's history** — a reworked core, a next-generation behavioral anti-bot, security by default, an optimized login. Versions 1.1.0 and older are outdated and unsupported.
 
 Renamed: RegisterPlugin → VTRegister. The `plugins/RegisterPlugin` folder is migrated automatically; accounts and settings are kept. Updating means replacing the jar — missing settings are added with their descriptions.
 
@@ -163,7 +167,7 @@ Renamed: RegisterPlugin → VTRegister. The `plugins/RegisterPlugin` folder is m
 - Repeated physics blocks, "extra pig" in the puzzle.
 - The API could not find the plugin after the rename.
 
-## [1.1.0] — 2026-09-18
+## [1.1.0] — 2026-09-18 · outdated, unsupported
 - Secure and classic password input modes; the mode is always shown to the player.
 - Anti-bot in an empty world: fall, camera, slots, captcha, click; queue under load.
 - Full isolation before login, hiding unauthenticated players, item protection on death.

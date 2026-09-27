@@ -5,6 +5,8 @@
 Плагин регистрации и авторизации для Minecraft-серверов — альтернатива AuthMe со встроенным антиботом. Защищённый ввод пароля, антибот из 10 этапов, 2FA по QR-коду, почта, базы данных. Один jar работает и на сервере (Paper/Spigot/Folia), и на прокси (Velocity/BungeeCord).
 
 > **VTRegister — основное и единственное название плагина.** «RegisterPlugin» — его старое имя (до версии 1.1.0), оно больше не используется.
+>
+> **Версия 1.1.5 — самая продвинутая за всю историю плагина:** переработанное ядро, поведенческий антибот нового поколения, безопасность по умолчанию и оптимизированный вход. Версии 1.1.0 и ниже устарели и не поддерживаются.
 
 📖 **[Полное руководство](docs/GUIDE.ru.md)** — как всё устроено, установка, антибот, команды, частые проблемы · **[Все 444 настройки со значениями по умолчанию](docs/CONFIG.ru.md)** · **[Безопасность](SECURITY.md)**
 
@@ -12,7 +14,14 @@
 
 - **Последняя версия** — вкладка [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). Новые версии выходят только здесь, на GitHub.
 - **Архив старых версий, от 1.0.0 до 1.1.5**, — [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/): с него проект начался, но обновлений там больше не будет.
-- **Нужно попроще и полегче** — только безопасная регистрация и вход, без антибота и остального? Бери **1.0.3** с MineLeak.pro.
+### Какую версию выбрать
+
+| Версии | Статус |
+|---|---|
+| **1.1.5 и новее** | ✅ **Актуальная ветка — самая продвинутая версия за всю историю плагина.** Многоуровневый поведенческий антибот из 10 этапов с проверкой физики клиента, баны только по доказанным фактам, 2FA по QR-коду, хеширование Argon2id, единый jar для сервера и прокси, оптимизированный маршрут входа и принцип «безопасно по умолчанию». Только эта ветка получает новые функции и исправления безопасности. |
+| 1.1.0 и ниже (включая выпуски под старым именем RegisterPlugin) | ⚠️ **Устаревшие.** Не обновляются и не получают исправлений безопасности, лежат в архиве MineLeak.pro только для истории. |
+
+Всегда ставь последнюю версию из [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). Старая 1.0.3 годится лишь тем, кому нужен минимальный вход без антибота, — с пониманием, что она больше не поддерживается.
 
 ## Почему VTRegister
 
@@ -199,6 +208,8 @@ mvn clean package
 A registration and login plugin for Minecraft servers — an AuthMe alternative with a built-in anti-bot. Secure password input, a 10-stage anti-bot, QR-code 2FA, e-mail, databases. One jar runs on both the server (Paper/Spigot/Folia) and the proxy (Velocity/BungeeCord).
 
 > **VTRegister is the plugin's main and only name.** "RegisterPlugin" is its old name (up to version 1.1.0) and is no longer used.
+>
+> **Version 1.1.5 is the most advanced in the plugin's history:** a reworked core, a next-generation behavioral anti-bot, security by default and an optimized login. Versions 1.1.0 and older are outdated and unsupported.
 
 📖 **[Complete guide](docs/GUIDE.en.md)** — how it works, installation, anti-bot, commands, common problems · **[All 444 settings with defaults](docs/CONFIG.en.md)** · **[Security](SECURITY.md)**
 
@@ -206,7 +217,14 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 - **Latest version** — the [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) tab. New versions are published only here, on GitHub.
 - **Archive of old versions, 1.0.0 to 1.1.5** — [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/): the project started there, but it will get no further updates.
-- **Want something simpler and lighter** — just secure registration and login, no anti-bot or extras? Take **1.0.3** from MineLeak.pro.
+### Which version to choose
+
+| Versions | Status |
+|---|---|
+| **1.1.5 and newer** | ✅ **The current branch — the most advanced version in the plugin's history.** A multi-layer behavioral anti-bot with 10 stages and client physics verification, bans only for proven fails, QR-code 2FA, Argon2id hashing, one jar for the server and the proxy, an optimized login route and a secure-by-default design. Only this branch receives new features and security fixes. |
+| 1.1.0 and older (including releases under the old name RegisterPlugin) | ⚠️ **Outdated.** No updates and no security fixes; kept in the MineLeak.pro archive for history only. |
+
+Always install the latest version from [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). The old 1.0.3 only suits those who need a minimal login without an anti-bot — keeping in mind it is no longer supported.
 
 ## Why VTRegister
 

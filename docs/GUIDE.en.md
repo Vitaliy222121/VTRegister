@@ -32,7 +32,7 @@
 |---|---|
 | What it is | A registration and login plugin (`/register`, `/login`) with a **built-in anti-bot** |
 | Name | **VTRegister** (old name — RegisterPlugin, no longer used) |
-| Version | 1.1.5 |
+| Version | **1.1.5 — current and the most advanced in the plugin's history.** 1.1.0 and older (including the RegisterPlugin name) are outdated: no updates, no security fixes |
 | Author | Vorchun (vitaliy21 on MineLeak.pro) |
 | Price | free |
 | Source code | open: https://github.com/Vitaliy222121/VTRegister |
@@ -53,7 +53,9 @@
 - **Velocity/BungeeCord networks.** The same jar goes on the proxy: it keeps players off other servers until login and links the network's servers with a shared login.
 - **Admins who like to tune.** Everything lives in YAML files with a description for every line; any feature and any anti-bot stage can be turned off.
 
-If you need a very simple login without an anti-bot or extras, there is the lightweight version **1.0.3** — in the archive on [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/).
+**Why 1.1.5.** It is the project's technological milestone: the anti-bot moved from simple checks to behavioral analysis — client physics from packets, in-world tasks, answer rhythm, packet watch from the first second. Protection follows a secure-by-default design, the login is optimized (players spawn right on the platform, no extra world changes), and one jar serves both the server and the proxy. Versions 1.1.0 and older are outdated and unsupported.
+
+If you need a very simple login without an anti-bot, the old **1.0.3** remains in the archive on [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — but it no longer receives updates or security fixes.
 
 ## 3. How a player logs in
 
