@@ -32,6 +32,21 @@
 
 ---
 
+## История и происхождение
+
+- **VTRegister — авторский плагин.** Автор — Vorchun (на MineLeak.pro — vitaliy21). С самой первой версии автор сам публиковал плагин на своей странице MineLeak.pro как собственную разработку. Это не «слив» и не перезалив чужого плагина.
+- **Код всегда был открыт.** Плагин никогда не обфусцировался: любую версию можно открыть декомпилятором (например, jdec.app) и проверить. С сентября 2026 года исходники с полной историей изменений лежат здесь, на GitHub.
+- **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → **1.1.5 (27.09.2026, VTRegister)**.
+- **Сейчас** официальный дом проекта — GitHub. Страница на MineLeak.pro осталась архивом старых версий.
+
+## Как проверяется качество
+
+- **92 автоматических теста** прогоняются при каждой сборке.
+- Код собирается против API **1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 и 26.2**, запуск проверяется на **Java 8, 17, 21 и 25**.
+- **Воспроизводимая сборка:** jar, собранный из этих исходников без изменений, проходит ту же проверку подписи, что и официальный релиз. SHA-256 каждого релиза опубликован.
+- **Прозрачность:** [SECURITY.md](SECURITY.md) — всё, что плагин делает с сетью, файлами и сервером; телеметрии нет.
+- Ошибки и предложения — во вкладке [Issues](https://github.com/Vitaliy222121/VTRegister/issues).
+
 ## Поддержка
 
 | Что | Версии |
@@ -232,6 +247,21 @@ Always install the latest version from [Releases](https://github.com/Vitaliy2221
 - **All configuration lives in YAML files with a description for every line.** Any feature and any stage can be turned on or off. On update, new settings are added with their descriptions; your values and comments are never touched. Texts are edited in `lang/ru.yml` and `lang/en.yml`, with HEX colors.
 - **Secure by default.** Passwords never reach the console, only Argon2id hashes are stored, 2FA is available. No telemetry, everything network-related is off by default — details in [SECURITY.md](SECURITY.md).
 - **Open source.** Every statement above can be checked in the code.
+
+## History and origin
+
+- **VTRegister is an author's own plugin.** The author is Vorchun (vitaliy21 on MineLeak.pro). From the very first version the author himself published it on his MineLeak.pro page as his own work. It is not a "leak" or a re-upload of someone else's plugin.
+- **The code has always been open.** The plugin was never obfuscated: any version can be opened with a decompiler (for example, jdec.app) and checked. Since September 2026 the source code with its full change history lives here on GitHub.
+- **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → **1.1.5 (2026-09-27, VTRegister)**.
+- **Today** GitHub is the project's official home. The MineLeak.pro page remains an archive of old versions.
+
+## How quality is checked
+
+- **92 automated tests** run on every build.
+- The code is compiled against API **1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 and 26.2**; startup is tested on **Java 8, 17, 21 and 25**.
+- **Reproducible build:** a jar built from these unmodified sources passes the same signature check as the official release. Every release's SHA-256 is published.
+- **Transparency:** [SECURITY.md](SECURITY.md) lists everything the plugin does with the network, files and the server; there is no telemetry.
+- Bugs and ideas — the [Issues](https://github.com/Vitaliy222121/VTRegister/issues) tab.
 
 ## Support
 

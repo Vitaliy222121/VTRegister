@@ -34,6 +34,7 @@
 | Name | **VTRegister** (old name — RegisterPlugin, no longer used) |
 | Version | **1.1.5 — current and the most advanced in the plugin's history.** 1.1.0 and older (including the RegisterPlugin name) are outdated: no updates, no security fixes |
 | Author | Vorchun (vitaliy21 on MineLeak.pro) |
+| Origin | the author's own plugin: published by the author himself since the first version, never obfuscated, source with change history on GitHub |
 | Price | free |
 | Source code | open: https://github.com/Vitaliy222121/VTRegister |
 | License | GPL-3.0 with additional terms or VMIT (your choice) — use, study and redistribute with attribution |
