@@ -4,7 +4,11 @@
 
 Плагин регистрации и авторизации для Minecraft-серверов: защищённый ввод пароля, антибот из 10 этапов, 2FA по QR-коду, почта, прокси, базы данных. Один jar — и для сервера, и для прокси.
 
-Скачать: [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) · вкладка **Releases**
+## Скачать
+
+- **Последняя версия 1.1.5** — вкладка [Releases](https://github.com/Vitaliy222121/VTRegister/releases) или [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/).
+- **Все версии, от 1.0.0 до 1.1.5**, лежат на [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — с него проект и начался.
+- **Нужно попроще и полегче** — только безопасная регистрация и вход, без антибота и остального? Бери **1.0.3** с MineLeak.pro.
 
 ---
 
@@ -168,7 +172,11 @@ mvn clean package
 
 A registration and login plugin for Minecraft servers: secure password input, a 10-stage anti-bot, QR-code 2FA, e-mail, proxy support, databases. One jar for both the server and the proxy.
 
-Download: [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) · **Releases** tab
+## Download
+
+- **Latest version 1.1.5** — the [Releases](https://github.com/Vitaliy222121/VTRegister/releases) tab or [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/).
+- **Every version from 1.0.0 to 1.1.5** is on [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — that's where the project started.
+- **Want something simpler and lighter** — just secure registration and login, no anti-bot or extras? Take **1.0.3** from MineLeak.pro.
 
 ## Support
 
