@@ -1,0 +1,8 @@
+# Единые переводы строк (LF) на всех ОС: иначе подпись сборки на Windows
+# и на GitHub Actions считается по разным байтам ресурсов.
+* text=auto eol=lf
+*.jar binary
+*.idx binary
+*.dat binary
+*.png binary
+*.jpg binary

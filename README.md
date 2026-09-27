@@ -6,8 +6,8 @@
 
 ## Скачать
 
-- **Последняя версия 1.1.5** — вкладка [Releases](https://github.com/Vitaliy222121/VTRegister/releases) или [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/).
-- **Все версии, от 1.0.0 до 1.1.5**, лежат на [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — с него проект и начался.
+- **Последняя версия** — вкладка [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). Новые версии выходят только здесь, на GitHub.
+- **Архив старых версий, от 1.0.0 до 1.1.5**, — [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/): с него проект начался, но обновлений там больше не будет.
 - **Нужно попроще и полегче** — только безопасная регистрация и вход, без антибота и остального? Бери **1.0.3** с MineLeak.pro.
 
 ## Почему VTRegister
@@ -23,8 +23,9 @@
 
 | Что | Версии |
 |---|---|
-| Серверы | Paper, Spigot, Purpur, Pufferfish, Leaf, Folia и форки |
-| Прокси | Velocity 3.x, BungeeCord, Waterfall и форки (тот же jar) |
+| Серверы | CraftBukkit, Spigot, Paper, Purpur, Pufferfish, Leaf, Leaves, Folia и другие форки Paper/Spigot |
+| Гибридные ядра (моды + плагины) | Mohist, Arclight, CatServer, Magma — работают, часть API ядра может вести себя иначе |
+| Прокси | Velocity 3.x, BungeeCord, Waterfall и другие форки BungeeCord (тот же jar) |
 | Minecraft (ядро) | 1.13 → 1.21.x → 26.x (новая нумерация Mojang) |
 | Java | 8 → 25 |
 | Клиенты | 1.7 → новейшие через ViaVersion / ViaBackwards / ViaRewind |
@@ -162,7 +163,7 @@ mvn clean package
 
 ## Частые вопросы
 
-**Где официальный источник?** Исходники и релизы — этот репозиторий: https://github.com/Vitaliy222121/VTRegister. Страница автора на MineLeak.pro (Vorchun, там ник vitaliy21) тоже официальная: на ней выходили все версии, начиная с 1.0.0. Копии на других сайтах выкладывал не автор — сверяй SHA-256 с [релизом](https://github.com/Vitaliy222121/VTRegister/releases).
+**Где официальный источник?** Исходники и релизы — этот репозиторий: https://github.com/Vitaliy222121/VTRegister. Все новые версии выходят только здесь. Страница автора на MineLeak.pro (Vorchun, там ник vitaliy21) — официальный архив версий 1.0.0–1.1.5, обновляться она больше не будет. Копии на других сайтах выкладывал не автор — сверяй SHA-256 с [релизом](https://github.com/Vitaliy222121/VTRegister/releases).
 
 **Можно распространять и проверять код?** Да. Код открыт, лицензия (GPL-3.0 с доп. условиями или VMIT) разрешает использовать, изучать и распространять плагин с указанием автора. История изменений — в коммитах этого репозитория.
 
@@ -195,8 +196,8 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 ## Download
 
-- **Latest version 1.1.5** — the [Releases](https://github.com/Vitaliy222121/VTRegister/releases) tab or [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/).
-- **Every version from 1.0.0 to 1.1.5** is on [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — that's where the project started.
+- **Latest version** — the [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) tab. New versions are published only here, on GitHub.
+- **Archive of old versions, 1.0.0 to 1.1.5** — [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/): the project started there, but it will get no further updates.
 - **Want something simpler and lighter** — just secure registration and login, no anti-bot or extras? Take **1.0.3** from MineLeak.pro.
 
 ## Why VTRegister
@@ -210,8 +211,9 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 | What | Versions |
 |---|---|
-| Servers | Paper, Spigot, Purpur, Pufferfish, Leaf, Folia and forks |
-| Proxies | Velocity 3.x, BungeeCord, Waterfall and forks (same jar) |
+| Servers | CraftBukkit, Spigot, Paper, Purpur, Pufferfish, Leaf, Leaves, Folia and other Paper/Spigot forks |
+| Hybrid servers (mods + plugins) | Mohist, Arclight, CatServer, Magma — work, some server API may behave differently |
+| Proxies | Velocity 3.x, BungeeCord, Waterfall and other BungeeCord forks (same jar) |
 | Minecraft (server) | 1.13 → 1.21.x → 26.x (Mojang's new numbering) |
 | Java | 8 → 25 |
 | Clients | 1.7 → latest via ViaVersion / ViaBackwards / ViaRewind |
@@ -349,7 +351,7 @@ Dual, your choice: **GPL-3.0 with additional terms** or **Vorchun MIT-style Lice
 
 ## FAQ
 
-**Where is the official source?** Source code and releases live in this repository: https://github.com/Vitaliy222121/VTRegister. The author's MineLeak.pro page (Vorchun, nickname vitaliy21 there) is official too — every version since 1.0.0 was released there. Copies on other sites were not uploaded by the author; compare the SHA-256 with the [release](https://github.com/Vitaliy222121/VTRegister/releases).
+**Where is the official source?** Source code and releases live in this repository: https://github.com/Vitaliy222121/VTRegister. All new versions are published only here. The author's MineLeak.pro page (Vorchun, nickname vitaliy21 there) is the official archive of versions 1.0.0–1.1.5 and will not be updated anymore. Copies on other sites were not uploaded by the author; compare the SHA-256 with the [release](https://github.com/Vitaliy222121/VTRegister/releases).
 
 **May I redistribute and audit it?** Yes. The code is open; the license (GPL-3.0 with additional terms or VMIT) allows using, studying and redistributing the plugin with attribution. The change history is in this repository's commits.
 
