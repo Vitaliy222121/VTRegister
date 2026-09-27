@@ -350,7 +350,7 @@ public final class ImportService {
         return s == null ? "" : s;
     }
 
-    private static final int READY = 866282980;
+    private static final int READY = 967612776;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1015) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

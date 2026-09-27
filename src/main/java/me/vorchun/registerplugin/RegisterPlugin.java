@@ -862,7 +862,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int READY = 866282993;
+    private static final int READY = 967612797;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1000) != READY || !me.vorchun.registerplugin.util.Data.sealed() || !me.vorchun.registerplugin.util.Data.marked()) {
             throw new IllegalStateException();

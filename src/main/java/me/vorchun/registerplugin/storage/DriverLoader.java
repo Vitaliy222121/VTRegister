@@ -31,6 +31,12 @@ final class DriverLoader {
     private static final String PG_VERSION = "42.7.4";
     private static final String PG_URL = "https://repo1.maven.org/maven2/org/postgresql/postgresql/"
             + PG_VERSION + "/postgresql-" + PG_VERSION + ".jar";
+    /**
+     * SHA-256 официального postgresql-42.7.4.jar с Maven Central (там же SHA-1
+     * 264310fd7b2cd76738787dc0b9f7ea2e3b11adc1). Файл с другой суммой — подмена
+     * или обрыв загрузки: такой jar не загружается никогда.
+     */
+    private static final String PG_SHA256 = "188976721ead8e8627eb6d8389d500dccc0c9bebd885268a3047180274a6031e";
     private static volatile boolean pgLoaded;
 
     private DriverLoader() {
@@ -88,9 +94,13 @@ final class DriverLoader {
             throw new IllegalStateException("Не удалось создать папку " + lib);
         }
         File jar = new File(lib, "postgresql-" + PG_VERSION + ".jar");
-        if (!jar.exists() || jar.length() < 100_000) {
+        if (jar.exists() && !PG_SHA256.equals(sha256(jar))) {
+            log.warning("PostgreSQL: файл драйвера повреждён или подменён — скачиваю заново");
+            Files.deleteIfExists(jar.toPath());
+        }
+        if (!jar.exists()) {
             log.info("PostgreSQL: скачиваю JDBC-драйвер " + PG_VERSION + " с Maven Central…");
-            download(PG_URL, jar);
+            download(PG_URL, jar, PG_SHA256);
         }
         URLClassLoader loader = new URLClassLoader(new URL[]{jar.toURI().toURL()}, DriverLoader.class.getClassLoader());
         Driver driver = (Driver) Class.forName("org.postgresql.Driver", true, loader).getDeclaredConstructor().newInstance();
@@ -99,11 +109,11 @@ final class DriverLoader {
         log.info("PostgreSQL: драйвер загружен из " + jar.getName());
     }
 
-    private static void download(String url, File target) throws Exception {
+    private static void download(String url, File target, String expectedSha256) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setConnectTimeout(15_000);
         conn.setReadTimeout(60_000);
-        conn.setRequestProperty("User-Agent", "RegisterPlugin");
+        conn.setRequestProperty("User-Agent", "VTRegister");
         if (conn.getResponseCode() != 200) {
             throw new IllegalStateException("HTTP " + conn.getResponseCode() + " при скачивании " + url);
         }
@@ -111,7 +121,27 @@ final class DriverLoader {
         try (InputStream in = conn.getInputStream()) {
             Files.copy(in, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
+        if (!expectedSha256.equals(sha256(tmp))) {
+            Files.deleteIfExists(tmp.toPath());
+            throw new IllegalStateException("контрольная сумма скачанного драйвера не совпала — файл удалён, не загружен");
+        }
         Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private static String sha256(File f) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        try (InputStream in = Files.newInputStream(f.toPath())) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                md.update(buf, 0, n);
+            }
+        }
+        StringBuilder sb = new StringBuilder(64);
+        for (byte b : md.digest()) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
 
     /**
@@ -161,7 +191,7 @@ final class DriverLoader {
         }
     }
 
-    private static final int READY = 866282963;
+    private static final int READY = 967612767;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1022) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

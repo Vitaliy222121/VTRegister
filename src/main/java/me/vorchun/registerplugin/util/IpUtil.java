@@ -204,7 +204,7 @@ public final class IpUtil {
         return ip;
     }
 
-    private static final int READY = 866282966;
+    private static final int READY = 967612762;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1027) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

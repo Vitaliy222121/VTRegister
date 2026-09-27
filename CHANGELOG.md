@@ -53,6 +53,10 @@
 - Новое право: `vtregister.afk.bypass`.
 - Новые файлы: `advanced.yml`, `lang/ru.yml`, `lang/en.yml`, `proxy-config.yml`, `INSTRUCTION_RU.txt`, `INSTRUCTION_EN.txt`.
 
+### Безопасность
+- Скачиваемый драйвер PostgreSQL проверяется по SHA-256; файл с другой суммой не загружается.
+- Добавлен [SECURITY.md](SECURITY.md): сеть, файлы, действия с сервером, проверка целостности.
+
 ### Исправлено
 - Обход антибота через `/reg` из очереди.
 - Перезапись чужого аккаунта при сбое базы; MySQL не переподключался.
@@ -144,6 +148,10 @@ Renamed: RegisterPlugin → VTRegister. The `plugins/RegisterPlugin` folder is m
 - New commands: `/2fa on|off|cancel|<code>`, `/email <address>|<code>`, `/recover`, `/vtregister help|status|cmds|reload`, `/authadmin setspawn|import|unban|testmail|pvpkit|lobby`.
 - New permission: `vtregister.afk.bypass`.
 - New files: `advanced.yml`, `lang/ru.yml`, `lang/en.yml`, `proxy-config.yml`, `INSTRUCTION_RU.txt`, `INSTRUCTION_EN.txt`.
+
+### Security
+- The downloaded PostgreSQL driver is verified by SHA-256; a file with a different checksum is never loaded.
+- Added [SECURITY.md](SECURITY.md): network, files, server actions, integrity check.
 
 ### Fixed
 - Anti-bot bypass via `/reg` from the queue.

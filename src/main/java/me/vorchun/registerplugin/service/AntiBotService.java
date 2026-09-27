@@ -9244,7 +9244,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = 866283007;
+    private static final int READY = 967612787;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100e) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

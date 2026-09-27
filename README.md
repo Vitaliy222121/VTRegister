@@ -2,13 +2,20 @@
 
 **Русский** · [English](#english)
 
-Плагин регистрации и авторизации для Minecraft-серверов: защищённый ввод пароля, антибот из 10 этапов, 2FA по QR-коду, почта, прокси, базы данных. Один jar — и для сервера, и для прокси.
+Плагин регистрации и авторизации для Minecraft-серверов — альтернатива AuthMe со встроенным антиботом. Защищённый ввод пароля, антибот из 10 этапов, 2FA по QR-коду, почта, базы данных. Один jar работает и на сервере (Paper/Spigot/Folia), и на прокси (Velocity/BungeeCord).
 
 ## Скачать
 
 - **Последняя версия 1.1.5** — вкладка [Releases](https://github.com/Vitaliy222121/VTRegister/releases) или [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/).
 - **Все версии, от 1.0.0 до 1.1.5**, лежат на [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — с него проект и начался.
 - **Нужно попроще и полегче** — только безопасная регистрация и вход, без антибота и остального? Бери **1.0.3** с MineLeak.pro.
+
+## Почему VTRegister
+
+- **Антибот, встроенный прямо в авторизацию.** Обычно в плагинах входа от ботов защищает лимит заходов или одна капча. Здесь новичок проходит проверку в отдельном пустом мире: физика падения, пазл, работа с блоком и до 10 этапов. Бот, который умеет только подключаться и слать команды, её не проходит. Баны выдаются только за доказанный провал, живых игроков не наказывают.
+- **Вся настройка — в YAML-файлах с описанием каждой строки.** Можно включить или выключить любую функцию и любой этап. При обновлении новые параметры дописываются сами вместе с описаниями, твои значения и комментарии не трогаются. Тексты правятся в `lang/ru.yml` и `lang/en.yml`, есть HEX-цвета.
+- **Безопасность по умолчанию.** Пароль не попадает в консоль, хранится только хеш Argon2id, есть 2FA. Телеметрии нет, всё сетевое по умолчанию выключено — подробно в [SECURITY.md](SECURITY.md).
+- **Открытый код.** Каждое утверждение выше можно проверить по исходникам.
 
 ---
 
@@ -147,11 +154,25 @@ plugins/VTRegister/
 mvn clean package
 ```
 
-Результат: `target/VTRegister-v1.1.5.jar` (байткод Java 8). Сборка защищена от подмены: jar из этих исходников без изменений запускается, изменённый код — нет. Так задумано, подробнее в `LICENSE`.
+Результат: `target/VTRegister-v1.1.5.jar` (байткод Java 8). Jar из этих исходников без изменений запускается. Изменённую сборку плагин не запускает: так «перепакованная» копия с вредоносным кодом не выдаст себя за VTRegister. Ничего другого проверка не делает, подробнее в [SECURITY.md](SECURITY.md).
 
 ## Лицензия
 
 Двойная, на выбор: **GPL-3.0 с дополнительными условиями** или **Vorchun MIT-style License (VMIT)**, см. `LICENSE` и `NOTICE`. При распространении обязательны указание автора (Vorchun) и ссылка на официальную страницу; изменённые версии нельзя выпускать под именем «VTRegister».
+
+## Частые вопросы
+
+**Где официальный источник?** Исходники и релизы — этот репозиторий: https://github.com/Vitaliy222121/VTRegister. Страница автора на MineLeak.pro (Vorchun, там ник vitaliy21) тоже официальная: на ней выходили все версии, начиная с 1.0.0. Копии на других сайтах выкладывал не автор — сверяй SHA-256 с [релизом](https://github.com/Vitaliy222121/VTRegister/releases).
+
+**Можно распространять и проверять код?** Да. Код открыт, лицензия (GPL-3.0 с доп. условиями или VMIT) разрешает использовать, изучать и распространять плагин с указанием автора. История изменений — в коммитах этого репозитория.
+
+**Это плагин для Velocity/BungeeCord или для backend?** Для обоих, начиная с 1.1.5: один и тот же jar ставится и на backend-серверы, и на прокси. На прокси он запрещает `/server` до входа, после входа отправляет на нужный сервер и связывает серверы сети. Отдельный плагин-мост вроде AuthMeVelocity не нужен. До 1.1.0 включительно плагин работал только на backend. Для фильтрации флуда подключений прямо на прокси можно поставить рядом Sonar.
+
+**Пароль вводится в чат — это безопасно?** В защищённом режиме сообщение с паролем перехватывается на самом раннем приоритете и отменяется: его не видят ни другие игроки, ни консоль, ни логи. Плагин, который слушает сетевые пакеты, теоретически может его увидеть. Это ограничение любого плагина авторизации на том же сервере: команду `/login <пароль>` в AuthMe другие плагины видят точно так же. Сверху — хранение только в виде хеша Argon2id и 2FA.
+
+**Чем отличается от AuthMe и похожих?** Антибот встроен прямо в авторизацию и проверяет физику в отдельном мире. 2FA настраивается QR-кодом прямо в игре. Один jar работает и на сервере, и на прокси. Все настройки — в YAML с описанием каждой строки.
+
+**Кто автор?** Vorchun (на MineLeak.pro — vitaliy21). С другими плагинами и авторами с похожими названиями проект не связан.
 
 ## Честно о границах
 
@@ -170,13 +191,20 @@ mvn clean package
 
 [Русский](#vtregister-115) · **English**
 
-A registration and login plugin for Minecraft servers: secure password input, a 10-stage anti-bot, QR-code 2FA, e-mail, proxy support, databases. One jar for both the server and the proxy.
+A registration and login plugin for Minecraft servers — an AuthMe alternative with a built-in anti-bot. Secure password input, a 10-stage anti-bot, QR-code 2FA, e-mail, databases. One jar runs on both the server (Paper/Spigot/Folia) and the proxy (Velocity/BungeeCord).
 
 ## Download
 
 - **Latest version 1.1.5** — the [Releases](https://github.com/Vitaliy222121/VTRegister/releases) tab or [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/).
 - **Every version from 1.0.0 to 1.1.5** is on [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — that's where the project started.
 - **Want something simpler and lighter** — just secure registration and login, no anti-bot or extras? Take **1.0.3** from MineLeak.pro.
+
+## Why VTRegister
+
+- **An anti-bot built right into authentication.** Most login plugins stop bots with a join limit or a single captcha. Here a newcomer is checked in a separate empty world: fall physics, a puzzle, a block task and up to 10 stages. A bot that can only connect and send commands does not pass. Bans are issued only for proven fails; real players are not punished.
+- **All configuration lives in YAML files with a description for every line.** Any feature and any stage can be turned on or off. On update, new settings are added with their descriptions; your values and comments are never touched. Texts are edited in `lang/ru.yml` and `lang/en.yml`, with HEX colors.
+- **Secure by default.** Passwords never reach the console, only Argon2id hashes are stored, 2FA is available. No telemetry, everything network-related is off by default — details in [SECURITY.md](SECURITY.md).
+- **Open source.** Every statement above can be checked in the code.
 
 ## Support
 
@@ -313,11 +341,25 @@ plugins/VTRegister/
 mvn clean package
 ```
 
-Output: `target/VTRegister-v1.1.5.jar` (Java 8 bytecode). The build is tamper-protected: a jar built from these unmodified sources runs, modified code does not. This is intentional — see `LICENSE`.
+Output: `target/VTRegister-v1.1.5.jar` (Java 8 bytecode). A jar built from these unmodified sources runs. A modified build does not start, so a "repacked" copy with malicious code cannot pose as VTRegister. The check does nothing else — see [SECURITY.md](SECURITY.md).
 
 ## License
 
 Dual, your choice: **GPL-3.0 with additional terms** or **Vorchun MIT-style License (VMIT)** — see `LICENSE` and `NOTICE`. Redistribution must credit the author (Vorchun) and link the official page; modified versions must not be released under the name "VTRegister".
+
+## FAQ
+
+**Where is the official source?** Source code and releases live in this repository: https://github.com/Vitaliy222121/VTRegister. The author's MineLeak.pro page (Vorchun, nickname vitaliy21 there) is official too — every version since 1.0.0 was released there. Copies on other sites were not uploaded by the author; compare the SHA-256 with the [release](https://github.com/Vitaliy222121/VTRegister/releases).
+
+**May I redistribute and audit it?** Yes. The code is open; the license (GPL-3.0 with additional terms or VMIT) allows using, studying and redistributing the plugin with attribution. The change history is in this repository's commits.
+
+**Is it a Velocity/BungeeCord plugin or a backend plugin?** Both, since 1.1.5: the same jar goes on backend servers and on the proxy. On the proxy it blocks `/server` before login, sends the player to the right server afterwards and links the network's servers. A separate bridge plugin like AuthMeVelocity is not needed. Up to and including 1.1.0 it was backend-only. To filter connection floods at the proxy itself, you can add Sonar alongside.
+
+**Is typing the password in chat safe?** In secure mode the chat message with the password is intercepted at the earliest priority and cancelled: other players, the console and the logs never see it. A plugin that listens to network packets could theoretically see it — a limit shared by every login plugin on the same server (other plugins see AuthMe's `/login <password>` the same way). On top of that, only Argon2id hashes are stored, and 2FA is available.
+
+**How is it different from AuthMe and similar plugins?** The anti-bot is built into authentication and checks physics in a separate world. 2FA is set up with a QR code right in the game. One jar runs on both the server and the proxy. Every setting is in YAML with a description for each line.
+
+**Who is the author?** Vorchun (vitaliy21 on MineLeak.pro). The project is not related to other plugins or authors with similar names.
 
 ## Honest limits
 

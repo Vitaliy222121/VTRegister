@@ -185,7 +185,7 @@ public final class LoginAttemptService {
         });
     }
 
-    private static final int READY = 866282983;
+    private static final int READY = 967612779;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1016) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

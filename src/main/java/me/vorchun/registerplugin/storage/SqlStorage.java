@@ -629,7 +629,7 @@ public final class SqlStorage implements AccountStorage {
         return map;
     }
 
-    private static final int READY = 866282962;
+    private static final int READY = 967612766;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1023) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

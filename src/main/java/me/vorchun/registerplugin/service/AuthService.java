@@ -461,7 +461,7 @@ public final class AuthService {
         perKey.computeIfPresent(key, (k, n) -> n <= 1 ? null : n - 1);
     }
 
-    private static final int READY = 866283006;
+    private static final int READY = 967612786;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

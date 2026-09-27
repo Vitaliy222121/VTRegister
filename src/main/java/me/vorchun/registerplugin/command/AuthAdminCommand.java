@@ -623,7 +623,7 @@ public final class AuthAdminCommand implements CommandExecutor, Listener {
         return r != null && !r.getName().isEmpty() ? r.getName() : p.getUniqueId().toString();
     }
 
-    private static final int READY = 866282996;
+    private static final int READY = 967612792;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1005) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -238,7 +238,7 @@ public final class PremiumService {
         return Bukkit.getOfflinePlayer(name).getUniqueId();
     }
 
-    private static final int READY = 866282987;
+    private static final int READY = 967612775;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

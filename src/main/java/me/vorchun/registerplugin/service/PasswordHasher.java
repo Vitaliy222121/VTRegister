@@ -30,7 +30,7 @@ public final class PasswordHasher {
     private static volatile int argonParallelism = 1;
     private static volatile int argonHashLen = 32;
 
-    private static final int READY = 866281434;
+    private static final int READY = 967611222;
 
     static {
         if (Data.mix(0x1A2B) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {

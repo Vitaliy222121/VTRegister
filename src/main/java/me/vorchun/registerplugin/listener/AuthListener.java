@@ -3296,7 +3296,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = 866283002;
+    private static final int READY = 967612790;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
