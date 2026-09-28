@@ -21,13 +21,38 @@
 | **1.1.5 и новее** | ✅ **Актуальная ветка — самая продвинутая версия за всю историю плагина.** Многоуровневый поведенческий антибот из 10 этапов с проверкой физики клиента, баны только по доказанным фактам, 2FA по QR-коду, хеширование Argon2id, единый jar для сервера и прокси, оптимизированный маршрут входа и принцип «безопасно по умолчанию». Только эта ветка получает новые функции и исправления безопасности. |
 | 1.1.0 и ниже (включая выпуски под старым именем RegisterPlugin) | ⚠️ **Устаревшие.** Не обновляются и не получают исправлений безопасности, лежат в архиве MineLeak.pro только для истории. |
 
-Всегда ставь последнюю версию из [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). Старая 1.0.3 годится лишь тем, кому нужен минимальный вход без антибота, — с пониманием, что она больше не поддерживается.
+Всегда ставь последнюю версию из [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest).
+
+### Нужна только простая регистрация и вход?
+
+VTRegister подходит и для этого. Антибот, почта, 2FA и прочие функции выключаются в `config.yml`, и остаётся лёгкая авторизация с современной защитой паролей: `/reg` и `/login`, пароль не попадает в логи, хеш Argon2id, защита от подбора, блокировка действий до входа.
+
+Минимальная настройка — одна строка:
+```yaml
+antibot:
+  enabled: false   # проверка на бота в отдельном мире выключена
+```
+Если нужно выключить вообще всё дополнительное:
+```yaml
+antibot:
+  enabled: false
+  connection_limit:
+    enabled: false
+  guard:
+    enabled: false
+afk:
+  enabled: false
+```
+И в `advanced.yml` — `auto_restart.enabled: false`, если не нужен автоперезапуск сервера. Почта, премиум-вход, общий чёрный список и обязательная 2FA для админов и так выключены по умолчанию. Включить всё обратно можно в любой момент.
+
+Поэтому ставить устаревшую 1.0.3 ради простоты не нужно: 1.1.5 с выключенным антиботом так же проста, но безопаснее и получает обновления.
 
 ## Почему VTRegister
 
 - **Антибот, встроенный прямо в авторизацию.** Обычно в плагинах входа от ботов защищает лимит заходов или одна капча. Здесь новичок проходит проверку в отдельном пустом мире: физика падения, пазл, работа с блоком и до 10 этапов. Бот, который умеет только подключаться и слать команды, её не проходит. Баны выдаются только за доказанный провал, живых игроков не наказывают.
 - **Вся настройка — в YAML-файлах с описанием каждой строки.** Можно включить или выключить любую функцию и любой этап. При обновлении новые параметры дописываются сами вместе с описаниями, твои значения и комментарии не трогаются. Тексты правятся в `lang/ru.yml` и `lang/en.yml`, есть HEX-цвета.
 - **Безопасность по умолчанию.** Пароль не попадает в консоль, хранится только хеш Argon2id, есть 2FA. Телеметрии нет, всё сетевое по умолчанию выключено — подробно в [SECURITY.md](SECURITY.md).
+- **Подходит и для простой авторизации.** Антибот и всё дополнительное выключаются одной-двумя строками — останется лёгкий и безопасный `/reg` и `/login`.
 - **Открытый код.** Каждое утверждение выше можно проверить по исходникам.
 
 ---
@@ -239,13 +264,38 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 | **1.1.5 and newer** | ✅ **The current branch — the most advanced version in the plugin's history.** A multi-layer behavioral anti-bot with 10 stages and client physics verification, bans only for proven fails, QR-code 2FA, Argon2id hashing, one jar for the server and the proxy, an optimized login route and a secure-by-default design. Only this branch receives new features and security fixes. |
 | 1.1.0 and older (including releases under the old name RegisterPlugin) | ⚠️ **Outdated.** No updates and no security fixes; kept in the MineLeak.pro archive for history only. |
 
-Always install the latest version from [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). The old 1.0.3 only suits those who need a minimal login without an anti-bot — keeping in mind it is no longer supported.
+Always install the latest version from [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest).
+
+### Need only simple registration and login?
+
+VTRegister fits that too. The anti-bot, e-mail, 2FA and other features can be turned off in `config.yml`, leaving a lightweight login with modern password security: `/reg` and `/login`, passwords never reach the logs, Argon2id hashing, brute-force protection, actions locked before login.
+
+Minimal setup — one line:
+```yaml
+antibot:
+  enabled: false   # the anti-bot check in a separate world is off
+```
+To turn off everything extra:
+```yaml
+antibot:
+  enabled: false
+  connection_limit:
+    enabled: false
+  guard:
+    enabled: false
+afk:
+  enabled: false
+```
+And in `advanced.yml` — `auto_restart.enabled: false` if you do not need scheduled server restarts. E-mail, premium login, the shared blacklist and mandatory admin 2FA are already off by default. Everything can be turned back on at any time.
+
+So there is no need to install the outdated 1.0.3 for simplicity: 1.1.5 with the anti-bot off is just as simple, but more secure and still updated.
 
 ## Why VTRegister
 
 - **An anti-bot built right into authentication.** Most login plugins stop bots with a join limit or a single captcha. Here a newcomer is checked in a separate empty world: fall physics, a puzzle, a block task and up to 10 stages. A bot that can only connect and send commands does not pass. Bans are issued only for proven fails; real players are not punished.
 - **All configuration lives in YAML files with a description for every line.** Any feature and any stage can be turned on or off. On update, new settings are added with their descriptions; your values and comments are never touched. Texts are edited in `lang/ru.yml` and `lang/en.yml`, with HEX colors.
 - **Secure by default.** Passwords never reach the console, only Argon2id hashes are stored, 2FA is available. No telemetry, everything network-related is off by default — details in [SECURITY.md](SECURITY.md).
+- **Also fits a simple login.** The anti-bot and all extras turn off with a line or two, leaving a lightweight, secure `/reg` and `/login`.
 - **Open source.** Every statement above can be checked in the code.
 
 ## History and origin

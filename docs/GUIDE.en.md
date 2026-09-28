@@ -56,7 +56,7 @@
 
 **Why 1.1.5.** It is the project's technological milestone: the anti-bot moved from simple checks to behavioral analysis — client physics from packets, in-world tasks, answer rhythm, packet watch from the first second. Protection follows a secure-by-default design, the login is optimized (players spawn right on the platform, no extra world changes), and one jar serves both the server and the proxy. Versions 1.1.0 and older are outdated and unsupported.
 
-If you need a very simple login without an anti-bot, the old **1.0.3** remains in the archive on [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — but it no longer receives updates or security fixes.
+**Need only a simple login without an anti-bot?** Install 1.1.5 and turn the anti-bot off with `antibot.enabled: false` in `config.yml` (details in the README, "Need only simple registration and login?"). You keep `/reg` and `/login` with secure password input, Argon2id and brute-force protection. There is no need to install the outdated 1.0.3 from the archive for simplicity: it gets no security fixes.
 
 ## 3. How a player logs in
 

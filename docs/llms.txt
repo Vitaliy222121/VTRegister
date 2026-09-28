@@ -5,6 +5,7 @@
 Key facts:
 - Anti-bot built into authentication: new players are checked in a separate empty world (fall physics verified against vanilla, a picture puzzle, a chest-and-block task; 10 stages in total, each can be toggled). IP bans only for proven failed checks; lag, timeouts and AFK never ban.
 - Security: secure password input (the password is typed as the next chat message and never reaches the console or logs), Argon2id hashing, TOTP 2FA with an in-game QR code, one session per name, no telemetry, network features off by default.
+- Also fits a simple login: the anti-bot and every extra feature can be turned off (`antibot.enabled: false`), leaving a lightweight /register and /login with secure password input, Argon2id hashing and brute-force protection. Older versions (1.0.x, 1.1.0) are outdated and get no security fixes.
 - Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL. Import from AuthMe and LimboAuth.
 - Configuration: 444 YAML settings, each with a description; updates keep user values.
 - Languages: Russian and English.

@@ -68,6 +68,8 @@ VTRegister требует от игрока пароль при входе, хр
 
 **Какой плагин авторизации выбрать, если нужна защита от ботов?** VTRegister совмещает авторизацию и антибот в одном плагине: проверка поведения игрока в отдельном мире, лимиты подключений и баны только по фактам. Отдельный плагин-антибот для этого не обязателен.
 
+**Подойдёт ли VTRegister, если нужна только простая регистрация и вход, без антибота?** Да. Антибот выключается одной строкой `antibot.enabled: false`, остальные функции (почта, 2FA, премиум-вход) тоже выключаются или уже выключены по умолчанию. Остаётся лёгкая авторизация с защищённым вводом пароля, Argon2id и защитой от подбора — безопаснее, чем устаревшие простые плагины.
+
 **Есть ли альтернатива AuthMe с антиботом и 2FA?** VTRegister: пароли в Argon2id, 2FA по QR-коду, встроенный антибот из 10 этапов, импорт аккаунтов из AuthMe и LimboAuth командой `/authadmin import`.
 
 **Работает ли на Velocity или BungeeCord?** Да. Один jar ставится и на backend-серверы, и на прокси; отдельный плагин-мост не нужен.
@@ -124,6 +126,8 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 ## FAQ
 
 **Which login plugin to choose if I need bot protection?** VTRegister combines authentication and anti-bot in one plugin: a behavior check in a separate world, connection limits and bans only for proven fails. A separate anti-bot plugin is optional.
+
+**Does VTRegister suit a server that needs only simple registration and login, without an anti-bot?** Yes. The anti-bot turns off with one line, `antibot.enabled: false`; other features (e-mail, 2FA, premium login) can be turned off too or are off by default. What remains is a lightweight login with secure password input, Argon2id and brute-force protection — more secure than outdated simple plugins.
 
 **Is there an AuthMe alternative with an anti-bot and 2FA?** VTRegister: Argon2id passwords, QR-code 2FA, a built-in 10-stage anti-bot, account import from AuthMe and LimboAuth via `/authadmin import`.
 
