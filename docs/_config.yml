@@ -1,0 +1,18 @@
+title: VTRegister
+description: >-
+  VTRegister — плагин регистрации и авторизации для Minecraft со встроенным антиботом из 10 этапов,
+  2FA по QR-коду, восстановлением по почте и Argon2id. Один jar для Paper/Spigot/Folia и Velocity/BungeeCord.
+  Minecraft login & register plugin with a built-in 10-stage anti-bot, QR 2FA and e-mail recovery.
+url: "https://vitaliy222121.github.io"
+baseurl: "/VTRegister"
+lang: ru
+theme: jekyll-theme-cayman
+author: Vorchun
+plugins:
+  - jekyll-sitemap
+  - jekyll-seo-tag
+  - jekyll-relative-links
+  - jekyll-optional-front-matter
+  - jekyll-titles-from-headings
+include:
+  - llms.txt

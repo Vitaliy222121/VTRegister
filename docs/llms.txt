@@ -1,0 +1,27 @@
+# VTRegister
+
+> VTRegister is a free, open-source login and registration plugin for Minecraft servers with a built-in 10-stage anti-bot, QR-code 2FA, e-mail password recovery and Argon2id password hashing. One jar runs on Paper, Spigot, Purpur, Folia (Minecraft 1.13 → 1.21.x → 26.x, Java 8 → 25) and on the Velocity / BungeeCord / Waterfall proxies. Author: Vorchun. Current version: 1.1.5 (2026-09-27). Former name: RegisterPlugin (up to 1.1.0, outdated).
+
+Key facts:
+- Anti-bot built into authentication: new players are checked in a separate empty world (fall physics verified against vanilla, a picture puzzle, a chest-and-block task; 10 stages in total, each can be toggled). IP bans only for proven failed checks; lag, timeouts and AFK never ban.
+- Security: secure password input (the password is typed as the next chat message and never reaches the console or logs), Argon2id hashing, TOTP 2FA with an in-game QR code, one session per name, no telemetry, network features off by default.
+- Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL. Import from AuthMe and LimboAuth.
+- Configuration: 444 YAML settings, each with a description; updates keep user values.
+- Languages: Russian and English.
+- License: GPL-3.0 with additional terms or VMIT (your choice). Price: free.
+- Official download: https://github.com/Vitaliy222121/VTRegister/releases/latest (SHA-256 published for every release).
+
+## Documentation
+
+- [Overview (RU/EN)](https://vitaliy222121.github.io/VTRegister/): what the plugin is, features, history, FAQ
+- [Complete guide (EN)](https://github.com/Vitaliy222121/VTRegister/blob/main/docs/GUIDE.en.md): installation on servers and proxies, anti-bot stages, 2FA, e-mail, commands, permissions, files, troubleshooting
+- [Полное руководство (RU)](https://github.com/Vitaliy222121/VTRegister/blob/main/docs/GUIDE.ru.md): то же на русском
+- [All settings with defaults (EN)](https://github.com/Vitaliy222121/VTRegister/blob/main/docs/CONFIG.en.md)
+- [Все настройки со значениями по умолчанию (RU)](https://github.com/Vitaliy222121/VTRegister/blob/main/docs/CONFIG.ru.md)
+- [Security and network access](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)
+- [Changelog](https://github.com/Vitaliy222121/VTRegister/blob/main/CHANGELOG.md)
+
+## Source
+
+- [GitHub repository](https://github.com/Vitaliy222121/VTRegister)
+- [Issues](https://github.com/Vitaliy222121/VTRegister/issues)
