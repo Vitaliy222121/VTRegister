@@ -150,15 +150,38 @@ public final class CommandLogGuard {
             Object deny = Enum.valueOf(resultClass.asSubclass(Enum.class), "DENY");
             Object neutral = Enum.valueOf(resultClass.asSubclass(Enum.class), "NEUTRAL");
 
-            // Метод ищем ОДИН раз: фильтр вызывается на каждую строку лога
-            final Method getFormatted = logEventClass.getMethod("getFormattedMessage");
+            // Методы ищем ОДИН раз: фильтр вызывается на каждую строку лога.
+            // У LogEvent нет getFormattedMessage() — текст берётся из Message
+            // (раньше здесь был NoSuchMethodException, и фильтр не вставал нигде).
+            final Class<?> messageClass = Class.forName("org.apache.logging.log4j.message.Message");
+            final Method getMessage = logEventClass.getMethod("getMessage");
+            final Method getFormatted = messageClass.getMethod("getFormattedMessage");
             InvocationHandler handler = (proxy, method, args) -> {
                 String name = method.getName();
                 if ("filter".equals(name) && args != null && args.length > 0 && args[0] != null) {
-                    Object event = args[0];
                     String message = null;
                     try {
-                        message = (String) getFormatted.invoke(event);
+                        if (logEventClass.isInstance(args[0])) {
+                            // filter(LogEvent) — фильтр уровня LoggerConfig
+                            Object m = getMessage.invoke(args[0]);
+                            message = m == null ? null : (String) getFormatted.invoke(m);
+                        } else if (args.length > 3 && args[3] != null) {
+                            // filter(Logger, Level, Marker, msg, ...) — текст и параметры
+                            Object m = args[3];
+                            StringBuilder sb = new StringBuilder(messageClass.isInstance(m)
+                                    ? String.valueOf(getFormatted.invoke(m)) : String.valueOf(m));
+                            for (int i = 4; i < args.length; i++) {
+                                Object a = args[i];
+                                if (a instanceof Object[]) {
+                                    for (Object o : (Object[]) a) {
+                                        sb.append(' ').append(o);
+                                    }
+                                } else if (a != null && !(a instanceof Throwable)) {
+                                    sb.append(' ').append(a);
+                                }
+                            }
+                            message = sb.toString();
+                        }
                     } catch (Throwable ignored) {
                     }
                     if (message != null && containsAuthPassword(message)) {
@@ -288,7 +311,14 @@ public final class CommandLogGuard {
         try {
             Class<?> filterClass = Class.forName("org.apache.logging.log4j.core.Filter");
             Class<?> coreLoggerClass = Class.forName("org.apache.logging.log4j.core.Logger");
-            coreLoggerClass.getMethod("removeFilter", filterClass).invoke(logger, filter);
+            try {
+                coreLoggerClass.getMethod("removeFilter", filterClass).invoke(logger, filter);
+            } catch (NoSuchMethodException old) {
+                // Старый log4j (ядра 1.13–1.16): у Logger нет removeFilter —
+                // фильтр висит на его LoggerConfig (так его ставит addFilter)
+                Object cfg = coreLoggerClass.getMethod("get").invoke(logger);
+                cfg.getClass().getMethod("removeFilter", filterClass).invoke(cfg, filter);
+            }
         } catch (Throwable t) {
             plugin.getLogger().warning("CommandLogGuard: не удалось снять log4j-фильтр: " + t);
         }
@@ -302,7 +332,7 @@ public final class CommandLogGuard {
         return mode;
     }
 
-    private static final int READY = 967612783;
+    private static final int READY = 1448549731;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1012) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

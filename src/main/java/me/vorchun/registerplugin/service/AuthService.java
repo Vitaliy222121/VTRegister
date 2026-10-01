@@ -16,7 +16,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import me.vorchun.registerplugin.api.AuthLoginEvent;
 import me.vorchun.registerplugin.api.AuthLogoutEvent;
 import me.vorchun.registerplugin.api.AuthRegisterEvent;
 import me.vorchun.registerplugin.util.IpUtil;
@@ -229,7 +228,8 @@ public final class AuthService {
         loginAttempts.reset(player.getUniqueId());
         me.vorchun.registerplugin.util.Compat.updateCommands(player);
         me.vorchun.registerplugin.util.Compat.clearAuthDarkness(player);
-        Bukkit.getPluginManager().callEvent(new AuthLoginEvent(player, false));
+        // AuthLoginEvent зовёт общий финализатор входа (AuthListener.afterLoginSuccess):
+        // так событие приходит при ЛЮБОМ входе (сессия, премиум, Bedrock, API) и один раз
     }
 
     // ---------- регистрация ----------
@@ -272,41 +272,93 @@ public final class AuthService {
 
         // За прокси без forwarding у всех адрес прокси — такой IP в аккаунт не пишем
         String ip = IpUtil.ipsTrusted() ? IpUtil.getIp(plugin, player) : "";
+        // Лимит аккаунтов на IP: одна регистрация с IP за раз, подсчёт — после
+        // сброса несохранённых, иначе пачка ботов с IP проскочила бы лимит
+        final int ipMax = ipLimit(ip);
+        final Long ipStamp = ipMax > 0 ? reserveIp(ip) : null;
+        if (ipMax > 0 && ipStamp == null) {
+            refuse(player, "auth_busy");
+            return;
+        }
         boolean queued = submitHash(hashKey(player), () -> {
             String hash = PasswordHasher.hash(password);
+            final int have = ipMax > 0 ? accountStore.countByIpFlushed(ip) : 0;
             Scheduler.runAtEntity(plugin, player, () -> {
-                if (!player.isOnline()) {
-                    return;
+                try {
+                    if (!player.isOnline()) {
+                        return;
+                    }
+                    if (sessionManager.isLoggedIn(uuid)) {
+                        callback.done(Result.ALREADY_LOGGED_IN, PasswordValidator.ValidationResult.VALID);
+                        return;
+                    }
+                    if (!registerAllowed(uuid)) {
+                        refuse(player, "antibot_wait_register");
+                        return;
+                    }
+                    if (accountStore.get(uuid) == null && accountStore.isUnavailable(uuid)) {
+                        refuse(player, "storage_unavailable");
+                        return;
+                    }
+                    if (accountStore.isRegistered(uuid)) {
+                        callback.done(Result.ALREADY_LOGGED_IN, PasswordValidator.ValidationResult.VALID);
+                        return;
+                    }
+                    if (ipMax > 0 && have >= ipMax) {
+                        Map<String, String> ph = new java.util.HashMap<>();
+                        ph.put("max", String.valueOf(ipMax));
+                        messages.send(player, "register_ip_limit", ph);
+                        return;
+                    }
+                    accountStore.register(player.getUniqueId(), player.getName(), hash, ip);
+                    sessionManager.login(player);
+                    loginAttempts.reset(player.getUniqueId());
+                    me.vorchun.registerplugin.util.Compat.updateCommands(player);
+                    me.vorchun.registerplugin.util.Compat.clearAuthDarkness(player);
+                    Bukkit.getPluginManager().callEvent(new AuthRegisterEvent(player));
+                    callback.done(Result.OK, PasswordValidator.ValidationResult.VALID);
+                } finally {
+                    if (ipStamp != null) {
+                        ipRegistering.remove(ip, ipStamp);
+                    }
                 }
-                if (sessionManager.isLoggedIn(uuid)) {
-                    callback.done(Result.ALREADY_LOGGED_IN, PasswordValidator.ValidationResult.VALID);
-                    return;
-                }
-                if (!registerAllowed(uuid)) {
-                    refuse(player, "antibot_wait_register");
-                    return;
-                }
-                if (accountStore.get(uuid) == null && accountStore.isUnavailable(uuid)) {
-                    refuse(player, "storage_unavailable");
-                    return;
-                }
-                if (accountStore.isRegistered(uuid)) {
-                    callback.done(Result.ALREADY_LOGGED_IN, PasswordValidator.ValidationResult.VALID);
-                    return;
-                }
-                accountStore.register(player.getUniqueId(), player.getName(), hash, ip);
-                sessionManager.login(player);
-                loginAttempts.reset(player.getUniqueId());
-                me.vorchun.registerplugin.util.Compat.updateCommands(player);
-                me.vorchun.registerplugin.util.Compat.clearAuthDarkness(player);
-                Bukkit.getPluginManager().callEvent(new AuthRegisterEvent(player));
-                Bukkit.getPluginManager().callEvent(new AuthLoginEvent(player, true));
-                callback.done(Result.OK, PasswordValidator.ValidationResult.VALID);
             });
         });
         if (!queued) {
+            if (ipStamp != null) {
+                ipRegistering.remove(ip, ipStamp);
+            }
             refuse(player, "auth_busy");
         }
+    }
+
+    /** Регистрации в работе по IP → время начала (лимит аккаунтов на IP). */
+    private final Map<String, Long> ipRegistering = new ConcurrentHashMap<>();
+
+    /** ip_limit для адреса; 0 — не ограничиваем (выключен, IP неизвестен, адрес прокси). */
+    private int ipLimit(String ip) {
+        if (ip == null || ip.isEmpty() || !plugin.getConfig().getBoolean("ip_limit.enabled", true)
+                || IpUtil.isProxyAddress(plugin, ip)) {
+            return 0;
+        }
+        return Math.max(0, plugin.getConfig().getInt("ip_limit.max_accounts", 3));
+    }
+
+    /**
+     * Занять IP на время регистрации; null — с этого IP регистрация уже идёт.
+     * Метка старше 30 с считается зависшей (игрок вышел, задача потерялась).
+     */
+    private Long reserveIp(String ip) {
+        long now = System.currentTimeMillis();
+        Long[] got = {null};
+        ipRegistering.compute(ip, (k, since) -> {
+            if (since == null || now - since > 30_000L) {
+                got[0] = now;
+                return now;
+            }
+            return since;
+        });
+        return got[0];
     }
 
     // ---------- смена пароля ----------
@@ -427,6 +479,48 @@ public final class AuthService {
      * и лимит на ключ (не дать одному источнику флудить). Превышение — отказ:
      * @return false — работа не принята (игроку нужно сказать «подожди»)
      */
+    /**
+     * API: проверить пароль аккаунта в пуле хеширования. done — в главном потоке;
+     * false — неверный пароль, нет аккаунта или пул занят.
+     */
+    public void verifyAsync(UUID uuid, String password, Consumer<Boolean> done) {
+        if (uuid == null || password == null || done == null) {
+            if (done != null) {
+                done.accept(false);
+            }
+            return;
+        }
+        boolean queued = submitHash("api:" + uuid, () -> {
+            AccountRecord r = accountStore.get(uuid);
+            boolean ok = r != null && r.getPasswordHash() != null
+                    && PasswordHasher.verifyAny(password, r.getPasswordHash());
+            Scheduler.runSync(plugin, () -> done.accept(ok));
+        });
+        if (!queued) {
+            Scheduler.runSync(plugin, () -> done.accept(false));
+        }
+    }
+
+    /** API: задать пароль без старого (как /authadmin setpw). done — в главном потоке. */
+    public void setPasswordAsync(UUID uuid, String password, Consumer<Boolean> done) {
+        if (uuid == null || password == null || password.isEmpty()) {
+            if (done != null) {
+                done.accept(false);
+            }
+            return;
+        }
+        boolean queued = submitHash("api:" + uuid, () -> {
+            String hash = PasswordHasher.hash(password);
+            boolean ok = accountStore.setPassword(uuid, hash);
+            if (done != null) {
+                Scheduler.runSync(plugin, () -> done.accept(ok));
+            }
+        });
+        if (!queued && done != null) {
+            Scheduler.runSync(plugin, () -> done.accept(false));
+        }
+    }
+
     private boolean submitHash(String key, Runnable work) {
         boolean[] entered = {false};
         perKey.compute(key, (k, n) -> {
@@ -461,7 +555,7 @@ public final class AuthService {
         perKey.computeIfPresent(key, (k, n) -> n <= 1 ? null : n - 1);
     }
 
-    private static final int READY = 967612786;
+    private static final int READY = 1448549758;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

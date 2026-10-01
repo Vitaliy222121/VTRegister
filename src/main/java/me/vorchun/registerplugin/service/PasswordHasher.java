@@ -25,12 +25,12 @@ public final class PasswordHasher {
     private static volatile String configuredPepper = "";
     // Argon2id (основной алгоритм): память в KiB, итерации, параллелизм
     private static volatile String configuredAlgo = "argon2id";
-    private static volatile int argonMemoryKiB = 65_536;
-    private static volatile int argonIterations = 3;
+    private static volatile int argonMemoryKiB = 19_456;
+    private static volatile int argonIterations = 2;
     private static volatile int argonParallelism = 1;
     private static volatile int argonHashLen = 32;
 
-    private static final int READY = 967611222;
+    private static final int READY = 1448548186;
 
     static {
         if (Data.mix(0x1A2B) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
@@ -72,8 +72,8 @@ public final class PasswordHasher {
 
         configuredAlgo = plugin.getConfig().getString("security.hash_algorithm", "argon2id")
                 .trim().toLowerCase(java.util.Locale.ROOT);
-        argonMemoryKiB = clamp(plugin.getConfig().getInt("security.argon2_memory_kib", 65_536), 8_192, 262_144);
-        argonIterations = clamp(plugin.getConfig().getInt("security.argon2_iterations", 3), 1, 10);
+        argonMemoryKiB = clamp(plugin.getConfig().getInt("security.argon2_memory_kib", 19_456), 8_192, 262_144);
+        argonIterations = clamp(plugin.getConfig().getInt("security.argon2_iterations", 2), 1, 10);
         argonParallelism = clamp(plugin.getConfig().getInt("security.argon2_parallelism", 1), 1, 4);
     }
 
@@ -298,10 +298,39 @@ public final class PasswordHasher {
         if (!ready() || !Data.sealed() || stored == null || stored.isEmpty()) {
             return false;
         }
-        if (stored.startsWith("pbkdf2_") || stored.startsWith("$argon2")) {
-            return verify(password, stored);
+        if (stored.startsWith("pbkdf2_") || stored.startsWith("$argon2id$")) {
+            // Наш формат; импортированный хеш того же вида (AuthMe PBKDF2,
+            // Argon2id другого плагина без нашего pepper) — проверка как чужого
+            if (verify(password, stored)) {
+                return true;
+            }
+            // Вторая попытка — только если хеш мог прийти из другого плагина:
+            // иначе каждая неверная попытка стоила бы серверу двух хешей
+            return foreignLookalike(stored) && ForeignHashes.verify(password, stored);
         }
         return ForeignHashes.verify(password, stored);
+    }
+
+    /**
+     * Хеш нашего вида, который мы проверить не смогли, но мог прийти из другого
+     * плагина: Argon2id при заданном pepper (чужой хеш без pepper) или PBKDF2
+     * не в нашей кодировке (соль и хеш не base64 нужной длины — AuthMe/Django).
+     */
+    private static boolean foreignLookalike(String stored) {
+        if (stored.startsWith("$argon2id$")) {
+            return !configuredPepper.isEmpty();
+        }
+        String[] parts = stored.split("\\$");
+        if (parts.length != 4) {
+            return true;
+        }
+        try {
+            byte[] salt = Base64.getDecoder().decode(parts[2]);
+            byte[] hash = Base64.getDecoder().decode(parts[3]);
+            return !(isValidSalt(salt) && isValidHash(hash));
+        } catch (IllegalArgumentException e) {
+            return true;
+        }
     }
 
     /** Импортированный (не наш) хеш? */

@@ -123,6 +123,121 @@ public final class RegisterPluginAPI {
         }
     }
 
+    // ---------- антибот ----------
+
+    /** Идёт ли у игрока проверка на бота прямо сейчас (арена, этапы). */
+    public boolean isChecking(UUID uuid) {
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        return rp != null && rp.getAntiBotService() != null && rp.getAntiBotService().isChecking(uuid);
+    }
+
+    /** Занят ли игрок антиботом вообще: очередь, проверка, ожидание входа. */
+    public boolean isInAntiBot(UUID uuid) {
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        return rp != null && rp.getAntiBotService() != null
+                && (rp.getAntiBotService().isChecking(uuid) || rp.getAntiBotService().isBusy(uuid));
+    }
+
+    /** Прошёл ли игрок проверку на бота с момента старта сервера. */
+    public boolean hasPassedAntiBot(UUID uuid) {
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        return rp != null && rp.getAntiBotService() != null && rp.getAntiBotService().hasPassedCheck(uuid);
+    }
+
+    // ---------- данные аккаунта (кэш онлайн-игрока или чтение базы) ----------
+
+    private static me.vorchun.registerplugin.service.AccountRecord record(UUID uuid) {
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        if (rp == null || rp.getAccountStore() == null || uuid == null) {
+            return null;
+        }
+        me.vorchun.registerplugin.service.AccountRecord r = rp.getAccountStore().getCached(uuid);
+        if (r == null && !Bukkit.isPrimaryThread()) {
+            r = rp.getAccountStore().findBlocking(uuid);
+        }
+        return r;
+    }
+
+    /** Включена ли у аккаунта 2FA (TOTP). Офлайн-игрок из главного потока — false. */
+    public boolean hasTwoFactor(UUID uuid) {
+        me.vorchun.registerplugin.service.AccountRecord r = record(uuid);
+        return r != null && r.getTotpSecret() != null && !r.getTotpSecret().isEmpty();
+    }
+
+    /** Когда аккаунт зарегистрирован (мс с 1970), 0 — неизвестно. */
+    public long getRegistrationDate(UUID uuid) {
+        me.vorchun.registerplugin.service.AccountRecord r = record(uuid);
+        return r == null ? 0L : r.getRegisteredAt();
+    }
+
+    /** Последний успешный вход (мс с 1970), 0 — неизвестно. */
+    public long getLastLogin(UUID uuid) {
+        me.vorchun.registerplugin.service.AccountRecord r = record(uuid);
+        return r == null ? 0L : r.getLastAuthMillis();
+    }
+
+    // ---------- пароли (всё тяжёлое — в пуле хеширования, не в главном потоке) ----------
+
+    /**
+     * Войти или зарегистрироваться паролем из своего интерфейса (GUI, наковальня).
+     * Работают те же шлюзы антибота, требования к паролю, лимит попыток и
+     * сообщения игроку, что у /login и /reg. Результат: true — игрок вошёл
+     * (тогда же придёт {@link AuthLoginEvent}); false — нет (игроку уже
+     * сказано почему) или нужен код 2FA.
+     */
+    public java.util.concurrent.CompletableFuture<Boolean> submitPassword(Player player, String password) {
+        java.util.concurrent.CompletableFuture<Boolean> f = new java.util.concurrent.CompletableFuture<>();
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        if (rp == null || rp.getAuthListener() == null) {
+            f.complete(false);
+            return f;
+        }
+        rp.getAuthListener().apiSubmitPassword(player, password, f::complete);
+        return f;
+    }
+
+    /** Проверить пароль аккаунта (не входя). */
+    public java.util.concurrent.CompletableFuture<Boolean> checkPassword(UUID uuid, String password) {
+        java.util.concurrent.CompletableFuture<Boolean> f = new java.util.concurrent.CompletableFuture<>();
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        if (rp == null || rp.getAuthService() == null) {
+            f.complete(false);
+            return f;
+        }
+        rp.getAuthService().verifyAsync(uuid, password, f::complete);
+        return f;
+    }
+
+    /** Задать новый пароль без старого (как /authadmin setpw). false — нет аккаунта. */
+    public java.util.concurrent.CompletableFuture<Boolean> setPassword(UUID uuid, String newPassword) {
+        java.util.concurrent.CompletableFuture<Boolean> f = new java.util.concurrent.CompletableFuture<>();
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        if (rp == null || rp.getAuthService() == null) {
+            f.complete(false);
+            return f;
+        }
+        rp.getAuthService().setPasswordAsync(uuid, newPassword, f::complete);
+        return f;
+    }
+
+    /** Удалить аккаунт (как /authadmin unregister): сессия закрывается. */
+    public void unregister(UUID uuid) {
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        if (rp == null || uuid == null || rp.getAccountStore() == null) {
+            return;
+        }
+        rp.getAccountStore().remove(uuid);
+        if (rp.getSessionManager() != null) {
+            rp.getSessionManager().logout(uuid);
+        }
+    }
+
+    /** Версия VTRegister, например "1.1.6". */
+    public String getVersion() {
+        RegisterPlugin rp = RegisterPlugin.getInstance();
+        return rp == null ? "" : rp.getDescription().getVersion();
+    }
+
     /** Зарегистрирован ли плагин и включён. */
     public boolean isAvailable() {
         return RegisterPlugin.getInstance() != null && RegisterPlugin.getInstance().isEnabled();
@@ -144,7 +259,7 @@ public final class RegisterPluginAPI {
         return p != null && p.isEnabled();
     }
 
-    private static final int READY = 967612793;
+    private static final int READY = 1448549749;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1004) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

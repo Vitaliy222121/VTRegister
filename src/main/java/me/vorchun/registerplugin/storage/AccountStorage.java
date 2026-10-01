@@ -44,6 +44,13 @@ public interface AccountStorage {
 
     void delete(UUID uuid) throws Exception;
 
+    /** Пакетное удаление (автоочистка). Для YAML — одна запись файла на весь пакет. */
+    default void deleteBatch(java.util.Collection<UUID> ids) throws Exception {
+        for (UUID u : ids) {
+            delete(u);
+        }
+    }
+
     /** Общее число аккаунтов. */
     int count() throws Exception;
 

@@ -100,6 +100,9 @@ public final class ConfigMerger {
         if ("config.yml".equals(resourceName) && dropObsolete(userLines)) {
             upgraded = true;
         }
+        if (replaceOldDefaults(userLines)) {
+            upgraded = true;
+        }
         if (changedInner || upgraded) {
             // Никогда не пишем YAML, который потом не распарсится: битый
             // конфиг молча сбросился бы на дефолты (storage/БД владельца).
@@ -124,7 +127,7 @@ public final class ConfigMerger {
             }
             if (tail.length() == 0) {
                 tail.append(System.lineSeparator())
-                    .append("# ==== Добавлено обновлением RegisterPlugin ====")
+                    .append("# ==== Добавлено обновлением VTRegister ====")
                     .append(System.lineSeparator());
             }
             for (String l : def.header) {
@@ -145,7 +148,11 @@ public final class ConfigMerger {
         }
         if (changedInner || upgraded || tail.length() > 0) {
             plugin.getLogger().warning(resourceName
-                    + ": файл конфигурации старый или неполный — недостающие ключи добавлены, устаревшие тексты с новыми {плейсхолдерами} обновлены автоматически (комментарии сохранены). Новые функции работают со значениями по умолчанию из конфига v1.1.5");
+                    + ": файл конфигурации старый или неполный — недостающие ключи добавлены, устаревшие тексты с новыми {плейсхолдерами} обновлены автоматически (комментарии сохранены). Новые функции работают со значениями по умолчанию из конфига v"
+                    + plugin.getDescription().getVersion());
+        }
+        if ("config.yml".equals(resourceName)) {
+            migrateDefaultsOnce(plugin, target);
         }
     }
 
@@ -363,6 +370,340 @@ public final class ConfigMerger {
             {"twofactor", "require_for_admins"}, // → twofactor.force_admins (по умолчанию выкл)
             {"afk", "track_authed"}              // → afk.kick_after_login
     };
+
+    /**
+     * Старые значения по умолчанию, которые стали неверными (MineLeak заброшен,
+     * обновления только на GitHub; реклама плагина в боссбаре игроков убрана).
+     * Меняются, только если строка совпадает с прежним значением дословно —
+     * свои тексты владельца не трогаем. Комментарий после значения сохраняется.
+     */
+    private static final String[][] OLD_DEFAULTS = {
+            {"register_success: \"{prefix}&#A0FFA0Регистрация успешна. &#FFFFFFПриятной игры!\"",
+                    "register_success: \"{prefix}&#A0FFA0Регистрация успешна. &#FFFFFFПриятной игры! &#7F7F7FСменить пароль — /cp\""},
+            {"register_success: \"{prefix}&#A0FFA0Registered successfully. &#FFFFFFHave fun!\"",
+                    "register_success: \"{prefix}&#A0FFA0Registered successfully. &#FFFFFFHave fun! &#7F7F7FChange the password — /cp\""},
+            {"admin_import_started: \"{prefix}&#FFFFFFИмпорт запущен… (AuthMe, LoginSecurity, accounts.yml, import.yml)\"",
+                    "admin_import_started: \"{prefix}&#FFFFFFИмпорт запущен… (AuthMe и форки, nLogin, OpeNLogin, LoginSecurity, LimboAuth, accounts.yml, import.yml) — отчёт придёт по окончании\""},
+            {"admin_import_started: \"{prefix}&#FFFFFFImport started… (AuthMe, LoginSecurity, accounts.yml, import.yml)\"",
+                    "admin_import_started: \"{prefix}&#FFFFFFImport started… (AuthMe and forks, nLogin, OpeNLogin, LoginSecurity, LimboAuth, accounts.yml, import.yml) — the report follows when done\""},
+            {"- \"&bДонат и инфо: &fmineleak.pro\"", "- \"&bРегистрация: &f/reg&b, вход: &f/login\""},
+            {"- \"&6Оцени VTRegister 5 звёзд на MineLeak.pro — мы читаем отзывы!\"",
+                    "- \"&6Пароль вводится в чат и не попадает в логи сервера\""},
+            {"- \"&eЕсть идея для плагина? Предложи её на MineLeak.pro!\"",
+                    "- \"&eНикому не сообщай свой пароль — даже администрации\""},
+            {"message: \"VTRegister может обновляться — проверяйте обновления на MineLeak.pro\"",
+                    "message: \"VTRegister — новые версии выходят на GitHub: github.com/Vitaliy222121/VTRegister/releases\""},
+            {"- \"Пожалуйста, оцените VTRegister 5 звёзд на MineLeak.pro — нам очень нужны отзывы!\"",
+                    "- \"Нравится VTRegister? Поставь звезду на GitHub — это помогает проекту.\""}
+    };
+
+    static boolean replaceOldDefaults(List<String> lines) {
+        boolean changed = false;
+        for (int i = 0; i < lines.size(); i++) {
+            String l = lines.get(i);
+            String t = l.trim();
+            if (t.isEmpty()) {
+                continue;
+            }
+            for (String[] r : OLD_DEFAULTS) {
+                if (t.equals(r[0]) || t.startsWith(r[0] + " ")) {
+                    lines.set(i, l.substring(0, l.indexOf(t)) + r[1] + t.substring(r[0].length()));
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        return changed;
+    }
+
+    // ---------- сброс к значениям по умолчанию (/vtregister reset) ----------
+
+    /**
+     * Заменить файл копией ресурса из jar. Текущий файл сначала копируется в
+     * backupDir; ключи keep переносятся дословно — путь «секция.ключ» или
+     * «секция.*» (все значения секции): «перец» паролей и подключение к базе
+     * сброс ломать не должен.
+     * @return перенесённые ключи; null — ресурса нет или копию сделать не удалось
+     */
+    public static List<String> resetToDefaults(JavaPlugin plugin, String resourceName, File target,
+                                               File backupDir, String... keep) throws java.io.IOException {
+        List<String> def = readResourceLines(plugin, resourceName);
+        if (def.isEmpty()) {
+            return null;
+        }
+        List<String> old = target.exists() ? readFileLines(target) : null;
+        if (target.exists()) {
+            File copy = new File(backupDir, resourceName);
+            File dir = copy.getParentFile();
+            if (dir != null && !dir.exists() && !dir.mkdirs()) {
+                throw new java.io.IOException("не создать папку " + dir);
+            }
+            java.nio.file.Files.copy(target.toPath(), copy.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+        List<String> kept = new ArrayList<>();
+        if (old != null) {
+            for (String k : keep) {
+                List<String> paths = k.endsWith(".*") ? scalarChildren(def, k.substring(0, k.length() - 2))
+                        : java.util.Collections.singletonList(k);
+                for (String p : paths) {
+                    String[] path = p.split("\\.");
+                    int oi = findPath(old, path);
+                    int ni = findPath(def, path);
+                    if (oi < 0 || ni < 0) {
+                        continue;
+                    }
+                    String ov = rawValue(old.get(oi));
+                    if (!ov.isEmpty() && !ov.equals(rawValue(def.get(ni)))) {
+                        setValue(def, ni, ov);
+                        kept.add(p);
+                    }
+                }
+            }
+        }
+        if (!yamlParses(String.join("\n", def))) {
+            throw new java.io.IOException("перенос сохранённых ключей дал нечитаемый YAML");
+        }
+        File dir = target.getParentFile();
+        if (dir != null && !dir.exists() && !dir.mkdirs()) {
+            throw new java.io.IOException("не создать папку " + dir);
+        }
+        try (BufferedWriter w = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(target, false), StandardCharsets.UTF_8))) {
+            for (String l : def) {
+                w.write(l);
+                w.newLine();
+            }
+        }
+        return kept;
+    }
+
+    /** Пути «секция.ключ» всех скаляров первого уровня внутри секции. */
+    private static List<String> scalarChildren(List<String> lines, String section) {
+        List<String> out = new ArrayList<>();
+        int s = findPath(lines, section.split("\\."));
+        if (s < 0) {
+            return out;
+        }
+        int secInd = indentOf(lines.get(s));
+        int childInd = -1;
+        for (int i = s + 1; i < lines.size(); i++) {
+            String l = lines.get(i);
+            if (isCommentOrBlank(l)) {
+                continue;
+            }
+            int li = indentOf(l);
+            if (li <= secInd) {
+                break;
+            }
+            if (childInd < 0) {
+                childInd = li;
+            }
+            String k = li == childInd ? keyAt(l, li) : null;
+            if (k != null && !rawValue(l).isEmpty()) {
+                out.add(section + "." + k);
+            }
+        }
+        return out;
+    }
+
+    /** Значение как написано (кавычки целы; «#» внутри кавычек — часть значения). */
+    private static String rawValue(String line) {
+        String v = line.substring(line.indexOf(':') + 1).trim();
+        if (!v.isEmpty() && (v.charAt(0) == '"' || v.charAt(0) == '\'')) {
+            char q = v.charAt(0);
+            for (int i = 1; i < v.length(); i++) {
+                if (v.charAt(i) == q && (q == '\'' || v.charAt(i - 1) != '\\')) {
+                    return v.substring(0, i + 1);
+                }
+            }
+            return v;
+        }
+        int h = v.indexOf(" #");
+        return (h >= 0 ? v.substring(0, h) : v).trim();
+    }
+
+    // ---------- значения по умолчанию, сменившиеся в 1.1.6 ----------
+
+    /** Этапы обычного режима в 1.1.5 по умолчанию: совпали все — владелец их не настраивал. */
+    private static final String[] STAGES_115 = {
+            "fall", "true", "camera", "false", "slots", "false", "captcha", "false", "click", "false",
+            "puzzle", "true", "math", "false", "secret", "false", "air_captcha", "false", "block", "true"};
+
+    /**
+     * Один раз на сервере (метка data/defaults-version.txt): старый конфиг
+     * получает новые значения по умолчанию — быстрый антибот (физика + пазл),
+     * Argon2 по OWASP, лимит аккаунтов на IP. Меняется только то, что
+     * дословно совпадает с прежним значением по умолчанию; после метки
+     * владелец меняет эти строки как хочет — повторно они не трогаются.
+     */
+    private static void migrateDefaultsOnce(JavaPlugin plugin, File target) {
+        File mark = new File(plugin.getDataFolder(), "data/defaults-version.txt");
+        if (mark.exists()) {
+            return;
+        }
+        List<String> lines = readFileLines(target);
+        if (lines == null) {
+            return;
+        }
+        while (!lines.isEmpty() && lines.get(lines.size() - 1).isEmpty()) {
+            lines.remove(lines.size() - 1);
+        }
+        List<String> done = migrate116(lines);
+        if (!done.isEmpty()) {
+            if (!yamlParses(String.join("\n", lines))) {
+                // без метки: попробуем на следующем старте
+                plugin.getLogger().warning("ConfigMerger: config.yml — перенос новых значений по умолчанию дал бы нечитаемый YAML, файл не тронут");
+                return;
+            }
+            rewriteFile(target, lines);
+            plugin.getLogger().warning("config.yml: применены новые значения по умолчанию v"
+                    + plugin.getDescription().getVersion() + " (стояли прежние значения по умолчанию): "
+                    + String.join("; ", done) + ". Вернуть своё — правь config.yml, больше эти строки не меняются.");
+        }
+        try {
+            File dir = mark.getParentFile();
+            if (dir != null && !dir.exists() && !dir.mkdirs()) {
+                return;
+            }
+            java.nio.file.Files.write(mark.toPath(),
+                    (plugin.getDescription().getVersion() + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Throwable t) {
+            plugin.getLogger().warning("ConfigMerger: метка data/defaults-version.txt не записана: " + t.getMessage());
+        }
+    }
+
+    /** Перенос значений 1.1.5 → 1.1.6 в тексте config.yml; вернёт список изменений. */
+    static List<String> migrate116(List<String> lines) {
+        List<String> done = new ArrayList<>();
+        // Быстрый антибот — если обычный режим не настраивали под себя
+        // (этапы и очередь как в 1.1.5 по умолчанию)
+        int fm = findPath(lines, "antibot", "fast_mode");
+        if (fm >= 0 && "false".equals(valueOf(lines.get(fm))) && stagesUntouched(lines)
+                && "bossbar".equals(unquote(valueAt(lines, "antibot", "queue_mode")))) {
+            setValue(lines, fm, "true");
+            done.add("antibot.fast_mode: false -> true");
+            replaceIf(lines, done, "true", "false", "antibot", "stages", "block");
+        }
+        replaceIf(lines, done, "[fall, puzzle, block]", "[fall, puzzle]", "antibot", "fast_stages");
+        replaceIf(lines, done, "true", "false", "antibot", "recheck_on_restart");
+        int am = findPath(lines, "security", "argon2_memory_kib");
+        int ai = findPath(lines, "security", "argon2_iterations");
+        if (am >= 0 && ai >= 0 && "65536".equals(valueOf(lines.get(am))) && "3".equals(valueOf(lines.get(ai)))) {
+            setValue(lines, am, "19456");
+            setValue(lines, ai, "2");
+            done.add("security.argon2: 65536 KiB / 3 -> 19456 KiB / 2 (OWASP)");
+        }
+        // Лимит аккаунтов на IP переехал в ip_limit (по умолчанию 3, вкл):
+        // свой лимит владельца переносится, «0 = без лимита» — новое умолчание
+        int old = findPath(lines, "antibot", "guard", "max_accounts_per_ip");
+        if (old >= 0) {
+            int n;
+            try {
+                n = Integer.parseInt(valueOf(lines.get(old)));
+            } catch (NumberFormatException ex) {
+                n = 0;
+            }
+            int mx = findPath(lines, "ip_limit", "max_accounts");
+            if (n > 0 && mx >= 0) {
+                setValue(lines, mx, String.valueOf(n));
+            }
+            lines.remove(old);
+            int now = mx < 0 ? -1 : findPath(lines, "ip_limit", "max_accounts");
+            done.add("antibot.guard.max_accounts_per_ip -> ip_limit ("
+                    + (now >= 0 ? valueOf(lines.get(now)) : "3") + " на IP)");
+        }
+        return done;
+    }
+
+    private static boolean stagesUntouched(List<String> lines) {
+        for (int i = 0; i < STAGES_115.length; i += 2) {
+            String v = valueAt(lines, "antibot", "stages", STAGES_115[i]);
+            if (v != null && !STAGES_115[i + 1].equals(v)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void replaceIf(List<String> lines, List<String> done, String from, String to, String... path) {
+        int i = findPath(lines, path);
+        if (i >= 0 && from.equals(valueOf(lines.get(i)))) {
+            setValue(lines, i, to);
+            done.add(String.join(".", path) + ": " + from + " -> " + to);
+        }
+    }
+
+    /** Строка ключа по пути «секция → … → ключ»; -1 — нет такого ключа. */
+    static int findPath(List<String> lines, String... path) {
+        int from = 0;
+        int to = lines.size();
+        for (int p = 0; p < path.length; p++) {
+            int found = -1;
+            int childInd = -1;
+            for (int i = from; i < to; i++) {
+                String l = lines.get(i);
+                if (isCommentOrBlank(l)) {
+                    continue;
+                }
+                int li = indentOf(l);
+                if (childInd < 0) {
+                    childInd = li;
+                }
+                if (li == childInd && path[p].equals(keyAt(l, li))) {
+                    found = i;
+                    break;
+                }
+            }
+            if (found < 0) {
+                return -1;
+            }
+            if (p == path.length - 1) {
+                return found;
+            }
+            int secInd = indentOf(lines.get(found));
+            from = found + 1;
+            to = from;
+            while (to < lines.size() && (isCommentOrBlank(lines.get(to)) || indentOf(lines.get(to)) > secInd)) {
+                to++;
+            }
+        }
+        return -1;
+    }
+
+    private static String valueAt(List<String> lines, String... path) {
+        int i = findPath(lines, path);
+        return i < 0 ? null : valueOf(lines.get(i));
+    }
+
+    /** Значение скаляра без хвостового комментария. */
+    private static String valueOf(String line) {
+        String v = line.substring(line.indexOf(':') + 1);
+        int h = v.indexOf(" #");
+        return (h >= 0 ? v.substring(0, h) : v).trim();
+    }
+
+    private static String unquote(String v) {
+        if (v != null && v.length() >= 2 && (v.charAt(0) == '"' || v.charAt(0) == '\'')
+                && v.charAt(v.length() - 1) == v.charAt(0)) {
+            return v.substring(1, v.length() - 1);
+        }
+        return v;
+    }
+
+    /** Заменить значение, сохранив ключ, отступ и комментарий после значения. */
+    private static void setValue(List<String> lines, int i, String value) {
+        String l = lines.get(i);
+        int c = l.indexOf(':');
+        String rest = l.substring(c + 1);
+        int h = rest.indexOf(" #");
+        String comment = "";
+        if (h >= 0) {
+            // '#' остаётся в той же колонке, если новое значение помещается
+            comment = spaces(Math.max(1, h - value.length())) + rest.substring(h + 1);
+        }
+        lines.set(i, l.substring(0, c + 1) + " " + value + comment);
+    }
 
     static boolean dropObsolete(List<String> lines) {
         boolean changed = false;
@@ -893,7 +1234,7 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int READY = 967612763;
+    private static final int READY = 1448549719;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1026) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

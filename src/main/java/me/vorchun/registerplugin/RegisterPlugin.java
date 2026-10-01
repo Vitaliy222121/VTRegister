@@ -60,6 +60,9 @@ public final class RegisterPlugin extends JavaPlugin {
 
     private static RegisterPlugin instance;
     private static final RegisterPluginAPI API = new RegisterPluginAPI();
+    /** ID плагина на bstats.org (выдаёт bstats.org при добавлении плагина); 0 — статистика не отправляется. */
+    static final int BSTATS_ID = 34444; // bstats.org/plugin/bukkit/VTRegister/34444
+    private me.vorchun.registerplugin.libs.bstats.Metrics metrics;
 
     private AccountStore accountStore;
     private SessionManager sessionManager;
@@ -192,7 +195,7 @@ public final class RegisterPlugin extends JavaPlugin {
         PluginCommand vtrCommand = getCommand("vtregister");
         if (vtrCommand != null) {
             me.vorchun.registerplugin.command.VtRegisterCommand vtr =
-                    new me.vorchun.registerplugin.command.VtRegisterCommand(messageService);
+                    new me.vorchun.registerplugin.command.VtRegisterCommand(this, messageService);
             vtrCommand.setExecutor(vtr);
             vtrCommand.setTabCompleter(vtr);
         }
@@ -201,11 +204,15 @@ public final class RegisterPlugin extends JavaPlugin {
         this.authListener = new AuthListener(this, accountStore, sessionManager, authTimeoutService,
                 reminderService, messageService, teleportService, bedrockSupportService, antiBotService, easyPasswordList);
         this.authListener.setServices(authService, totpService, mailService, premiumService, spawnService);
+        this.reminderService.setAwaitingPassword(authListener::isAwaitingPassword);
         getServer().getPluginManager().registerEvents(authListener, this);
         try {
-            // Спавн сразу на платформе входа (нет события — просто без этой экономии)
-            getServer().getPluginManager().registerEvents(
-                    new me.vorchun.registerplugin.listener.SpawnRedirectListener(authListener), this);
+            // Спавн сразу на платформе входа (нет события — просто без этой экономии).
+            // Paper 1.21.9+ — асинхронное событие, иначе старое PlayerSpawnLocationEvent.
+            if (!me.vorchun.registerplugin.listener.SpawnRedirectListener.registerAsync(this, authListener)) {
+                getServer().getPluginManager().registerEvents(
+                        new me.vorchun.registerplugin.listener.SpawnRedirectListener(authListener), this);
+            }
         } catch (Throwable t) {
             getLogger().info("PlayerSpawnLocationEvent недоступен — спавн на платформе через телепорт");
         }
@@ -278,8 +285,15 @@ public final class RegisterPlugin extends JavaPlugin {
         scheduleConsoleReminder();
         resumeOnlinePlayers();
 
+        startMetrics();
+        // Публичный API и через ServicesManager: Bukkit.getServicesManager().load(RegisterPluginAPI.class)
+        try {
+            getServer().getServicesManager().register(RegisterPluginAPI.class, API, this,
+                    org.bukkit.plugin.ServicePriority.Normal);
+        } catch (Throwable ignored) {
+        }
         getLogger().info("VTRegister от SerclStudio (автор: Vitaliy). "
-                + "Официальные источники: MineLeak (vitaliy21) и Telegram-канал SerclStudio.");
+                + "Официальный источник и открытый код: github.com/Vitaliy222121/VTRegister");
         getLogger().info("VTRegister включён. Хранилище: " + accountStore.backendName()
                 + ", режим ввода пароля: " + (authListener.isSecureMode() ? "защищённый" : "НЕЗАЩИЩЁННЫЙ"));
     }
@@ -296,7 +310,7 @@ public final class RegisterPlugin extends JavaPlugin {
         int times = Math.max(1, Math.min(5, getConfig().getInt("console_reminder.times", 2)));
         java.util.List<String> lines = new java.util.ArrayList<>();
         lines.add(getConfig().getString("console_reminder.message",
-                "VTRegister обновляется — официальные источники: MineLeak.pro (автор vitaliy21), Telegram-канал SerclStudio"));
+                "VTRegister — новые версии выходят на GitHub: github.com/Vitaliy222121/VTRegister/releases"));
         lines.addAll(getConfig().getStringList("console_reminder.messages"));
         for (int i = 0; i < times; i++) {
             for (int li = 0; li < lines.size(); li++) {
@@ -681,8 +695,17 @@ public final class RegisterPlugin extends JavaPlugin {
 
     /** Мост от AntiBotService: проверка пройдена — продолжаем обычный вход. */
     public void onAntiBotPassed(Player player) {
+        callAntiBotPass(player);
         if (authListener != null) {
             authListener.onAntiBotPassed(player);
+        }
+    }
+
+    private void callAntiBotPass(Player player) {
+        try {
+            getServer().getPluginManager().callEvent(new me.vorchun.registerplugin.api.AntiBotPassEvent(player));
+        } catch (Throwable t) {
+            getLogger().warning("AntiBotPassEvent: ошибка в чужом обработчике: " + t);
         }
     }
 
@@ -693,6 +716,7 @@ public final class RegisterPlugin extends JavaPlugin {
 
     /** То же, но с явной точкой возврата (null — неизвестна). */
     public void onAntiBotPassed(Player player, org.bukkit.Location back) {
+        callAntiBotPass(player);
         if (authListener != null) {
             authListener.onAntiBotPassed(player, back);
         }
@@ -784,8 +808,38 @@ public final class RegisterPlugin extends JavaPlugin {
         }
     }
 
+    /** bStats — только по желанию владельца (metrics.enabled, по умолчанию выкл). */
+    private void startMetrics() {
+        if (!getConfig().getBoolean("metrics.enabled", false)) {
+            return;
+        }
+        try {
+            // Официальный класс bStats (libs/bstats/Metrics, менять нельзя кроме пакета);
+            // общий выключатель всех плагинов он читает сам — plugins/bStats/config.yml
+            me.vorchun.registerplugin.libs.bstats.Metrics m =
+                    new me.vorchun.registerplugin.libs.bstats.Metrics(this, BSTATS_ID);
+            m.addCustomChart(new me.vorchun.registerplugin.libs.bstats.Metrics.SimplePie("antibot_mode",
+                    () -> !getConfig().getBoolean("antibot.enabled", true) ? "off"
+                            : getConfig().getBoolean("antibot.fast_mode", true) ? "fast" : "normal"));
+            m.addCustomChart(new me.vorchun.registerplugin.libs.bstats.Metrics.SimplePie("storage",
+                    () -> accountStore == null ? "unknown" : accountStore.backendName()));
+            m.addCustomChart(new me.vorchun.registerplugin.libs.bstats.Metrics.SimplePie("language",
+                    () -> getConfig().getString("language", "auto")));
+            m.addCustomChart(new me.vorchun.registerplugin.libs.bstats.Metrics.SimplePie("password_input",
+                    () -> getConfig().getBoolean("security.secure_password_input", true) ? "secure" : "command"));
+            metrics = m;
+            getLogger().info("bStats: анонимная статистика включена (metrics.enabled: true; общий выключатель — plugins/bStats/config.yml)");
+        } catch (Throwable t) {
+            getLogger().warning("bStats: не запущен — " + t);
+        }
+    }
+
     @Override
     public void onDisable() {
+        if (metrics != null) {
+            metrics.shutdown();
+            metrics = null;
+        }
         if (autoRestart != null) {
             autoRestart.stop();
         }
@@ -862,7 +916,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int READY = 967612797;
+    private static final int READY = 1448549745;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1000) != READY || !me.vorchun.registerplugin.util.Data.sealed() || !me.vorchun.registerplugin.util.Data.marked()) {
             throw new IllegalStateException();

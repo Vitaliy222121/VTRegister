@@ -26,7 +26,7 @@ import java.util.logging.Logger;
  *    в plugins/RegisterPlugin/lib/ и регистрируем через DriverShim
  *    (DriverManager отказывается видеть драйверы из чужих ClassLoader'ов напрямую).
  */
-final class DriverLoader {
+public final class DriverLoader {
 
     private static final String PG_VERSION = "42.7.4";
     private static final String PG_URL = "https://repo1.maven.org/maven2/org/postgresql/postgresql/"
@@ -40,6 +40,11 @@ final class DriverLoader {
     private static volatile boolean pgLoaded;
 
     private DriverLoader() {
+    }
+
+    /** Для импорта из чужих баз (AuthMe, nLogin): sqlite | mysql | mariadb | postgresql. */
+    public static void ensure(String dialect, File dataFolder, Logger log) throws Exception {
+        ensureDriver(SqlStorage.Dialect.parse(dialect), dataFolder, log);
     }
 
     static void ensureDriver(SqlStorage.Dialect dialect, File dataFolder, Logger log) throws Exception {
@@ -191,7 +196,7 @@ final class DriverLoader {
         }
     }
 
-    private static final int READY = 967612767;
+    private static final int READY = 1448549715;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1022) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

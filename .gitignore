@@ -5,7 +5,7 @@ out/
 bin/
 dist/
 test-out/
-libs/
+/libs/
 *.class
 dependency-reduced-pom.xml
 

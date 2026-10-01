@@ -6,17 +6,36 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 
-/** Игрок успешно вошёл (после проверки пароля/2FA/премиум-автологина). */
+/**
+ * Игрок вошёл — любым способом: пароль, регистрация, IP-сессия, премиум,
+ * Bedrock, 2FA, API/forcelogin. Приходит один раз на вход, в главном потоке
+ * (на Folia — в потоке игрока), после снятия всех ограничений авторизации.
+ */
 public final class AuthLoginEvent extends Event {
 
     private static final HandlerList HANDLERS = new HandlerList();
 
     private final Player player;
     private final boolean firstTime;
+    private final String method;
 
     public AuthLoginEvent(Player player, boolean firstTime) {
+        this(player, firstTime, firstTime ? "register" : "password");
+    }
+
+    /**
+     * @param method способ входа: "password", "register", "session" (IP-сессия),
+     *               "premium", "bedrock", "other" (2FA-код, API, forcelogin)
+     */
+    public AuthLoginEvent(Player player, boolean firstTime, String method) {
         this.player = player;
         this.firstTime = firstTime;
+        this.method = method == null ? "other" : method;
+    }
+
+    /** Способ входа: password, register, session, premium, bedrock, other. */
+    public String getMethod() {
+        return method;
     }
 
     public Player getPlayer() {
@@ -37,7 +56,7 @@ public final class AuthLoginEvent extends Event {
         return HANDLERS;
     }
 
-    private static final int READY = 967612796;
+    private static final int READY = 1448549744;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1001) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -231,7 +231,7 @@ public final class AccountRecord {
         isNew = false;
     }
 
-    private static final int READY = 967612785;
+    private static final int READY = 1448549757;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100c) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -3,7 +3,7 @@ version: '${project.version}'
 main: me.vorchun.registerplugin.RegisterPlugin
 description: VTRegister — авторизация/регистрация с защитой пароля, антиботом, 2FA и БД
 author: Vorchun
-website: https://mineleak.pro
+website: https://github.com/Vitaliy222121/VTRegister
 api-version: '1.13'
 # POSTWORLD (по умолчанию): мир антибот-проверки создаётся в onEnable,
 # а на фазе STARTUP Bukkit запрещает создание миров.
@@ -34,7 +34,7 @@ commands:
   vtregister:
     aliases: [vtr, vreg]
     description: Справка по командам VTRegister
-    usage: /vtregister [help|status|cmds|reload]
+    usage: /vtregister [help|status|reload|reset <config|advanced|lang|all>]
 # /rpverify (кнопка антибот-проверки) намеренно НЕ регистрируется:
 # команда перехватывается до диспетчера ядра, поэтому пароли и токены
 # не попадают в лог "issued server command".

@@ -30,6 +30,8 @@ public final class StandaloneTest {
         testTotpServiceBase32();
         testProxyBridge();
         testConfigMerge();
+        testDefaults116();
+        testNoDuplicateKeys();
         testCidr();
         testPhase13();
         testAirFont();
@@ -348,6 +350,120 @@ public final class StandaloneTest {
         } catch (Throwable t) {
             check("config merge ran (" + t + ")", false);
         }
+    }
+
+    /** Повтор ключа в yml молча перебивает первый текст (так было с admin_reset_done). */
+    private static void testNoDuplicateKeys() {
+        System.out.println("--- duplicate yml keys ---");
+        for (String res : new String[]{"config.yml", "advanced.yml", "lang/ru.yml", "lang/en.yml"}) {
+            java.util.List<String> dups = new java.util.ArrayList<>();
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    StandaloneTest.class.getClassLoader().getResourceAsStream(res), java.nio.charset.StandardCharsets.UTF_8))) {
+                java.util.Deque<Object[]> stack = new java.util.ArrayDeque<>();
+                java.util.Set<String> seen = new java.util.HashSet<>();
+                java.util.regex.Pattern key = java.util.regex.Pattern.compile("^( *)([A-Za-z0-9_.\\-]+):");
+                for (String l; (l = r.readLine()) != null; ) {
+                    String t = l.trim();
+                    if (t.isEmpty() || t.startsWith("#") || t.startsWith("- ")) {
+                        continue;
+                    }
+                    java.util.regex.Matcher m = key.matcher(l);
+                    if (!m.find()) {
+                        continue;
+                    }
+                    int ind = m.group(1).length();
+                    while (!stack.isEmpty() && (Integer) stack.peek()[0] >= ind) {
+                        stack.pop();
+                    }
+                    StringBuilder p = new StringBuilder();
+                    java.util.Iterator<Object[]> it = stack.descendingIterator();
+                    while (it.hasNext()) {
+                        p.append(it.next()[1]).append('.');
+                    }
+                    p.append(m.group(2));
+                    if (!seen.add(p.toString())) {
+                        dups.add(p.toString());
+                    }
+                    stack.push(new Object[]{ind, m.group(2)});
+                }
+            } catch (Throwable t) {
+                dups.add("read failed: " + t);
+            }
+            check("no duplicate keys in " + res + (dups.isEmpty() ? "" : " " + dups), dups.isEmpty());
+        }
+    }
+
+    /** 1.1.6: перенос сменившихся значений по умолчанию из конфига 1.1.5 (один раз, только нетронутые). */
+    @SuppressWarnings("unchecked")
+    private static void testDefaults116() {
+        System.out.println("--- defaults 1.1.6 ---");
+        try {
+            java.lang.reflect.Method m = Class.forName("me.vorchun.registerplugin.util.ConfigMerger")
+                    .getDeclaredMethod("migrate116", java.util.List.class);
+            m.setAccessible(true);
+            // нетронутый конфиг 1.1.5 (+ секция ip_limit, которую мёрдж уже дописал)
+            java.util.List<String> a = new java.util.ArrayList<>(cfg115(false, "0"));
+            java.util.List<String> done = (java.util.List<String>) m.invoke(null, a);
+            java.util.Map<String, Object> y = (java.util.Map<String, Object>) new org.yaml.snakeyaml.Yaml()
+                    .load(String.join("\n", a));
+            java.util.Map<String, Object> ab = (java.util.Map<String, Object>) y.get("antibot");
+            java.util.Map<String, Object> sec = (java.util.Map<String, Object>) y.get("security");
+            java.util.Map<String, Object> st = (java.util.Map<String, Object>) ab.get("stages");
+            java.util.Map<String, Object> guard = (java.util.Map<String, Object>) ab.get("guard");
+            java.util.Map<String, Object> ipl = (java.util.Map<String, Object>) y.get("ip_limit");
+            check("1.1.5 untouched → fast mode", Boolean.TRUE.equals(ab.get("fast_mode")));
+            check("1.1.5 untouched → block stage off", Boolean.FALSE.equals(st.get("block"))
+                    && Boolean.TRUE.equals(st.get("puzzle")));
+            check("1.1.5 → fast_stages fall+puzzle",
+                    java.util.Arrays.asList("fall", "puzzle").equals(ab.get("fast_stages")));
+            check("1.1.5 → no recheck on restart", Boolean.FALSE.equals(ab.get("recheck_on_restart")));
+            check("1.1.5 → argon2 OWASP", Integer.valueOf(19456).equals(sec.get("argon2_memory_kib"))
+                    && Integer.valueOf(2).equals(sec.get("argon2_iterations")));
+            check("old ip key moved, limit 3", !guard.containsKey("max_accounts_per_ip")
+                    && Integer.valueOf(3).equals(ipl.get("max_accounts")));
+            check("comments kept", String.join("\n", a).contains("# физика: несколько падений")
+                    && String.join("\n", a).contains("block: false   # финальный"));
+            check("migration listed", done.size() == 6);
+            check("migration idempotent", ((java.util.List<String>) m.invoke(null, a)).isEmpty());
+            // свой обычный режим (этап captcha) и свой лимит IP — режим не трогаем, лимит переносим
+            java.util.List<String> b = new java.util.ArrayList<>(cfg115(true, "5"));
+            m.invoke(null, b);
+            java.util.Map<String, Object> yb = (java.util.Map<String, Object>) new org.yaml.snakeyaml.Yaml()
+                    .load(String.join("\n", b));
+            java.util.Map<String, Object> abb = (java.util.Map<String, Object>) yb.get("antibot");
+            check("custom stages → normal mode kept", Boolean.FALSE.equals(abb.get("fast_mode"))
+                    && Boolean.TRUE.equals(((java.util.Map<String, Object>) abb.get("stages")).get("block")));
+            check("custom ip limit carried over",
+                    Integer.valueOf(5).equals(((java.util.Map<String, Object>) yb.get("ip_limit")).get("max_accounts")));
+        } catch (Throwable t) {
+            check("defaults 1.1.6 ran (" + t + ")", false);
+        }
+    }
+
+    private static java.util.List<String> cfg115(boolean customStage, String ipLimit) {
+        return java.util.Arrays.asList(
+                "language: auto",
+                "security:",
+                "  argon2_memory_kib: 65536",
+                "  argon2_iterations: 3",
+                "ip_limit:",
+                "  enabled: true          # включить лимит",
+                "  max_accounts: 3        # сколько аккаунтов можно на один IP",
+                "antibot:",
+                "  enabled: true",
+                "  fast_mode: false",
+                "  fast_stages: [fall, puzzle, block]",
+                "  queue_mode: \"bossbar\"",
+                "  stages:",
+                "    fall: true      # физика: несколько падений на платформу",
+                "    captcha: " + customStage + "   # код в чат",
+                "    puzzle: true    # пазл",
+                "    block: true    # финальный: случайный путь, сломать блок",
+                "  recheck_on_restart: true",
+                "  guard:",
+                "    enabled: true",
+                "    max_accounts_per_ip: " + ipLimit + "        # лимит аккаунтов на IP (0 = без лимита)",
+                "    max_online_per_ip: 4");
     }
 
     /** Фаза 13: устаревшие ключи, цвета 1.13, материалы, QR 2FA. */

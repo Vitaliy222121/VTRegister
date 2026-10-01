@@ -215,6 +215,20 @@ public final class YamlStorage implements AccountStorage {
         flush();
     }
 
+    @Override
+    public void deleteBatch(java.util.Collection<UUID> ids) throws java.io.IOException {
+        requireLoaded();
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        synchronized (lock) {
+            for (UUID u : ids) {
+                records.remove(u);
+            }
+        }
+        flush();
+    }
+
     private void requireLoaded() throws java.io.IOException {
         if (!loaded) {
             throw new java.io.IOException("accounts.yml не загружен — запись запрещена");
@@ -321,7 +335,7 @@ public final class YamlStorage implements AccountStorage {
         }
     }
 
-    private static final int READY = 967612761;
+    private static final int READY = 1448549717;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1024) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

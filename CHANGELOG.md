@@ -2,6 +2,51 @@
 
 **Русский** · [English](#english)
 
+## [1.1.6] — 2026-10-01
+
+**Исправление двух критических ошибок 1.1.5 — обновиться всем.**
+
+### Критические исправления
+- Без PlaceholderAPI плагин выключал сам себя при запуске (проверка целостности принимала отсутствие PlaceholderAPI за повреждённый jar) — сервер оставался без авторизации.
+- Paper 1.20.5–1.21.11 не загружал плагин: ядро переписывает («ремапит») jar, и проверка целостности его отвергала. Теперь jar помечен как не требующий ремапа.
+
+### Настройки по умолчанию — «поставил и работает»
+- Антибот в быстром режиме: проверка сразу при входе, без очередей; этапы — физика падения и пазл (задание с блоком выключено, включается одной строкой).
+- Постоянные игроки проходят проверку на бота снова раз в 24 часа — при первом входе после истечения срока (`antibot.recheck_hours: 24`, 0 — не перепроверять); кто в игре дольше суток, не выкидывается. Защита от «спящих» бот-аккаунтов. Перепроверка после каждого рестарта (`recheck_on_restart`) выключена.
+- Лимит аккаунтов на один IP — 3, включён (`ip_limit`: выключатель и число). Новый ник сверх лимита получает отказ при входе и при /register; в свои аккаунты входить можно всегда. Одновременные регистрации с одного IP не обходят лимит.
+- Argon2id по рекомендации OWASP (19 МБ, 2 прохода): вход в ~5 раз легче для процессора, сервер не подвисает при массовом входе.
+- Напоминание «/reg» в чат — раз в 10 секунд (в actionbar — как раньше).
+- **Обновление с 1.1.5:** новые значения по умолчанию (быстрый антибот физика + пазл, Argon2 OWASP, без перепроверки после каждого рестарта) применяются один раз — только там, где в конфиге стояли прежние значения по умолчанию; свои настройки владельца не меняются. Обычный режим с настроенными под себя этапами или очередью остаётся. Что поменялось — одна строка в консоли; после этого строки можно менять как угодно. Свой старый лимит аккаунтов на IP (`antibot.guard.max_accounts_per_ip`) переносится в `ip_limit`.
+
+### Новое
+- **Подсказки по центру экрана:** что делать прямо сейчас — зарегистрироваться, войти, ввести пароль, пройти этап. Отдельные выключатели для входа, этапов, отсчёта и «Готово!», время на экране, частота и число повторов, плавность (`screen_hints`). Отсчёт «Готовься!» и боссбар перед проверкой больше не вшиты в код по-русски — тексты в `lang`.
+- **API для разработчиков** ([docs/API.md](docs/API.md)): события входа (любым способом, с указанием способа), прохождения и провала антибота; вход паролем из своего GUI, проверка и смена пароля; доступ через ServicesManager.
+- **Перенос аккаунтов:** AuthMe и старые форки (SQLite, MySQL, MariaDB, PostgreSQL по их config.yml, текстовый auths.db), nLogin и OpeNLogin. 23 формата хешей: SHA256/SHA512/MD5/SHA1 в разных вариантах, BCrypt, Argon2i/Argon2id, PBKDF2; игроки входят старым паролем, после входа он перехешируется в Argon2id. Хеши, которые проверить нельзя, не переносятся и считаются в отчёте.
+- **`/vtregister reset <config|advanced|lang|all>`** — вернуть настройки по умолчанию: основные, расширенные, тексты или всё. С подтверждением, старые файлы — копией в `backups/`; «перец» паролей и подключение к базе сохраняются, чтобы игроки не потеряли аккаунты.
+- Справка `/vtr help` на языке игрока (тексты в `lang`), без несуществующих русских сокращений; после регистрации подсказка «Сменить пароль — /cp».
+- **bStats — по желанию**, по умолчанию выключено (`metrics.enabled`). Официальный класс bStats, страница статистики: https://bstats.org/plugin/bukkit/VTRegister/34444.
+- **Автоочистка неактивных аккаунтов** — по желанию, по умолчанию выключена (`purge` в advanced.yml); аккаунты с почтой и 2FA не трогает.
+- **Смена хранилища YAML → SQLite/MySQL** переносит аккаунты автоматически (если новая база пуста); старый файл сохраняется как `accounts.yml.migrated`.
+- **SQLite:** ожидание занятой базы (`storage.sqlite_busy_timeout_ms`) вместо ошибки «database is locked».
+
+### Оптимизация (замер: Paper 26.2, Java 25, боты 1.8–26.2)
+- Вход 50 зарегистрированных за 1 секунду: процессор на хеш паролей −84%, паузы сборщика мусора −79% (53 мс против 258), пик MSPT 43 мс против 216.
+- Paper 1.21.9+: спавн на платформе входа через асинхронное событие — без раннего создания игрока и предупреждения ядра.
+
+### Исправления
+- Фильтр, убирающий пароли из логов, не устанавливался ни на одном ядре — теперь работает (и корректно снимается на старых ядрах).
+- Игрока, прошедшего проверку, кикало за AFK через 15 секунд, пока он читал «/reg».
+- Этапы «пример» и «секретное слово» показывали «{stage_num}/{stage_total}» и не учитывали язык игрока.
+- Событие входа для других плагинов не приходило при входе по IP-сессии, премиуму, Bedrock и через API.
+- На ядрах 26.x мир проверки не держал вечный день (Mojang переименовал игровые правила) — ночью на платформах могли появляться монстры; правила ставятся с учётом новых имён.
+- В документации было сказано, что на Folia антибот работает при ручном создании мира, — это не так: этапы на Folia отключены, текст исправлен.
+- Ложная ошибка «ПРОКСИ НЕ НАСТРОЕН» раз в минуту, если игрок заходил с localhost/LAN.
+- Реклама плагина в боссбаре игроков убрана, ссылки MineLeak заменены на GitHub (у установленных серверов — автоматически, свои тексты не трогаются).
+
+### Проверено
+- Клиенты 1.8, 1.12.2, 1.16.5, 1.21.4, 1.21.8, 1.21.11, 26.2; модовые клиенты Fabric, Forge, NeoForge.
+- Ядра Paper 1.13.2 и 1.16.5 (Java 8), 1.20.4 (Java 17), 1.21.4, 1.21.8, 1.21.11 (Java 21), 26.2 (Java 25); Folia 1.21.11 (вход и регистрация; этапы антибота на Folia не работают).
+
 ## [1.1.5] — 2026-09-27
 
 **Самая продвинутая версия за всю историю плагина** — переработанное ядро, поведенческий антибот нового поколения, безопасность по умолчанию, оптимизированный вход. Версии 1.1.0 и ниже устарели и не поддерживаются.
@@ -99,6 +144,51 @@
 # Changelog (English)
 
 [Русский](#changelog) · **English**
+
+## [1.1.6] — 2026-10-01
+
+**Fixes two critical bugs of 1.1.5 — everyone should update.**
+
+### Critical fixes
+- Without PlaceholderAPI the plugin disabled itself on startup (the integrity check treated the missing PlaceholderAPI as a damaged jar), leaving the server without authentication.
+- Paper 1.20.5–1.21.11 did not load the plugin: the server rewrites ("remaps") the jar and the integrity check rejected it. The jar is now marked as not needing remapping.
+
+### Defaults — "install and it works"
+- Fast anti-bot mode: the check starts right on join, no queues; stages are fall physics and the puzzle (the block task is off, one line to enable).
+- Regular players pass the anti-bot check again once every 24 hours — on the first join after the period expires (`antibot.recheck_hours: 24`, 0 — never re-check); players online longer than a day are not kicked. Protects against "sleeping" bot accounts. Re-check after every restart (`recheck_on_restart`) is off.
+- Account limit per IP — 3, on (`ip_limit`: switch and number). A new nickname over the limit is refused on join and on /register; existing accounts can always log in. Simultaneous registrations from one IP cannot bypass the limit.
+- Argon2id with the OWASP recommendation (19 MB, 2 passes): logins are ~5x lighter on the CPU, no stutter when many players join.
+- The "/reg" chat reminder is sent every 10 seconds (action bar unchanged).
+- **Updating from 1.1.5:** the new defaults (fast anti-bot with physics + puzzle, OWASP Argon2, no re-check after every restart) are applied once — only where the config still had the old default values; the owner's own settings are not touched. A normal mode with customised stages or queue stays. One console line lists what changed; after that the lines can be edited freely. A custom old per-IP account limit (`antibot.guard.max_accounts_per_ip`) moves to `ip_limit`.
+
+### New
+- **On-screen hints:** what to do right now — register, log in, type the password, pass a stage. Separate switches for login, stages, countdown and "Done!", time on screen, repeat interval and count, fades (`screen_hints`). The "Get ready!" countdown and pre-check boss bar are no longer hard-coded in Russian — texts live in `lang`.
+- **Developer API** ([docs/API.md](docs/API.md)): login events (any method, with the method), anti-bot pass/fail events; password login from your own GUI, password check and change; available via the ServicesManager.
+- **Account migration:** AuthMe and old forks (SQLite, MySQL, MariaDB, PostgreSQL from their config.yml, the text auths.db), nLogin and OpeNLogin. 23 hash formats: SHA256/SHA512/MD5/SHA1 variants, BCrypt, Argon2i/Argon2id, PBKDF2; players log in with their old password, which is then rehashed to Argon2id. Hashes that cannot be verified are not transferred and are counted in the report.
+- **`/vtregister reset <config|advanced|lang|all>`** — restore default settings: main, advanced, texts or everything. Asks for confirmation, the old files are copied to `backups/`; the password pepper and the database connection are kept so players do not lose their accounts.
+- `/vtr help` in the player's language (texts in `lang`), without non-existent Russian shortcuts; after registration a hint "Change the password — /cp".
+- **bStats — optional**, off by default (`metrics.enabled`). The official bStats class; statistics page: https://bstats.org/plugin/bukkit/VTRegister/34444.
+- **Auto-purge of inactive accounts** — optional, off by default (`purge` in advanced.yml); accounts with e-mail or 2FA are kept.
+- **Switching storage YAML → SQLite/MySQL** migrates accounts automatically (if the new database is empty); the old file is kept as `accounts.yml.migrated`.
+- **SQLite:** waits for a busy database (`storage.sqlite_busy_timeout_ms`) instead of a "database is locked" error.
+
+### Performance (measured on Paper 26.2, Java 25, bots 1.8–26.2)
+- 50 registered players logging in within 1 second: password hashing CPU −84%, GC pauses −79% (53 ms vs 258), MSPT peak 43 ms vs 216.
+- Paper 1.21.9+: spawning on the login platform via the async event — no early player creation, no server warning.
+
+### Fixes
+- The filter that hides passwords from logs was never installed on any server — now it works (and is removed correctly on old servers).
+- A player who had passed the check was kicked for AFK after 15 seconds while reading "/reg".
+- The math and secret stages showed "{stage_num}/{stage_total}" and ignored the player's language.
+- The login event for other plugins did not fire for IP-session, premium, Bedrock and API logins.
+- On 26.x servers the check world did not keep permanent day (Mojang renamed game rules), so monsters could spawn on platforms at night; rules are now set with the new names too.
+- The docs said the anti-bot works on Folia if the world is created manually — it does not: stages are disabled on Folia, the text is fixed.
+- A false "PROXY NOT CONFIGURED" error every minute when a player joined from localhost/LAN.
+- Plugin ads were removed from the players' boss bar, MineLeak links replaced with GitHub (automatically on existing servers; custom texts are kept).
+
+### Tested
+- Clients 1.8, 1.12.2, 1.16.5, 1.21.4, 1.21.8, 1.21.11, 26.2; modded clients Fabric, Forge, NeoForge.
+- Paper 1.13.2 and 1.16.5 (Java 8), 1.20.4 (Java 17), 1.21.4, 1.21.8, 1.21.11 (Java 21), 26.2 (Java 25); Folia 1.21.11 (login and registration; anti-bot stages do not run on Folia).
 
 ## [1.1.5] — 2026-09-27
 

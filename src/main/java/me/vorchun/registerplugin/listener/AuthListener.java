@@ -143,8 +143,7 @@ public final class AuthListener implements Listener {
                     || (bedrockSupportService != null && bedrockSupportService.shouldBypassAuth(p))) {
                 return null;
             }
-            boolean autoEntry = (premiumService != null && premiumService.isEnabled())
-                    || plugin.getConfig().getBoolean("session.auto_login_by_ip", false);
+            boolean autoEntry = (premiumService != null && premiumService.isEnabled()) || autoLoginByIp;
             if (autoEntry && accountStore.isRegistered(uuid)) {
                 return null;
             }
@@ -156,6 +155,54 @@ public final class AuthListener implements Listener {
             return null;
         }
         spawnRedirected.put(uuid, orig.clone());
+        return spot;
+    }
+
+    private volatile boolean autoLoginByIp;
+    /** Когда запомнили точку входа (асинхронный спавн): бот мог уйти до входа в мир. */
+    private final Map<UUID, Long> spawnRedirectedAt = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * То же для AsyncPlayerSpawnLocationEvent (Paper 1.21.9+): событие приходит
+     * в фазе configuration не из главного потока, объекта Player ещё нет.
+     * Мир не трогаем — берём уже построенную платформу. Bedrock (Floodgate,
+     * UUID 00000000-…) не перенаправляем: его правила обхода нужны с Player.
+     */
+    Location redirectSpawnAsync(UUID uuid, Location orig) {
+        if (!spawnOnPlatform || !authPlatformEnabled || uuid == null || orig == null
+                || orig.getWorld() == null || antiBotService == null || !antiBotService.isEnabled()
+                || (spawnService != null && spawnService.hasPreloginPoint())
+                || uuid.getMostSignificantBits() == 0L) {
+            return null;
+        }
+        try {
+            if (sessionManager.isLoggedIn(uuid)) {
+                return null;
+            }
+            boolean autoEntry = (premiumService != null && premiumService.isEnabled()) || autoLoginByIp;
+            if (autoEntry && accountStore.isRegistered(uuid)) {
+                return null;
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+        Location spot = antiBotService.authPlatformSpotCached();
+        if (spot == null) {
+            return null;
+        }
+        long now = System.currentTimeMillis();
+        if (spawnRedirectedAt.size() > 256) {
+            // отключились между configuration и входом — не копим записи
+            for (java.util.Iterator<Map.Entry<UUID, Long>> it = spawnRedirectedAt.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<UUID, Long> en = it.next();
+                if (now - en.getValue() > 120_000L) {
+                    it.remove();
+                    spawnRedirected.remove(en.getKey());
+                }
+            }
+        }
+        spawnRedirected.put(uuid, orig.clone());
+        spawnRedirectedAt.put(uuid, now);
         return spot;
     }
 
@@ -310,9 +357,10 @@ public final class AuthListener implements Listener {
         authDarkness = plugin.getConfig().getString("security.auth_darkness", "auth_only");
         // В быстром режиме антибота «сделай шаг» не нужен — проверка сразу
         afkFirst = plugin.getConfig().getBoolean("antibot.afk_first", true)
-                && !plugin.getConfig().getBoolean("antibot.fast_mode", false);
+                && !plugin.getConfig().getBoolean("antibot.fast_mode", true);
         authPlatformEnabled = plugin.getConfig().getBoolean("security.auth_platform", true);
         spawnOnPlatform = plugin.getConfig().getBoolean("security.spawn_on_platform", true);
+        autoLoginByIp = plugin.getConfig().getBoolean("session.auto_login_by_ip", false);
         afkTrackAuthed = plugin.getConfig().getBoolean("afk.kick_after_login", false);
         requireConfirm = plugin.getConfig().getBoolean("password.require_confirm", false);
         enforceStrength = plugin.getConfig().getBoolean("password.enforce_strength", true);
@@ -453,6 +501,45 @@ public final class AuthListener implements Listener {
         return true;
     }
 
+    /**
+     * API: вход или регистрация паролем из своего интерфейса (GUI, наковальня,
+     * форма на сайте через мост). Те же шлюзы антибота, проверки сложности,
+     * лимиты попыток и сообщения, что у /login и /reg. done(true) — вошёл.
+     */
+    public void apiSubmitPassword(Player p, String password, java.util.function.Consumer<Boolean> done) {
+        if (p == null || password == null || password.isEmpty()) {
+            if (done != null) {
+                done.accept(false);
+            }
+            return;
+        }
+        if (!Scheduler.isPrimaryThread()) {
+            Scheduler.runAtEntity(plugin, p, () -> apiSubmitPassword(p, password, done));
+            return;
+        }
+        UUID uuid = p.getUniqueId();
+        if (!p.isOnline() || sessionManager.isLoggedIn(uuid)) {
+            if (done != null) {
+                done.accept(p.isOnline() && sessionManager.isLoggedIn(uuid));
+            }
+            return;
+        }
+        boolean login = accountStore.isRegistered(uuid);
+        if (login ? !mayLoginNow(uuid) : !mayRegisterNow(uuid)) {
+            sendGateRefusal(p, login);
+            if (done != null) {
+                done.accept(false);
+            }
+            return;
+        }
+        awaitingPassword.remove(uuid);
+        if (login) {
+            loginViaService(p, password, false, false, done);
+        } else {
+            registerViaService(p, password, false, done);
+        }
+    }
+
     /** Отказ шлюза: что сказать игроку (вызывать в потоке игрока). */
     private void sendGateRefusal(Player p, boolean login) {
         UUID uuid = p.getUniqueId();
@@ -536,6 +623,7 @@ public final class AuthListener implements Listener {
 
         // Заспавнен сразу на платформе — точка входа та, что была до этого
         Location redirectedFrom = spawnRedirected.remove(uuid);
+        spawnRedirectedAt.remove(uuid);
         Location joinLoc = redirectedFrom != null ? redirectedFrom : p.getLocation();
         teleportService.saveJoinLocation(p, joinLoc);
         boolean joinInCheck = antiBotService != null && antiBotService.isCheckArea(joinLoc);
@@ -574,7 +662,7 @@ public final class AuthListener implements Listener {
                 && accountStore.isRegistered(uuid);
         boolean antibotNow = !premiumPending && antiBotService != null
                 && antiBotService.isEnabled() && !antiBotService.isChecking(uuid)
-                && !(antiBotService.isOnlyNewPlayers() && accountStore.isRegistered(uuid));
+                && antiBotService.checkRequired(uuid, accountStore.isRegistered(uuid));
 
         // Антибот забирает игрока СРАЗУ — телепорт в мир проверки на первом же тике,
         // без промежуточного прелогин-спавна.
@@ -690,8 +778,8 @@ public final class AuthListener implements Listener {
             return;
         }
         if (antiBotService != null && antiBotService.isEnabled() && !antiBotService.isChecking(uuid)) {
-            boolean required = !(antiBotService.isOnlyNewPlayers() && accountStore.isRegistered(uuid))
-                    || antiBotService.requiresRestartRecheck(uuid);
+            // новичок; или срок прошлой проверки истёк (recheck_hours); или рестарт-перепроверка
+            boolean required = antiBotService.checkRequired(uuid, accountStore.isRegistered(uuid));
             if (required && afkFirst && !afkDone && afkService != null && afkService.isEnabled()
                     && antiBotService.queueMode() != 2) {
                 // Лобби-очередь выкл: сначала AFK-проверка (шаг вперёд),
@@ -1125,6 +1213,8 @@ public final class AuthListener implements Listener {
         Player p = e.getPlayer();
         UUID uuid = p.getUniqueId();
         spawnRedirected.remove(uuid);
+        spawnRedirectedAt.remove(uuid);
+        me.vorchun.registerplugin.util.ScreenHints.forget(uuid);
         timeoutService.stop(p);
         reminderService.stop(p);
         if (afkService != null) {
@@ -2322,7 +2412,15 @@ public final class AuthListener implements Listener {
 
     /** Вход по паролю через AuthService (пул хеширования) + общий финализатор. */
     private void loginViaService(Player p, String pass, boolean fromChat, boolean insecure) {
+        loginViaService(p, pass, fromChat, insecure, null);
+    }
+
+    private void loginViaService(Player p, String pass, boolean fromChat, boolean insecure,
+                                 java.util.function.Consumer<Boolean> done) {
         authService.login(p, pass, fromChat, result -> {
+            if (done != null) {
+                done.accept(result == me.vorchun.registerplugin.service.AuthService.Result.OK);
+            }
             switch (result) {
                 case OK:
                     afterLoginSuccess(p, false);
@@ -2349,7 +2447,15 @@ public final class AuthListener implements Listener {
 
     /** Регистрация через AuthService + общий финализатор (все пути регистрации). */
     private void registerViaService(Player p, String pass, boolean insecure) {
+        registerViaService(p, pass, insecure, null);
+    }
+
+    private void registerViaService(Player p, String pass, boolean insecure,
+                                    java.util.function.Consumer<Boolean> done) {
         authService.register(p, pass, (result, validation) -> {
+            if (done != null) {
+                done.accept(result == me.vorchun.registerplugin.service.AuthService.Result.OK);
+            }
             if (result == me.vorchun.registerplugin.service.AuthService.Result.OK) {
                 afterLoginSuccess(p, true);
                 if (insecure) {
@@ -2683,6 +2789,24 @@ public final class AuthListener implements Listener {
         // иначе он навсегда остался бы в лобби ожидания
         if (antiBotService != null) {
             antiBotService.leaveQueues(p);
+        }
+        // Публичное событие входа — здесь, в едином финализаторе: раньше оно
+        // приходило только при входе паролем, а сессия/премиум/Bedrock/API
+        // проходили мимо сторонних плагинов
+        String method = firstTime ? "register"
+                : "join_auto_login".equals(messageKey) ? "session"
+                : "join_premium_auto_login".equals(messageKey) ? "premium"
+                : "join_bedrock_auto_login".equals(messageKey) ? "bedrock"
+                : "login_success".equals(messageKey) ? "password" : "other";
+        if (me.vorchun.registerplugin.util.ScreenHints.done()) {
+            // Подсказка на экране: вход выполнен (заменяет «Введи пароль»)
+            me.vorchun.registerplugin.util.ScreenHints.once(p, messages.message(p, "hint_done_title", new HashMap<>()),
+                    messages.message(p, "hint_done_subtitle", new HashMap<>()), 30);
+        }
+        try {
+            Bukkit.getPluginManager().callEvent(new me.vorchun.registerplugin.api.AuthLoginEvent(p, firstTime, method));
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AuthLoginEvent: ошибка в чужом обработчике: " + t);
         }
         boolean proxyTransfer = plugin.getConfig().getBoolean("proxy_server.enabled", false)
                 && teleportService.isProxyMode();
@@ -3296,7 +3420,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = 967612790;
+    private static final int READY = 1448549754;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -6,7 +6,11 @@
    * Put VTRegister.jar into plugins/ of your server (Paper/Spigot/Purpur/Folia
      and forks, 1.13 → 1.21.x → 26.x and newer; Java 8 → 25 — see 10).
    * Start the server — config.yml, advanced.yml, lang/ru.yml, lang/en.yml appear.
-   * Works out of the box; usually nothing needs changing.
+   * Works out of the box; usually nothing needs changing: secure password
+     input, Argon2id and a light anti-bot (fall physics + puzzle) right on join
+     are on by default.
+   * Simple server — leave it as is. Advanced server — turn on the stages and
+     features you need yourself (antibot.stages, email, twofactor, databases, proxy).
    * Behind a proxy (Velocity/BungeeCord)? Put the SAME jar on the proxy too — see 7.
    * Updating: just replace the jar. New settings and texts are added
      automatically; your values and comments are kept. A line you deleted by
@@ -14,7 +18,8 @@
 
 1. HOW THE BOT CHECK WORKS
    A new player is moved to an empty world (auth_verify) and passes stages
-   (antibot.stages in config.yml):
+   (antibot.fast_stages in fast mode, default [fall, puzzle], or antibot.stages
+   in regular mode, config.yml):
      fall    — physics: 5 repetitions in a smart random plan (normal fall,
                high fall with acceleration, cobweb, launch upwards, another fall).
      puzzle  — "remove the extra pictures", pictures are random every time.
@@ -29,14 +34,17 @@
                screen on a random diagonal; type it in chat. Size — air_captcha.scale.
      math    — an addition example (multiplication — antibot.math_operations).
      secret / camera / slots — extra stages.
-   Only new players are checked (only_new_players: true). Bedrock players
+   New players are always checked, regular players again once every 24 hours
+   on join (recheck_hours: 24; 0 — never). Bedrock players
    (Geyser/Floodgate) get softer physics tolerances. Clients of any version:
    1.8 → latest via ViaVersion + ViaBackwards (1.7 — plus ViaRewind).
 
 2. CHECK MODES
-   Default: normal mode WITHOUT lobby — overflow waits in place with a bossbar
-   (queue_mode: bossbar). antibot.fast_mode: true — check starts right on join,
-   no queues and no "make a step" test; stages from antibot.fast_stages.
+   Default: antibot.fast_mode: true — check starts right on join, no queues and
+   no "make a step" test; stages from antibot.fast_stages (physics + puzzle).
+   Players above fast_max_concurrent wait in place with a bossbar.
+   antibot.fast_mode: false — regular mode: overflow waits with a bossbar
+   (queue_mode: bossbar).
    queue_mode: lobby — waiting lobby with parkour and a PvP zone.
 
 3. BANS AND LIMITS
@@ -119,5 +127,6 @@
 ================================================================================
 
 11. BUILD INTEGRITY
-   The plugin is distributed only as a ready .jar via MineLeak (author vitaliy21,
-   SerclStudio). A damaged or repacked build refuses to start — download the original.
+   Official builds come only from GitHub Releases:
+   github.com/Vitaliy222121/VTRegister/releases (open source). A damaged or
+   repacked build refuses to start — download the original.

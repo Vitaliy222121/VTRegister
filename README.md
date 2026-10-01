@@ -1,4 +1,4 @@
-# VTRegister 1.1.5
+# VTRegister 1.1.6
 
 **Русский** · [English](#english)
 
@@ -6,9 +6,16 @@
 
 > **VTRegister — основное и единственное название плагина.** «RegisterPlugin» — его старое имя (до версии 1.1.0), оно больше не используется.
 >
-> **Версия 1.1.5 — самая продвинутая за всю историю плагина:** переработанное ядро, поведенческий антибот нового поколения, безопасность по умолчанию и оптимизированный вход. Версии 1.1.0 и ниже устарели и не поддерживаются.
+> **Версия 1.1.6 — актуальная и самая продвинутая за всю историю плагина:** быстрый антибот (физика + пазл) сразу при входе, перепроверка постоянных игроков раз в 24 часа, лимит 3 аккаунта на IP, подсказки на экране, API для разработчиков, перенос аккаунтов из AuthMe и nLogin, команда сброса настроек. Версии 1.1.0 и ниже устарели и не поддерживаются.
+>
+> **Обновитесь до 1.1.6:** она исправляет две критические ошибки 1.1.5 — самоотключение на серверах без PlaceholderAPI и незагрузку на Paper 1.20.5–1.21.11. Обновление — замена jar; свои настройки сохраняются.
 
-📖 **[Полное руководство](docs/GUIDE.ru.md)** — как всё устроено, установка, антибот, команды, частые проблемы · **[Все 444 настройки со значениями по умолчанию](docs/CONFIG.ru.md)** · **[Безопасность](SECURITY.md)**
+> **Лёгкий в настройке — работает сразу после установки.** Положил jar в `plugins/` — и вход уже защищён: безопасный ввод пароля, Argon2id, лимит 3 аккаунта на IP и лёгкий антибот из двух проверок (физика падения + пазл) включены по умолчанию; постоянных игроков антибот перепроверяет раз в 24 часа. Каждая настройка описана прямо в файле на русском, полное описание всех настроек есть на русском и английском ([RU](docs/CONFIG.ru.md) · [EN](docs/CONFIG.en.md)).
+>
+> - **Простой сервер** — наилучший выбор «из коробки»: ставишь и ничего не настраиваешь.
+> - **Продвинутый сервер** — тоже наилучший выбор, но настраиваешь сам: ещё 8 этапов антибота, 2FA, почта, базы данных MySQL/PostgreSQL, прокси Velocity/BungeeCord.
+
+📖 **[Полное руководство](docs/GUIDE.ru.md)** — как всё устроено, установка, антибот, команды, частые проблемы · **[Все 464 настройки со значениями по умолчанию](docs/CONFIG.ru.md)** · **[Безопасность](SECURITY.md)** · **[Сравнение с AuthMe, nLogin, Sonar и др.](docs/COMPARISON.md)** · **[API для разработчиков](docs/API.md)**
 
 ## Скачать
 
@@ -45,11 +52,12 @@ afk:
 ```
 И в `advanced.yml` — `auto_restart.enabled: false`, если не нужен автоперезапуск сервера. Почта, премиум-вход, общий чёрный список и обязательная 2FA для админов и так выключены по умолчанию. Включить всё обратно можно в любой момент.
 
-Поэтому ставить устаревшую 1.0.3 ради простоты не нужно: 1.1.5 с выключенным антиботом так же проста, но безопаснее и получает обновления.
+Поэтому ставить устаревшую 1.0.3 ради простоты не нужно: 1.1.6 с выключенным антиботом так же проста, но безопаснее и получает обновления.
 
 ## Почему VTRegister
 
-- **Антибот, встроенный прямо в авторизацию.** Обычно в плагинах входа от ботов защищает лимит заходов или одна капча. Здесь новичок проходит проверку в отдельном пустом мире: физика падения, пазл, работа с блоком и до 10 этапов. Бот, который умеет только подключаться и слать команды, её не проходит. Баны выдаются только за доказанный провал, живых игроков не наказывают.
+- **Антибот, встроенный прямо в авторизацию.** Обычно в плагинах входа от ботов защищает лимит заходов или одна капча. Здесь новичок проходит проверку в отдельном пустом мире: по умолчанию физика падения и пазл, по желанию ещё 8 этапов (всего 10). Бот, который умеет только подключаться и слать команды, её не проходит. Баны выдаются только за доказанный провал, живых игроков не наказывают.
+- **Лёгкий в настройке.** Работает сразу после установки, ничего менять не обязательно. Для простого сервера — готовое решение «из коробки», для продвинутого — десятки опций, которые включаешь сам.
 - **Вся настройка — в YAML-файлах с описанием каждой строки.** Можно включить или выключить любую функцию и любой этап. При обновлении новые параметры дописываются сами вместе с описаниями, твои значения и комментарии не трогаются. Тексты правятся в `lang/ru.yml` и `lang/en.yml`, есть HEX-цвета.
 - **Безопасность по умолчанию.** Пароль не попадает в консоль, хранится только хеш Argon2id, есть 2FA. Телеметрии нет, всё сетевое по умолчанию выключено — подробно в [SECURITY.md](SECURITY.md).
 - **Подходит и для простой авторизации.** Антибот и всё дополнительное выключаются одной-двумя строками — останется лёгкий и безопасный `/reg` и `/login`.
@@ -61,7 +69,7 @@ afk:
 
 - **VTRegister — авторский плагин.** Автор — Vorchun (на MineLeak.pro — vitaliy21). С самой первой версии автор сам публиковал плагин на своей странице MineLeak.pro как собственную разработку. Это не «слив» и не перезалив чужого плагина.
 - **Код всегда был открыт.** Плагин никогда не обфусцировался: любую версию можно открыть декомпилятором (например, jdec.app) и проверить. С сентября 2026 года исходники с полной историей изменений лежат здесь, на GitHub.
-- **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → **1.1.5 (27.09.2026, VTRegister)**.
+- **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → 1.1.5 (27.09.2026, VTRegister) → **1.1.6 (01.10.2026)**.
 - **Сейчас** официальный дом проекта — GitHub. Страница на MineLeak.pro осталась архивом старых версий.
 
 ## Как проверяется качество
@@ -88,7 +96,7 @@ afk:
 
 ## Установка
 
-1. Положи `VTRegister-v1.1.5.jar` в `plugins/` и запусти сервер.
+1. Положи `VTRegister-v1.1.6.jar` в `plugins/` и запусти сервер.
 2. В `plugins/VTRegister/` появятся `config.yml`, `advanced.yml`, `lang/ru.yml`, `lang/en.yml` — всё уже настроено.
 3. Есть прокси? Тот же jar — в `plugins/` прокси, подробности в `PROXY_SETUP.txt`.
 
@@ -102,16 +110,18 @@ afk:
 - 2FA (Google Authenticator, Яндекс Ключ): `/2fa on` выдаёт карту с QR-кодом, повтор кода заблокирован. Обязательная 2FA для админов — по желанию.
 - Почта: привязка и восстановление пароля; Gmail, Яндекс и Mail.ru — одна строка `email.provider`.
 - Премиум-автовход (online-mode), вход по IP-сессии, одна сессия на ник.
-- Хранилище: YAML, SQLite, MySQL, MariaDB, PostgreSQL. Импорт из AuthMe и LimboAuth.
+- Хранилище: YAML, SQLite, MySQL, MariaDB, PostgreSQL; перенос аккаунтов из AuthMe (и старых форков: SQLite, MySQL, файл auths.db), nLogin, OpeNLogin, LoginSecurity, LimboAuth — игроки входят старыми паролями.
+- Подсказки по центру экрана: что делать прямо сейчас (зарегистрироваться, войти, пройти этап) — `screen_hints.enabled`.
+- [API для разработчиков](docs/API.md): события входа и антибота, свои окна входа, проверка пароля. Статистика bStats — по желанию, по умолчанию выключена.
 - Журнал входов, оповещения в Discord/Telegram о входе админа с нового IP.
 
-**Антибот** — отдельный пустой мир, каждый этап включается отдельно
+**Антибот** — отдельный пустой мир, каждый этап включается отдельно. По умолчанию — быстрый режим (`fast_mode: true`): проверка сразу при входе, без очередей, этапы физика + пазл
 
 | Этап | По умолчанию | Суть |
 |---|---|---|
 | `fall` | вкл | 5 повторов физики по случайному плану: падение, высокое падение, паутина, подброс |
 | `puzzle` | вкл | «оставь только свинок» на картах в рамках |
-| `block` | вкл | открыть и закрыть сундук, взять инструмент, сломать нужный блок |
+| `block` | выкл | открыть и закрыть сундук, взять инструмент, сломать нужный блок |
 | `camera` | выкл | поворот камеры |
 | `slots` | выкл | переключение слотов хотбара |
 | `captcha` | выкл | код в чате или на карте; «зачёркнутый» вариант против распознавания |
@@ -158,7 +168,7 @@ afk:
 | 2FA | нет | нет | **TOTP с QR-кодом на карте** |
 | Почта | нет | нет | **привязка и восстановление, Gmail/Яндекс/Mail.ru** |
 | Базы данных | YAML | YAML | **YAML, SQLite, MySQL, MariaDB, PostgreSQL** |
-| Импорт | нет | нет | **AuthMe, LimboAuth** |
+| Импорт | нет | нет | **AuthMe и форки, nLogin, OpeNLogin, LoginSecurity, LimboAuth** |
 | Языки | ru | ru | **ru, en** |
 | Bedrock | Floodgate (с 1.0.3) | Floodgate | Floodgate + мягкая физика в антиботе |
 | Нагрузка | — | — | **спавн на платформе, меньше перелётов между мирами, кэш цветов** |
@@ -171,12 +181,13 @@ afk:
 |---|---|---|
 | `/register`, `/reg` | все | регистрация |
 | `/login`, `/l` | все | вход |
-| `/changepassword` (`/changepw`, `/cp`, `/passwd`) | все | смена пароля |
+| `/changepassword` (`/changepw`, `/cp`, `/passwd`) | все | смена своего пароля: старый, потом новый — в чат |
 | `/2fa on \| off \| cancel \| <код>` | все | двухфакторная защита |
 | `/email <адрес> \| <код>` | все | привязка почты |
 | `/recover`, затем `/recover <код> <пароль>` | все | восстановление пароля |
 | `/vtregister` (`/vtr`, `/vreg`) `help \| status \| cmds` | все | справка |
 | `/vtregister reload` | админ | перечитать настройки |
+| `/vtregister reset <config\|advanced\|lang\|all>` | админ | вернуть настройки по умолчанию: config.yml, advanced.yml, тексты lang или всё; с подтверждением и копией в `backups/`, «перец» паролей и подключение к базе сохраняются |
 | `/authadmin reload \| status \| info \| list \| reset \| unregister \| setpw \| logout \| forcelogin` | админ | управление аккаунтами |
 | `/authadmin setspawn \| import \| unban \| testmail \| pvpkit \| lobby` | админ | спавны, импорт, снятие банов, проверка почты, лобби |
 
@@ -208,7 +219,7 @@ plugins/VTRegister/
 mvn clean package
 ```
 
-Результат: `target/VTRegister-v1.1.5.jar` (байткод Java 8). Jar из этих исходников без изменений запускается. Изменённую сборку плагин не запускает: так «перепакованная» копия с вредоносным кодом не выдаст себя за VTRegister. Ничего другого проверка не делает, подробнее в [SECURITY.md](SECURITY.md).
+Результат: `target/VTRegister-v1.1.6.jar` (байткод Java 8). Jar из этих исходников без изменений запускается. Изменённую сборку плагин не запускает: так «перепакованная» копия с вредоносным кодом не выдаст себя за VTRegister. Ничего другого проверка не делает, подробнее в [SECURITY.md](SECURITY.md).
 
 ## Лицензия
 
@@ -232,7 +243,7 @@ mvn clean package
 
 - Ни один плагин не может полностью скрыть пароль от другого плагина в том же процессе; защищённый режим перехватывает ввод раньше остальных.
 - Строку `issued server command` пишет само ядро; плагин отключает её (`security.command_logging: fix`) и ставит фильтр логов.
-- На Folia платформа входа отключается (Folia ограничивает работу с чужими регионами), авторизация работает.
+- На Folia проверка на бота в отдельном мире (этапы) и платформа входа отключены — Folia не даёт вести арены из одного потока в разных регионах. Регистрация, вход, 2FA, лимиты подключений, проверка пинга, баны и AFK-защита работают.
 - Премиум-автовход — только для online-mode или за прокси с защищённой переадресацией.
 
 Поддержка и идеи — обсуждения на MineLeak.pro (автор Vorchun).
@@ -241,17 +252,24 @@ mvn clean package
 
 <a name="english"></a>
 
-# VTRegister 1.1.5 (English)
+# VTRegister 1.1.6 (English)
 
-[Русский](#vtregister-115) · **English**
+[Русский](#vtregister-116) · **English**
 
 A registration and login plugin for Minecraft servers — an AuthMe alternative with a built-in anti-bot. Secure password input, a 10-stage anti-bot, QR-code 2FA, e-mail, databases. One jar runs on both the server (Paper/Spigot/Folia) and the proxy (Velocity/BungeeCord).
 
 > **VTRegister is the plugin's main and only name.** "RegisterPlugin" is its old name (up to version 1.1.0) and is no longer used.
 >
-> **Version 1.1.5 is the most advanced in the plugin's history:** a reworked core, a next-generation behavioral anti-bot, security by default and an optimized login. Versions 1.1.0 and older are outdated and unsupported.
+> **Version 1.1.6 is the current and most advanced in the plugin's history:** a fast anti-bot (physics + puzzle) right on join, a re-check of regular players every 24 hours, a limit of 3 accounts per IP, on-screen hints, a developer API, account migration from AuthMe and nLogin, a command to restore default settings. Versions 1.1.0 and older are outdated and unsupported.
+>
+> **Update to 1.1.6:** it fixes two critical bugs of 1.1.5 — self-disable on servers without PlaceholderAPI and failing to load on Paper 1.20.5–1.21.11. Updating is a jar swap; your settings are kept.
 
-📖 **[Complete guide](docs/GUIDE.en.md)** — how it works, installation, anti-bot, commands, common problems · **[All 444 settings with defaults](docs/CONFIG.en.md)** · **[Security](SECURITY.md)**
+> **Easy to configure — works right after installation.** Drop the jar into `plugins/` and logins are already protected: secure password input, Argon2id, a limit of 3 accounts per IP and a light anti-bot of two checks (fall physics + puzzle) are on by default; regular players are re-checked once every 24 hours. Every setting is described right in the file, and the full description of all settings is available in Russian and English ([RU](docs/CONFIG.ru.md) · [EN](docs/CONFIG.en.md)).
+>
+> - **Simple server** — the best choice out of the box: install it and configure nothing.
+> - **Advanced server** — also the best choice, but you configure it yourself: 8 more anti-bot stages, 2FA, e-mail, MySQL/PostgreSQL databases, Velocity/BungeeCord proxies.
+
+📖 **[Complete guide](docs/GUIDE.en.md)** — how it works, installation, anti-bot, commands, common problems · **[All 464 settings with defaults](docs/CONFIG.en.md)** · **[Security](SECURITY.md)** · **[Comparison with AuthMe, nLogin, Sonar and others](docs/COMPARISON.md)** · **[Developer API](docs/API.md)**
 
 ## Download
 
@@ -288,11 +306,12 @@ afk:
 ```
 And in `advanced.yml` — `auto_restart.enabled: false` if you do not need scheduled server restarts. E-mail, premium login, the shared blacklist and mandatory admin 2FA are already off by default. Everything can be turned back on at any time.
 
-So there is no need to install the outdated 1.0.3 for simplicity: 1.1.5 with the anti-bot off is just as simple, but more secure and still updated.
+So there is no need to install the outdated 1.0.3 for simplicity: 1.1.6 with the anti-bot off is just as simple, but more secure and still updated.
 
 ## Why VTRegister
 
-- **An anti-bot built right into authentication.** Most login plugins stop bots with a join limit or a single captcha. Here a newcomer is checked in a separate empty world: fall physics, a puzzle, a block task and up to 10 stages. A bot that can only connect and send commands does not pass. Bans are issued only for proven fails; real players are not punished.
+- **An anti-bot built right into authentication.** Most login plugins stop bots with a join limit or a single captcha. Here a newcomer is checked in a separate empty world: fall physics and a puzzle by default, 8 more stages optional (10 in total). A bot that can only connect and send commands does not pass. Bans are issued only for proven fails; real players are not punished.
+- **Easy to configure.** Works right after installation, nothing has to be changed. For a simple server it is a ready out-of-the-box solution; for an advanced one there are dozens of options you turn on yourself.
 - **All configuration lives in YAML files with a description for every line.** Any feature and any stage can be turned on or off. On update, new settings are added with their descriptions; your values and comments are never touched. Texts are edited in `lang/ru.yml` and `lang/en.yml`, with HEX colors.
 - **Secure by default.** Passwords never reach the console, only Argon2id hashes are stored, 2FA is available. No telemetry, everything network-related is off by default — details in [SECURITY.md](SECURITY.md).
 - **Also fits a simple login.** The anti-bot and all extras turn off with a line or two, leaving a lightweight, secure `/reg` and `/login`.
@@ -302,7 +321,7 @@ So there is no need to install the outdated 1.0.3 for simplicity: 1.1.5 with the
 
 - **VTRegister is an author's own plugin.** The author is Vorchun (vitaliy21 on MineLeak.pro). From the very first version the author himself published it on his MineLeak.pro page as his own work. It is not a "leak" or a re-upload of someone else's plugin.
 - **The code has always been open.** The plugin was never obfuscated: any version can be opened with a decompiler (for example, jdec.app) and checked. Since September 2026 the source code with its full change history lives here on GitHub.
-- **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → **1.1.5 (2026-09-27, VTRegister)**.
+- **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → 1.1.5 (2026-09-27, VTRegister) → **1.1.6 (2026-10-01)**.
 - **Today** GitHub is the project's official home. The MineLeak.pro page remains an archive of old versions.
 
 ## How quality is checked
@@ -329,7 +348,7 @@ Compiled against API 1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 and 26.2; tested on 
 
 ## Installation
 
-1. Put `VTRegister-v1.1.5.jar` into `plugins/` and start the server.
+1. Put `VTRegister-v1.1.6.jar` into `plugins/` and start the server.
 2. `config.yml`, `advanced.yml`, `lang/ru.yml`, `lang/en.yml` appear in `plugins/VTRegister/` — everything is preconfigured.
 3. Using a proxy? The same jar goes into the proxy's `plugins/` — see `PROXY_SETUP.txt`.
 
@@ -343,16 +362,18 @@ Updating means replacing the jar. New settings are added automatically with thei
 - 2FA (Google Authenticator, Aegis…): `/2fa on` puts a QR-code map in your hand; code reuse is blocked. Mandatory 2FA for admins — optional.
 - E-mail: binding and password recovery; Gmail, Yandex and Mail.ru need a single `email.provider` line.
 - Premium auto-login (online-mode), IP sessions, one session per name.
-- Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL. Import from AuthMe and LimboAuth.
+- Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL; account migration from AuthMe (and old forks: SQLite, MySQL, the auths.db file), nLogin, OpeNLogin, LoginSecurity, LimboAuth — players log in with their old passwords.
+- On-screen hints in the middle of the screen: what to do right now (register, log in, pass a stage) — `screen_hints.enabled`.
+- [Developer API](docs/API.md): login and anti-bot events, custom login windows, password checks. bStats statistics — optional, off by default.
 - Login journal, Discord/Telegram alerts when an admin joins from a new IP.
 
-**Anti-bot** — a separate empty world, every stage can be toggled
+**Anti-bot** — a separate empty world, every stage can be toggled. Default is fast mode (`fast_mode: true`): the check starts right on join, no queues, stages fall + puzzle
 
 | Stage | Default | What it does |
 |---|---|---|
 | `fall` | on | 5 physics runs in a random plan: fall, high fall, cobweb, launch |
 | `puzzle` | on | "keep only the pigs" on maps in item frames |
-| `block` | on | open and close a chest, take the tool, break the right block |
+| `block` | off | open and close a chest, take the tool, break the right block |
 | `camera` | off | turn the camera |
 | `slots` | off | switch hotbar slots |
 | `captcha` | off | code in chat or on a map; a "crossed-out" variant against OCR |
@@ -399,7 +420,7 @@ Updating means replacing the jar. New settings are added automatically with thei
 | 2FA | none | none | **TOTP with a QR code on a map** |
 | E-mail | none | none | **binding and recovery, Gmail/Yandex/Mail.ru** |
 | Databases | YAML | YAML | **YAML, SQLite, MySQL, MariaDB, PostgreSQL** |
-| Import | none | none | **AuthMe, LimboAuth** |
+| Import | none | none | **AuthMe and forks, nLogin, OpeNLogin, LoginSecurity, LimboAuth** |
 | Languages | ru | ru | **ru, en** |
 | Bedrock | Floodgate (since 1.0.3) | Floodgate | Floodgate + softer anti-bot physics |
 | Server load | — | — | **spawn on platform, fewer world changes, color cache** |
@@ -412,12 +433,13 @@ Full list — [CHANGELOG.md](CHANGELOG.md).
 |---|---|---|
 | `/register`, `/reg` | everyone | register |
 | `/login`, `/l` | everyone | log in |
-| `/changepassword` (`/changepw`, `/cp`, `/passwd`) | everyone | change password |
+| `/changepassword` (`/changepw`, `/cp`, `/passwd`) | everyone | change your password: the old one, then the new one — in chat |
 | `/2fa on \| off \| cancel \| <code>` | everyone | two-factor protection |
 | `/email <address> \| <code>` | everyone | bind e-mail |
 | `/recover`, then `/recover <code> <password>` | everyone | password recovery |
 | `/vtregister` (`/vtr`, `/vreg`) `help \| status \| cmds` | everyone | help |
 | `/vtregister reload` | admin | reload settings |
+| `/vtregister reset <config\|advanced\|lang\|all>` | admin | restore default settings: config.yml, advanced.yml, lang texts or everything; asks for confirmation and copies the old files to `backups/`, the password pepper and the database connection are kept |
 | `/authadmin reload \| status \| info \| list \| reset \| unregister \| setpw \| logout \| forcelogin` | admin | account management |
 | `/authadmin setspawn \| import \| unban \| testmail \| pvpkit \| lobby` | admin | spawns, import, unban, mail test, lobby |
 
@@ -449,7 +471,7 @@ plugins/VTRegister/
 mvn clean package
 ```
 
-Output: `target/VTRegister-v1.1.5.jar` (Java 8 bytecode). A jar built from these unmodified sources runs. A modified build does not start, so a "repacked" copy with malicious code cannot pose as VTRegister. The check does nothing else — see [SECURITY.md](SECURITY.md).
+Output: `target/VTRegister-v1.1.6.jar` (Java 8 bytecode). A jar built from these unmodified sources runs. A modified build does not start, so a "repacked" copy with malicious code cannot pose as VTRegister. The check does nothing else — see [SECURITY.md](SECURITY.md).
 
 ## License
 
@@ -473,7 +495,7 @@ Dual, your choice: **GPL-3.0 with additional terms** or **Vorchun MIT-style Lice
 
 - No plugin can fully hide a password from another plugin in the same process; secure mode intercepts input earlier than the others.
 - The `issued server command` line is written by the server itself; the plugin disables it (`security.command_logging: fix`) and adds a log filter.
-- On Folia the login platform is disabled (Folia restricts cross-region work); authentication works.
+- On Folia the anti-bot check world (stages) and the login platform are disabled — Folia does not allow running arenas from one thread across regions. Registration, login, 2FA, connection limits, ping check, bans and AFK protection work.
 - Premium auto-login requires online-mode or a proxy with secure forwarding.
 
 Support and ideas — MineLeak.pro discussions (author Vorchun).

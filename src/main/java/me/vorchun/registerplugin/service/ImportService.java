@@ -23,7 +23,9 @@ import me.vorchun.registerplugin.util.Scheduler;
  * которые уже работают на AuthMe/LoginSecurity.
  *
  * Поддерживается:
- *   - AuthMe        (SQLite authme.db, таблица authme)  — $SHA$, $SHA512$, $MD5$, $BCRYPT$
+ *   - AuthMe и старые форки — SQLite/MySQL/MariaDB/PostgreSQL по его config.yml
+ *                   (свои таблица и колонки, алгоритм хеша) и файловый auths.db
+ *   - nLogin, OpeNLogin — SQLite-файлы в папке плагина и MySQL из его config.yml
  *   - LoginSecurity (SQLite LoginSecurity.db, LS_players) — BCrypt
  *   - accounts.yml  (наши версии 1.0.x–1.1.x)
  *   - import.yml    (универсальный формат: name + password + необязательные ip/lastlogin)
@@ -37,11 +39,16 @@ public final class ImportService {
         public int imported;
         public int skipped;
         public int failed;
+        /** Хеши, которые нельзя проверить (WHIRLPOOL, форумные…) — не импортированы. */
+        public int unsupported;
+        public final java.util.Map<String, Integer> unsupportedKinds = new java.util.LinkedHashMap<>();
         public final List<String> sources = new ArrayList<>();
 
         public String summary() {
             return "импортировано=" + imported + ", пропущено=" + skipped + ", ошибок=" + failed
-                    + (sources.isEmpty() ? "" : ", источники: " + String.join(", ", sources));
+                    + (unsupported > 0 ? ", неподдерживаемый хеш=" + unsupported + " " + unsupportedKinds : "")
+                    + (sources.isEmpty() ? " (источники не найдены: AuthMe, nLogin, OpeNLogin, LoginSecurity, LimboAuth, import.yml)"
+                        : ", источники: " + String.join(", ", sources));
         }
     }
 
@@ -59,7 +66,18 @@ public final class ImportService {
             Report report = new Report();
             File plugins = plugin.getDataFolder().getParentFile();
 
-            importAuthMe(new File(plugins, "AuthMe/authme.db"), overwrite, report);
+            // AuthMe (и форки), nLogin, OpeNLogin — настройки из их config.yml
+            ForeignImport fi = new ForeignImport(plugin, row -> save(row.name, row.hash, row.ip, row.lastLogin, overwrite, report));
+            fi.authMe(new File(plugins, "AuthMe"), report.sources);
+            fi.nLogin(new File(plugins, "nLogin"), "nLogin", report.sources);
+            fi.nLogin(new File(plugins, "OpeNLogin"), "OpeNLogin", report.sources);
+            report.failed += fi.failed;
+            report.unsupported += fi.unsupported;
+            fi.unsupportedKinds.forEach((k, v) -> report.unsupportedKinds.merge(k, v, Integer::sum));
+            if (fi.unsupported > 0) {
+                plugin.getLogger().warning("Импорт: " + fi.unsupported + " аккаунтов с хешем, который нельзя проверить "
+                        + fi.unsupportedKinds + ", не перенесены — эти игроки зарегистрируются заново");
+            }
             importLoginSecurity(new File(plugins, "LoginSecurity/LoginSecurity.db"), overwrite, report);
             importLoginSecurity(new File(plugins, "LoginSecurity/users.db"), overwrite, report);
             importLimboAuth(new File(plugins, "LimboAuth/limboauth.db"), overwrite, report);
@@ -75,49 +93,6 @@ public final class ImportService {
 
             Scheduler.runSync(plugin, () -> callback.accept(report));
         });
-    }
-
-    // ---------- AuthMe ----------
-
-    private void importAuthMe(File db, boolean overwrite, Report report) {
-        if (!db.exists()) {
-            return;
-        }
-        report.sources.add("AuthMe");
-        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db.getAbsolutePath());
-             Statement st = c.createStatement();
-             ResultSet rs = st.executeQuery("SELECT * FROM authme")) {
-            // username у AuthMe в нижнем регистре; offline-UUID считается от ника
-            // с учётом регистра — берём realname (как игрок реально пишет ник)
-            boolean hasReal = false;
-            java.sql.ResultSetMetaData md = rs.getMetaData();
-            for (int i = 1; i <= md.getColumnCount(); i++) {
-                if ("realname".equalsIgnoreCase(md.getColumnName(i))) {
-                    hasReal = true;
-                    break;
-                }
-            }
-            while (rs.next()) {
-                String name = rs.getString("username");
-                if (hasReal) {
-                    String real = rs.getString("realname");
-                    if (real != null && !real.isEmpty() && real.equalsIgnoreCase(name)) {
-                        name = real;
-                    }
-                }
-                String hash = rs.getString("password");
-                String ip = safe(rs.getString("ip"));
-                long lastLogin = rs.getLong("lastlogin");
-                if (name == null || hash == null || hash.isEmpty()) {
-                    report.failed++;
-                    continue;
-                }
-                save(name, hash, ip, lastLogin, overwrite, report);
-            }
-        } catch (Throwable t) {
-            plugin.getLogger().warning("Импорт AuthMe: " + t.getMessage());
-            report.failed++;
-        }
     }
 
     // ---------- LoginSecurity ----------
@@ -350,7 +325,7 @@ public final class ImportService {
         return s == null ? "" : s;
     }
 
-    private static final int READY = 967612776;
+    private static final int READY = 1448549732;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1015) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

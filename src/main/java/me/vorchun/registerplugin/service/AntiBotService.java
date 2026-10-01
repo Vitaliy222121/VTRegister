@@ -442,7 +442,9 @@ public final class AntiBotService {
     private final Map<UUID, Long> speedCooldown = new ConcurrentHashMap<>();
     private final List<org.bukkit.entity.ArmorStand> zoneHolos = new ArrayList<>();
     private final java.util.Set<UUID> bootPassed = ConcurrentHashMap.newKeySet();
-    private volatile boolean recheckOnRestart = true;
+    private volatile boolean recheckOnRestart = false;
+    /** Срок действия пройденной проверки для зарегистрированных (antibot.recheck_hours). */
+    private final AntiBotPasses passes;
     private volatile long slimeExtraMs = 8000L;
     private volatile List<String> puzzleSignLines = new ArrayList<>();
     // чат-фильтр лобби
@@ -589,6 +591,7 @@ public final class AntiBotService {
         this.plugin = plugin;
         this.teleportService = teleportService;
         this.lobbyLootKey = new NamespacedKey(plugin, "lobby_loot");
+        this.passes = new AntiBotPasses(plugin);
     }
 
     // ---------- конфигурация ----------
@@ -602,7 +605,7 @@ public final class AntiBotService {
         if (enabled && ServerCore.isFolia()) {
             if (!foliaWarned) {
                 foliaWarned = true;
-                plugin.getLogger().severe("AntiBot: на Folia проверка на бота НЕ поддерживается — "
+                plugin.getLogger().warning("AntiBot: на Folia проверка на бота с этапами НЕ поддерживается — "
                         + "antibot.enabled игнорируется, игроки идут сразу к авторизации.");
             }
             enabled = false;
@@ -800,7 +803,8 @@ public final class AntiBotService {
         kitEnabled = plugin.getConfig().getBoolean("antibot.queue_pvp.kit_enabled", true);
         kitCooldownMs = Math.max(1L, plugin.getConfig().getInt("antibot.queue_pvp.kit_cooldown_seconds", 30)) * 1000L;
         loadKit();
-        recheckOnRestart = plugin.getConfig().getBoolean("antibot.recheck_on_restart", true);
+        recheckOnRestart = plugin.getConfig().getBoolean("antibot.recheck_on_restart", false);
+        passes.configure(Math.max(0, plugin.getConfig().getInt("antibot.recheck_hours", 24)) * 3600_000L);
         slimeExtraMs = Math.max(0L, plugin.getConfig().getInt("antibot.slime_extra_seconds", 8)) * 1000L;
         puzzleSignLines = plugin.getConfig().getStringList("antibot.puzzle_sign_lines");
         if (puzzleSignLines == null || puzzleSignLines.isEmpty()) {
@@ -898,9 +902,9 @@ public final class AntiBotService {
         List<Stage> order = new ArrayList<>();
         if (plugin.getConfig().getBoolean("antibot.stages.fall", true)) order.add(Stage.FALL);
         if (plugin.getConfig().getBoolean("antibot.stages.camera", false)) order.add(Stage.CAMERA);
-        if (plugin.getConfig().getBoolean("antibot.stages.slots", true)) order.add(Stage.SLOTS);
-        if (plugin.getConfig().getBoolean("antibot.stages.captcha", true)) order.add(Stage.CAPTCHA);
-        if (plugin.getConfig().getBoolean("antibot.stages.click", true)) order.add(Stage.CLICK);
+        if (plugin.getConfig().getBoolean("antibot.stages.slots", false)) order.add(Stage.SLOTS);
+        if (plugin.getConfig().getBoolean("antibot.stages.captcha", false)) order.add(Stage.CAPTCHA);
+        if (plugin.getConfig().getBoolean("antibot.stages.click", false)) order.add(Stage.CLICK);
         if (plugin.getConfig().getBoolean("antibot.stages.puzzle", true)) order.add(Stage.PUZZLE);
         if (plugin.getConfig().getBoolean("antibot.stages.math", false)) order.add(Stage.MATH);
         if (plugin.getConfig().getBoolean("antibot.stages.secret", false)) order.add(Stage.SECRET);
@@ -912,7 +916,7 @@ public final class AntiBotService {
         // Проверка стартует сразу при входе: лобби не строится, entry-очереди
         // и lobby_first_seconds нет. Если одновременных проверок больше
         // fast_max_concurrent — лишние ждут на месте с таймером в боссбаре.
-        fastMode = plugin.getConfig().getBoolean("antibot.fast_mode", false);
+        fastMode = plugin.getConfig().getBoolean("antibot.fast_mode", true);
         if (fastMode) {
             queueMode = 1;
             lobbyFirstSeconds = 0;
@@ -1052,6 +1056,18 @@ public final class AntiBotService {
     /** После рестарта сервера все игроки обязаны пройти проверку заново. */
     public boolean requiresRestartRecheck(UUID uuid) {
         return recheckOnRestart && !bootPassed.contains(uuid);
+    }
+
+    /**
+     * Нужна ли проверка при входе. Новичку — всегда; only_new_players: false —
+     * всем; зарегистрированному — когда истёк срок прошлой проверки
+     * (recheck_hours, по умолчанию 24 ч) или включена перепроверка после рестарта.
+     */
+    public boolean checkRequired(UUID uuid, boolean registered) {
+        if (!registered || !onlyNewPlayers) {
+            return true;
+        }
+        return requiresRestartRecheck(uuid) || passes.expired(uuid);
     }
 
     public boolean isEnabled() {
@@ -2912,6 +2928,7 @@ public final class AntiBotService {
             });
         }
 
+        stageHint(player, st, stage);
         switch (stage) {
             case FALL:
                 sendMessage(player, "antibot_stage_fall", physicsRepetitions);
@@ -5990,11 +6007,74 @@ public final class AntiBotService {
         sendMathPrompt(player, st);
     }
 
+    /**
+     * Подсказка по центру экрана: «Проверка N/M» + что делать на этапе.
+     * На капче не показываем — там на экране сам код (antibot_captcha_title).
+     */
+    private void stageHint(Player p, CheckState st, Stage stage) {
+        if (!me.vorchun.registerplugin.util.ScreenHints.antibot() || p == null || st == null || stage == null
+                || stage == Stage.CAPTCHA) {
+            return;
+        }
+        MessageService ms = messages();
+        if (ms == null) {
+            return;
+        }
+        Map<String, String> ph = new HashMap<>();
+        putStageNum(ph, st);
+        String title = ms.message(p, "hint_stage_title", ph);
+        if (title == null || title.isEmpty()) {
+            return;
+        }
+        String sub = ms.message(p, "hint_stage_" + stage.name().toLowerCase(java.util.Locale.ROOT), ph);
+        me.vorchun.registerplugin.util.ScreenHints.show(p, "stage:" + st.stageIndex + ":" + stage, title, sub);
+    }
+
+    private static void quietly(Runnable r) {
+        try {
+            r.run();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Вечный день и без монстров в мире проверки. Имена правил менялись:
+     * doDaylightCycle/doMobSpawning (до 1.21.x) → advance_time/spawn_monsters (26.x).
+     * Раньше на 26.x правило не находилось — в мире шла ночь.
+     */
+    @SuppressWarnings("deprecation")
+    private static void setDayForever(World w) {
+        for (String rule : new String[]{"doDaylightCycle", "advance_time", "minecraft:advance_time"}) {
+            try {
+                if (w.setGameRuleValue(rule, "false")) {
+                    break;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        for (String rule : new String[]{"doMobSpawning", "spawn_monsters", "minecraft:spawn_monsters"}) {
+            try {
+                if (w.setGameRuleValue(rule, "false")) {
+                    break;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** {stage_num}/{stage_total} для текста этапа (раньше в math/secret их не было — игрок видел скобки). */
+    private void putStageNum(Map<String, String> ph, CheckState st) {
+        List<Stage> order = st.stages != null ? st.stages : stageOrder;
+        ph.put("stage_num", String.valueOf(st.stageIndex + 1));
+        ph.put("stage_total", String.valueOf(order.size()));
+    }
+
     private void sendMathPrompt(Player player, CheckState st) {
         MessageService ms = messages();
         Map<String, String> ph = new HashMap<>();
         ph.put("expr", st.mathExpr == null ? "?" : st.mathExpr);
-        String text = ms == null ? null : ms.message("antibot_stage_math", ph);
+        putStageNum(ph, st);
+        String text = ms == null ? null : ms.message(player, "antibot_stage_math", ph);
         if (text == null || text.isEmpty()) {
             text = "&eРеши пример и напиши ответ в чат: &f" + st.mathExpr;
         }
@@ -6050,7 +6130,8 @@ public final class AntiBotService {
         ph.put("command", st.secretExpected);
         ph.put("num", String.valueOf(st.secretDone + 1));
         ph.put("total", String.valueOf(secretCount));
-        String text = ms == null ? null : ms.message("antibot_stage_secret", ph);
+        putStageNum(ph, st);
+        String text = ms == null ? null : ms.message(player, "antibot_stage_secret", ph);
         player.sendMessage(text == null || text.isEmpty()
                 ? "&eНапиши в чат точно: &f" + st.secretExpected : text);
         st.promptShownAt = System.currentTimeMillis();
@@ -6209,6 +6290,8 @@ public final class AntiBotService {
     public void finishCheck(Player player) {
         UUID uuid = player.getUniqueId();
         CheckState st = checks.remove(uuid);
+        // Все этапы пройдены: отсюда считается срок до перепроверки (recheck_hours)
+        passes.mark(uuid);
         if (fallPackets != null) {
             fallPackets.stop(uuid);
         }
@@ -6492,6 +6575,12 @@ public final class AntiBotService {
         Player p = Bukkit.getPlayer(uuid);
         // IP снимаем ДО кика: после выхода адрес уже не достать надёжно
         String failIp = "";
+        try {
+            Bukkit.getPluginManager().callEvent(new me.vorchun.registerplugin.api.AntiBotFailEvent(
+                    uuid, p != null && p.isOnline() ? p : null, reason, evidence));
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AntiBotFailEvent: ошибка в чужом обработчике: " + t);
+        }
         if (p != null && p.isOnline()) {
             failIp = me.vorchun.registerplugin.util.IpUtil.getIp(plugin, p);
             restorePlayer(p, st);
@@ -6709,6 +6798,11 @@ public final class AntiBotService {
         return fastMode;
     }
 
+    /** Проходил ли игрок проверку с момента старта сервера (для API). */
+    public boolean hasPassedCheck(UUID uuid) {
+        return uuid != null && bootPassed.contains(uuid);
+    }
+
     public boolean isChecking(UUID uuid) {
         return checks.containsKey(uuid);
     }
@@ -6841,6 +6935,7 @@ public final class AntiBotService {
         // у остальных пропадал инвентарь, а onDisable не доходил до
         // сброса базы аккаунтов на диск.
         shuttingDown = true;
+        passes.saveNow();
         // незаконченные восстановления арен — сразу, пока плагин жив
         for (CheckState rs; (rs = restoreQueue.poll()) != null; ) {
             try {
@@ -6986,19 +7081,25 @@ public final class AntiBotService {
                 if (sec != st.lastPrepareSec) {
                     st.lastPrepareSec = sec;
                     sendMessage(p, "antibot_prepare", sec);
-                    try {
-                        p.sendTitle(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&eГотовься!"),
-                                org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                                        "&fПроверка через &a" + sec + " &fсек"),
-                                0, 25, 5);
-                    } catch (Throwable ignored) {
+                    MessageService pms = messages();
+                    Map<String, String> pph = new HashMap<>();
+                    pph.put("seconds", String.valueOf(sec));
+                    if (me.vorchun.registerplugin.util.ScreenHints.prepare() && pms != null) {
+                        // Отсчёт перед проверкой — тексты в lang (hint_prepare_*), не вшиты в код
+                        me.vorchun.registerplugin.util.ScreenHints.once(p,
+                                pms.message(p, "hint_prepare_title", pph), pms.message(p, "hint_prepare_subtitle", pph), 25);
                     }
                     if (st.bar != null) {
-                        st.bar.setTitle(toBarText("&eСтарт проверки через &f" + sec + " &eсек"));
+                        String barText = pms == null ? null : pms.message(p, "antibot_prepare_bar", pph);
+                        st.bar.setTitle(barText != null && !barText.isEmpty() ? barText
+                                : toBarText("&eСтарт проверки через &f" + sec + " &eсек"));
                         st.bar.setProgress(Math.max(0.02, (double) sec / Math.max(1, prepareSeconds)));
                     }
                 }
                 continue;
+            }
+            if (me.vorchun.registerplugin.util.ScreenHints.antibot()) {
+                stageHint(p, st, getCurrentStage(e.getKey())); // повторы — по screen_hints.refresh_seconds
             }
             if (st.stageDeadline > 0 && now > st.stageDeadline) {
                 // Таймаут — не доказательство (лаг, отошёл): кик без бана
@@ -8282,6 +8383,35 @@ public final class AntiBotService {
         return loc == null ? null : loc.clone();
     }
 
+    private final java.util.concurrent.atomic.AtomicBoolean platformBuildQueued =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * То же для асинхронного события спавна (Paper 1.21.9+, фаза configuration):
+     * мир здесь не трогаем. Платформа ещё не построена — заказываем постройку
+     * в главном потоке, а этого игрока ведёт обычный маршрут с телепортом.
+     */
+    public Location authPlatformSpotCached() {
+        if (!enabled || ServerCore.isFolia()) {
+            return null;
+        }
+        World w = verifyWorld != null ? verifyWorld : fallbackWorld;
+        if (w == null) {
+            return null;
+        }
+        Location loc = authPlatformLoc;
+        if (loc == null || loc.getWorld() != w) {
+            if (platformBuildQueued.compareAndSet(false, true)) {
+                Scheduler.runSync(plugin, () -> {
+                    platformBuildQueued.set(false);
+                    authPlatformSpotIfReady();
+                });
+            }
+            return null;
+        }
+        return loc.clone();
+    }
+
     /** Настоящая точка входа (игрок заспавнен сразу в мире проверки). */
     public void rememberReturn(UUID uuid, Location where) {
         if (uuid != null && where != null && where.getWorld() != null && !isCheckArea(where)) {
@@ -8336,22 +8466,23 @@ public final class AntiBotService {
                 w = creator.createWorld();
             }
             if (w != null) {
-                try {
-                    w.setAutoSave(false);
-                    // День навсегда + без непогоды — проверочный мир не тёмный
-                    w.setGameRuleValue("doDaylightCycle", "false");
-                    w.setTime(6000);
-                    w.setStorm(false);
-                    w.setThundering(false);
-                    // Спавн-чанки проверочного мира не нужны в памяти — экономия
-                    w.setKeepSpawnInMemory(false);
-                    // В пустом мире мобов нет, но лимиты зануляем на всякий случай
-                    w.setMonsterSpawnLimit(0);
-                    w.setAnimalSpawnLimit(0);
-                    w.setAmbientSpawnLimit(0);
-                    w.setWaterAnimalSpawnLimit(0);
-                } catch (Throwable ignored) {
-                }
+                // Каждый вызов — отдельно: на новых ядрах часть методов устарела
+                // (setKeepSpawnInMemory) или правила переименованы, и раньше одно
+                // исключение пропускало все остальные настройки, включая запрет мобов
+                final World fw = w;
+                quietly(() -> fw.setAutoSave(false));
+                // День навсегда + без непогоды — проверочный мир не тёмный, мобы не спавнятся
+                quietly(() -> setDayForever(fw));
+                quietly(() -> fw.setTime(6000));
+                quietly(() -> fw.setStorm(false));
+                quietly(() -> fw.setThundering(false));
+                // Спавн-чанки проверочного мира не нужны в памяти — экономия
+                quietly(() -> fw.setKeepSpawnInMemory(false));
+                // В пустом мире мобов нет, но лимиты зануляем на всякий случай
+                quietly(() -> fw.setMonsterSpawnLimit(0));
+                quietly(() -> fw.setAnimalSpawnLimit(0));
+                quietly(() -> fw.setAmbientSpawnLimit(0));
+                quietly(() -> fw.setWaterAnimalSpawnLimit(0));
                 verifyWorld = w;
                 // Лобби строится лениво (ensureLobby) — только если очередь
                 // реально нужна; мир сменился — старая постройка не наша
@@ -9244,7 +9375,7 @@ public final class AntiBotService {
         return sb.toString();
     }
 
-    private static final int READY = 967612787;
+    private static final int READY = 1448549759;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100e) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

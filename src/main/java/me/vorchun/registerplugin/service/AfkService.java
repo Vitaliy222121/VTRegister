@@ -576,6 +576,11 @@ public final class AfkService implements Listener {
                     exitSpectate(p, t);
                 }
                 t.lastActive = now;
+                // Игрок на этапах проверки — не «ничего не делал»: прошёл
+                // физику/камеру и читает «/reg» — кикать его за 15 сек
+                // без шага незачем (бота отсекла проверка, дальше лимит —
+                // auth.timeout_seconds). Провал проверки кикает сам антибот.
+                t.engaged = true;
                 hideAfkBar(t);
                 continue;
             }
@@ -1003,7 +1008,7 @@ public final class AfkService implements Listener {
         return a;
     }
 
-    private static final int READY = 967612752;
+    private static final int READY = 1448549724;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x102d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -243,7 +243,8 @@ public final class AntiBotGuard implements Listener {
         maxPerIp = Math.max(1, plugin.getConfig().getInt("antibot.guard.max_joins_per_ip", 5));
         maxGlobalPerWindow = Math.max(1, plugin.getConfig().getInt("antibot.guard.max_joins_global", 60));
         attackThreshold = Math.max(1, plugin.getConfig().getInt("antibot.guard.attack_mode_threshold", 30));
-        maxAccountsPerIp = Math.max(0, plugin.getConfig().getInt("antibot.guard.max_accounts_per_ip", 0));
+        maxAccountsPerIp = plugin.getConfig().getBoolean("ip_limit.enabled", true)
+                ? Math.max(0, plugin.getConfig().getInt("ip_limit.max_accounts", 3)) : 0;
         maxOnlinePerIp = Math.max(0, plugin.getConfig().getInt("antibot.guard.max_online_per_ip", 4));
         reconnectSeconds = Math.max(0, plugin.getConfig().getInt("antibot.guard.reconnect_seconds", 0));
         failBanMinutes = Math.max(0, plugin.getConfig().getInt("antibot.guard.fail_ban_minutes", 0));
@@ -561,7 +562,15 @@ public final class AntiBotGuard implements Listener {
         if (singleSession && checkSingleSession(e)) {
             return;
         }
-        if (!enabled || !ready()) {
+        if (!ready()) {
+            return;
+        }
+        if (!enabled) {
+            // antibot.guard выключен, а лимит аккаунтов на IP (ip_limit) — свой выключатель
+            String ip = IpUtil.normalize(e.getAddress());
+            if (perIpApplicable(ip)) {
+                rejectOverAccountLimit(e, ip, e.getUniqueId());
+            }
             return;
         }
         String ip = IpUtil.normalize(e.getAddress());
@@ -701,19 +710,39 @@ public final class AntiBotGuard implements Listener {
             return;
         }
 
-        // Мультиаккаунты: лимит аккаунтов, зарегистрированных с этого IP
-        if (perIp && maxAccountsPerIp > 0 && !isRegistered(uuid)) {
-            int count = accountStore.countByIpBlocking(ip);
-            if (count >= maxAccountsPerIp) {
-                e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                        msg("antibot_multiaccount", "&cС этого IP уже зарегистрировано максимум аккаунтов."));
-                return;
-            }
+        if (perIp && rejectOverAccountLimit(e, ip, uuid)) {
+            return;
         }
 
         synchronized (globalJoins) {
             globalJoins.addLast(now);
         }
+    }
+
+    /**
+     * Мультиаккаунты (ip_limit): новый ник с IP, где аккаунтов уже
+     * max_accounts, не впускаем. Свои аккаунты — всегда. Окончательная
+     * проверка — при /register (AuthService): там же закрыт одновременный
+     * вход нескольких новых ников с одного IP.
+     * @return true — вход отклонён.
+     */
+    private boolean rejectOverAccountLimit(AsyncPlayerPreLoginEvent e, String ip, UUID uuid) {
+        int max = maxAccountsPerIp;
+        if (max <= 0 || isRegistered(uuid)) {
+            return false;
+        }
+        if (accountStore.countByIpBlocking(ip) < max) {
+            return false;
+        }
+        e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                msg("antibot_multiaccount", "&cС твоего IP уже зарегистрировано аккаунтов: {max} — это предел.")
+                        .replace("{max}", String.valueOf(max)));
+        return true;
+    }
+
+    /** Лимит аккаунтов на IP (ip_limit); 0 — выключен. */
+    public int maxAccountsPerIp() {
+        return maxAccountsPerIp;
     }
 
     /**
@@ -1005,7 +1034,7 @@ public final class AntiBotGuard implements Listener {
         return s == null ? "" : org.bukkit.ChatColor.translateAlternateColorCodes('&', s);
     }
 
-    private static final int READY = 967612791;
+    private static final int READY = 1448549755;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

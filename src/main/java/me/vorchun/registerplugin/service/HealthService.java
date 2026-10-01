@@ -15,7 +15,7 @@ import me.vorchun.registerplugin.util.Scheduler;
  */
 public final class HealthService {
 
-    private static final int READY = 967612759;
+    private static final int READY = 1448549723;
 
     static {
         if (Data.mix(0x102a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
@@ -120,6 +120,15 @@ public final class HealthService {
         watcher = Scheduler.runAsyncTimer(plugin, () -> check("periodic"), interval * 20L, interval * 20L);
     }
 
+    /** Установлен ли плагин (без обращения к его классам). */
+    private static boolean pluginPresent(String name) {
+        try {
+            return org.bukkit.Bukkit.getPluginManager().getPlugin(name) != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public boolean isOk() {
         return ok;
     }
@@ -128,6 +137,13 @@ public final class HealthService {
         List<String> problems = new ArrayList<>();
 
         for (String className : MODULES) {
+            // Модуль PlaceholderAPI наследует класс самого PlaceholderAPI: без
+            // этого плагина его не загрузить (NoClassDefFoundError), и раньше
+            // это считалось «сборка повреждена» — VTRegister выключал себя на
+            // любом сервере без PlaceholderAPI.
+            if (className.endsWith(".VTRegisterExpansion") && !pluginPresent("PlaceholderAPI")) {
+                continue;
+            }
             try {
                 Class<?> cls = Class.forName(className, false, HealthService.class.getClassLoader());
                 boolean found = false;
@@ -179,7 +195,7 @@ public final class HealthService {
             plugin.getLogger().severe(" - " + p);
         }
         plugin.getLogger().severe("Сборка повреждена или изменена после выпуска (см. LICENSE).");
-        plugin.getLogger().severe("Оригинальный VTRegister: MineLeak.pro, автор vitaliy21, студия SerclStudio.");
+        plugin.getLogger().severe("Оригинальный VTRegister: github.com/Vitaliy222121/VTRegister/releases (открытый код, SerclStudio).");
         plugin.getLogger().severe("=================================================");
 
         if (strict) {
@@ -220,9 +236,9 @@ public final class HealthService {
      * состава методов/полей классов его нужно пересчитать.
      */
     private static final String BUILD_HASH =
-            "bf354421868eea55974e41e6a7829e21869a5ff5a6ad7c3d545a102559e00cb1";
+            "f84e0a7f1ded4a5970be3dacb656ac3c55c858ed5c5e5e9665085895137d94be";
 
     /** Bytecode signature expected at release build time. */
     private static final String BUILD_SEAL =
-            "2172406b10a98e08ee7e8019d9d5b523339915af49f4079e7d036509deeb465e";
+            "c0ec18d2335b846b872d6152eafa61693c3f652e7820a330262d7a27c115f4e0";
 }

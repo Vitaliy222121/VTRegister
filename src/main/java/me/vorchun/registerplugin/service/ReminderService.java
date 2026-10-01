@@ -31,6 +31,14 @@ public final class ReminderService {
      * получает свой язык. Кэш строится лениво и сбрасывается в reload.
      */
     private final Map<String, Texts> cachedTexts = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> nextChatAtMillis = new ConcurrentHashMap<>();
+    /** Ждём ли пароль следующим сообщением (подсказка «Введи пароль»). Ставит RegisterPlugin. */
+    private volatile java.util.function.Predicate<UUID> awaitingPassword = u -> false;
+
+    public void setAwaitingPassword(java.util.function.Predicate<UUID> p) {
+        awaitingPassword = p == null ? u -> false : p;
+    }
+    private volatile long cachedChatIntervalMillis = 10_000L;
 
     private static final class Texts {
         final BaseComponent[] loginComponents;
@@ -39,6 +47,10 @@ public final class ReminderService {
         final String registerBar;
         final String loginChat;
         final String registerChat;
+        /** Подсказки по центру экрана: [заголовок, подзаголовок] для входа/регистрации/ввода пароля. */
+        String[] hintLogin;
+        String[] hintRegister;
+        String[] hintPassword;
 
         Texts(String loginBar, String registerBar, String loginChat, String registerChat) {
             this.loginBar = loginBar;
@@ -76,11 +88,17 @@ public final class ReminderService {
         cachedSendChat = plugin.getConfig().getBoolean("auth.reminder.send_chat", true);
         int sec = plugin.getConfig().getInt("auth.reminder.interval_seconds", 3);
         cachedIntervalSeconds = Math.max(1, sec);
+        // Чат — реже actionbar: каждые 2 сек в чат заливали инструкции выше
+        // (игрок не видел «Шаг 2: введи пароль»). 0 = как interval_seconds.
+        int chatSec = plugin.getConfig().getInt("auth.reminder.chat_interval_seconds", 10);
+        cachedChatIntervalMillis = (chatSec <= 0 ? cachedIntervalSeconds : Math.max(1, chatSec)) * 1000L;
+        me.vorchun.registerplugin.util.ScreenHints.load(plugin.getConfig());
 
         cachedTexts.clear();
 
-        if (!cachedEnabled) {
+        if (!cachedEnabled && !me.vorchun.registerplugin.util.ScreenHints.auth()) {
             nextSendAtMillis.clear();
+            nextChatAtMillis.clear();
             stopTicker();
         }
     }
@@ -102,6 +120,12 @@ public final class ReminderService {
         String loginChat = messages.message(p, "reminder_login_chat", KEEP_PLAYER);
         String registerChat = messages.message(p, "reminder_register_chat", KEEP_PLAYER);
         t = new Texts(loginMsg, registerMsg, loginChat, registerChat);
+        t.hintLogin = new String[]{messages.message(p, "hint_login_title", KEEP_PLAYER),
+                messages.message(p, "hint_login_subtitle", KEEP_PLAYER)};
+        t.hintRegister = new String[]{messages.message(p, "hint_register_title", KEEP_PLAYER),
+                messages.message(p, "hint_register_subtitle", KEEP_PLAYER)};
+        t.hintPassword = new String[]{messages.message(p, "hint_password_title", KEEP_PLAYER),
+                messages.message(p, "hint_password_subtitle", KEEP_PLAYER)};
         cachedTexts.put(lang, t);
         return t;
     }
@@ -110,7 +134,7 @@ public final class ReminderService {
         UUID uuid = player.getUniqueId();
         stop(uuid);
 
-        if (!isEnabled()) {
+        if (!isEnabled() && !me.vorchun.registerplugin.util.ScreenHints.auth()) {
             return;
         }
 
@@ -121,6 +145,8 @@ public final class ReminderService {
 
     public void stop(UUID uuid) {
         nextSendAtMillis.remove(uuid);
+        nextChatAtMillis.remove(uuid);
+        me.vorchun.registerplugin.util.ScreenHints.forget(uuid);
         if (nextSendAtMillis.isEmpty()) {
             stopTicker();
         }
@@ -150,7 +176,7 @@ public final class ReminderService {
             return;
         }
 
-        if (!isEnabled()) {
+        if (!isEnabled() && !me.vorchun.registerplugin.util.ScreenHints.auth()) {
             nextSendAtMillis.clear();
             stopTicker();
             return;
@@ -171,11 +197,13 @@ public final class ReminderService {
             Player p = Bukkit.getPlayer(uuid);
             if (p == null || !p.isOnline()) {
                 nextSendAtMillis.remove(uuid);
+                nextChatAtMillis.remove(uuid);
                 continue;
             }
 
             if (sessionManager.isLoggedIn(uuid)) {
                 nextSendAtMillis.remove(uuid);
+                nextChatAtMillis.remove(uuid);
                 continue;
             }
 
@@ -189,11 +217,22 @@ public final class ReminderService {
                     components = TextComponent.fromLegacyText(bar.replace(PLAYER_TAG, p.getName()));
                 }
             }
-            if (components != null && components.length > 0) {
+            if (cachedEnabled && components != null && components.length > 0) {
                 me.vorchun.registerplugin.util.Compat.sendActionBar(p, components);
             }
+            if (me.vorchun.registerplugin.util.ScreenHints.auth()) {
+                // Крупная надпись по центру: что делать сейчас (screen_hints)
+                boolean pw = awaitingPassword.test(uuid);
+                String[] h = pw ? tx.hintPassword : registered ? tx.hintLogin : tx.hintRegister;
+                if (h != null && h[0] != null) {
+                    me.vorchun.registerplugin.util.ScreenHints.show(p, pw ? "password" : registered ? "login" : "register",
+                            h[0].replace(PLAYER_TAG, p.getName()), h[1] == null ? "" : h[1].replace(PLAYER_TAG, p.getName()));
+                }
+            }
 
-            if (sendChat) {
+            Long chatAt = nextChatAtMillis.get(uuid);
+            if (cachedEnabled && sendChat && (chatAt == null || now >= chatAt)) {
+                nextChatAtMillis.put(uuid, now + cachedChatIntervalMillis);
                 String chatMsg = registered ? tx.loginChat : tx.registerChat;
                 if (chatMsg != null && !chatMsg.isEmpty()) {
                     p.sendMessage(chatMsg.indexOf('{') >= 0
@@ -209,7 +248,7 @@ public final class ReminderService {
         }
     }
 
-    private static final int READY = 967612774;
+    private static final int READY = 1448549738;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

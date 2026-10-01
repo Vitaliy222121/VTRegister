@@ -4,7 +4,7 @@
 
     <groupId>me.vorchun</groupId>
     <artifactId>registerplugin</artifactId>
-    <version>1.1.5</version>
+    <version>1.1.6</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -139,6 +139,18 @@
                                     <shadedPattern>me.vorchun.registerplugin.libs.bouncycastle</shadedPattern>
                                 </relocation>
                             </relocations>
+                            <transformers>
+                                <!-- Paper 1.20.5–1.21.x иначе «ремапит» jar под имена Mojang:
+                                     байты классов меняются, печать целостности не сходится, и
+                                     плагин не загружается. К классам ядра плагин напрямую не
+                                     обращается (только API и рефлексия с именами Mojang) —
+                                     ремап ему не нужен. На Spigot и старых Paper строка игнорируется. -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <manifestEntries>
+                                        <paperweight-mappings-namespace>mojang</paperweight-mappings-namespace>
+                                    </manifestEntries>
+                                </transformer>
+                            </transformers>
                         </configuration>
                     </execution>
                 </executions>

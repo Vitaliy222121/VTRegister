@@ -78,6 +78,7 @@ public final class AccountStore {
     });
     private Scheduler.Task flusher;
     private Scheduler.Task reopener;
+    private Scheduler.Task purger;
     private final Lifecycle lifecycle = new Lifecycle();
     private boolean lifecycleRegistered;
 
@@ -113,6 +114,7 @@ public final class AccountStore {
         backupDataFile();
         if (!storageDown) {
             migrateLegacyYamlIfNeeded();
+            migrateYamlBackendIfNeeded();
         }
         long flushTicks = Math.max(10L, plugin.getConfig().getLong("maintenance.flush_interval_ticks", 40L));
         // Таймер только ставит задачу в io: запись и удаление идут строго по очереди
@@ -122,6 +124,7 @@ public final class AccountStore {
                 submitIo(this::tryReopen);
             }
         }, 200L, 200L);
+        schedulePurge();
         if (!lifecycleRegistered) {
             lifecycleRegistered = true;
             Bukkit.getPluginManager().registerEvents(lifecycle, plugin);
@@ -145,6 +148,7 @@ public final class AccountStore {
             readBackoffUntil = 0L;
             plugin.getLogger().info("Хранилище " + b.name() + " снова доступно — вход открыт");
             migrateLegacyYamlIfNeeded();
+            migrateYamlBackendIfNeeded();
         } catch (Throwable ignored) {
             // причина уже в логе со старта; не спамим раз в 10 секунд
         }
@@ -246,6 +250,7 @@ public final class AccountStore {
         s.poolSize = plugin.getConfig().getInt("storage.pool_size", 4);
         s.useSsl = plugin.getConfig().getBoolean("storage.ssl", false);
         s.sqliteFile = plugin.getConfig().getString("storage.sqlite_file", "accounts.db");
+        s.sqliteBusyMs = plugin.getConfig().getInt("storage.sqlite_busy_timeout_ms", 5000);
         return new SqlStorage(s, dataDir, plugin.getLogger());
     }
 
@@ -283,6 +288,58 @@ public final class AccountStore {
         });
     }
 
+    /**
+     * Смена storage.type с yaml на sqlite/mysql/…: новая база пуста, а аккаунты
+     * лежат в data/accounts.yml — без переноса все игроки стали бы
+     * «незарегистрированными». Переносим, ТОЛЬКО если новая база пустая
+     * (повторно не дублируем), пачками; старый файл не удаляем —
+     * переименовываем в accounts.yml.migrated.
+     */
+    private void migrateYamlBackendIfNeeded() {
+        if (backend instanceof YamlStorage) {
+            return;
+        }
+        File dir = dataFolder(plugin);
+        File yaml = new File(dir, "accounts.yml");
+        if (!yaml.exists()) {
+            return;
+        }
+        io.execute(() -> {
+            try {
+                if (backend.count() > 0) {
+                    plugin.getLogger().warning("В " + backend.name() + " уже есть аккаунты — data/accounts.yml не переношу "
+                            + "автоматически. Добавить недостающие: /authadmin import");
+                    return;
+                }
+                YamlStorage y = new YamlStorage(dir, plugin.getLogger());
+                y.open();
+                java.util.List<AccountRecord> batch = new java.util.ArrayList<>();
+                int n = 0;
+                for (AccountRecord r : y.loadAll()) {
+                    batch.add(r);
+                    if (batch.size() >= 500) {
+                        backend.saveBatch(batch);
+                        n += batch.size();
+                        batch.clear();
+                    }
+                }
+                if (!batch.isEmpty()) {
+                    backend.saveBatch(batch);
+                    n += batch.size();
+                }
+                y.close();
+                knownUnregistered.clear(); // до переноса эти UUID числились «без аккаунта»
+                File moved = new File(dir, "accounts.yml.migrated");
+                boolean renamed = yaml.renameTo(moved);
+                plugin.getLogger().info("Смена хранилища: перенесено аккаунтов из data/accounts.yml в "
+                        + backend.name() + ": " + n + (renamed ? ". Старый файл — data/accounts.yml.migrated" : ""));
+            } catch (Throwable t) {
+                plugin.getLogger().warning("Перенос data/accounts.yml в " + backend.name() + " не удался: " + t.getMessage()
+                        + " — выполни /authadmin import");
+            }
+        });
+    }
+
     /** Синхронно дописать всё и закрыть — вызывать только из onDisable. */
     public void shutdown() {
         if (flusher != null) {
@@ -292,6 +349,10 @@ public final class AccountStore {
         if (reopener != null) {
             reopener.cancel();
             reopener = null;
+        }
+        if (purger != null) {
+            purger.cancel();
+            purger = null;
         }
         submitIo(this::flushDirty);
         io.shutdown();
@@ -574,6 +635,22 @@ public final class AccountStore {
         });
     }
 
+    /**
+     * Подсчёт для лимита при регистрации: в IO-потоке ПОСЛЕ сброса
+     * несохранённых записей — только что созданные аккаунты тоже в счёте.
+     * Блокирующий — только из фоновых потоков. Сбой — 0 (вход не ломаем).
+     */
+    public int countByIpFlushed(String ip) {
+        try {
+            return io.submit(() -> {
+                flushDirty();
+                return backend == null ? 0 : backend.countByRegisteredIp(ip);
+            }).get(10, TimeUnit.SECONDS);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     /** Блокирующий подсчёт — только из фоновых потоков (pre-login). */
     public int countByIpBlocking(String ip) {
         try {
@@ -606,6 +683,66 @@ public final class AccountStore {
             final Collection<AccountRecord> out = res;
             Scheduler.runSync(plugin, () -> callback.accept(out));
         });
+    }
+
+    /**
+     * Автоочистка (advanced.yml → purge, по умолчанию ВЫКЛ): удаляет аккаунты без
+     * входа purge.inactive_days дней. Не трогает игроков онлайн, аккаунты с почтой
+     * или 2FA (по настройке) и записи без даты. Первый проход — через 10 минут
+     * после старта, дальше раз в check_hours; всё в IO-потоке, главный не ждёт.
+     */
+    private void schedulePurge() {
+        if (purger != null) {
+            purger.cancel();
+            purger = null;
+        }
+        if (!plugin.getConfig().getBoolean("purge.enabled", false)) {
+            return;
+        }
+        long hours = Math.max(1, plugin.getConfig().getInt("purge.check_hours", 24));
+        purger = Scheduler.runAsyncTimer(plugin, () -> submitIo(this::purgeInactive), 12_000L, hours * 72_000L);
+    }
+
+    private void purgeInactive() {
+        AccountStorage b = backend;
+        if (storageDown || b == null) {
+            return;
+        }
+        int days = Math.max(30, plugin.getConfig().getInt("purge.inactive_days", 180));
+        boolean keepEmail = plugin.getConfig().getBoolean("purge.keep_with_email", true);
+        boolean keep2fa = plugin.getConfig().getBoolean("purge.keep_with_2fa", true);
+        long cutoff = System.currentTimeMillis() - days * 86_400_000L;
+        java.util.List<UUID> victims = new java.util.ArrayList<>();
+        try {
+            for (int offset = 0; ; offset += 1000) {
+                Collection<AccountRecord> page = b.list(offset, 1000);
+                if (page == null || page.isEmpty()) {
+                    break;
+                }
+                for (AccountRecord r : page) {
+                    long last = r.getLastAuthMillis() > 0 ? r.getLastAuthMillis() : r.getRegisteredAt();
+                    if (last <= 0 || last >= cutoff || active.contains(r.getUuid()) || cache.containsKey(r.getUuid())) {
+                        continue;
+                    }
+                    if (keepEmail && r.getEmail() != null && !r.getEmail().isEmpty()) {
+                        continue;
+                    }
+                    if (keep2fa && r.getTotpSecret() != null && !r.getTotpSecret().isEmpty()) {
+                        continue;
+                    }
+                    victims.add(r.getUuid());
+                }
+                if (page.size() < 1000) {
+                    break;
+                }
+            }
+            b.deleteBatch(victims);
+            if (!victims.isEmpty()) {
+                plugin.getLogger().info("Автоочистка: удалено аккаунтов без входа больше " + days + " дн.: " + victims.size());
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Автоочистка аккаунтов: " + t.getMessage());
+        }
     }
 
     /** Выполнить произвольную работу с бэкендом в IO-потоке (импорт/экспорт). */
@@ -879,7 +1016,7 @@ public final class AccountStore {
         return Collections.unmodifiableMap(new java.util.HashMap<>(cache));
     }
 
-    private static final int READY = 967612784;
+    private static final int READY = 1448549756;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

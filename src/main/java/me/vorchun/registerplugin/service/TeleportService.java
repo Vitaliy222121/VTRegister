@@ -4,6 +4,7 @@ package me.vorchun.registerplugin.service;
 
 import me.vorchun.registerplugin.RegisterPlugin;
 import me.vorchun.registerplugin.util.Scheduler;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -475,13 +476,20 @@ public final class TeleportService implements PluginMessageListener {
         }
         String p = proxyProblem;
         if (p == null && !proxyMode) {
-            // Адрес 127.x/10.x/192.168.x у игрока при выключенном прокси-режиме —
-            // почти всегда прокси на той же машине/в той же сети без настройки.
+            // Прокси без переадресации: у РАЗНЫХ игроков один и тот же адрес
+            // 127.x/10.x/192.168.x (адрес прокси). Один игрок с такого адреса —
+            // это владелец через localhost или друг по LAN/ZeroTier, не прокси:
+            // раньше на него каждую минуту сыпалась ошибка в консоль.
+            Map<String, String> seen = new HashMap<>();
             for (Player pl : Bukkit.getOnlinePlayers()) {
                 java.net.InetSocketAddress a = pl.getAddress();
                 java.net.InetAddress ia = a == null ? null : a.getAddress();
-                if (ia != null && (ia.isLoopbackAddress() || ia.isSiteLocalAddress())) {
-                    p = "Игрок " + pl.getName() + " зашёл с адреса " + ia.getHostAddress()
+                if (ia == null || !(ia.isLoopbackAddress() || ia.isSiteLocalAddress())) {
+                    continue;
+                }
+                String first = seen.putIfAbsent(ia.getHostAddress(), pl.getName());
+                if (first != null) {
+                    p = "Игроки " + first + " и " + pl.getName() + " зашли с одного адреса " + ia.getHostAddress()
                             + " — похоже, сервер стоит за прокси (Velocity/BungeeCord), но прокси-режим "
                             + "не настроен. Включи переадресацию: Velocity — paper.yml settings.velocity-support "
                             + "(Paper ≤1.18.2) или config/paper-global.yml proxies.velocity (1.19+); "
@@ -1094,7 +1102,7 @@ public final class TeleportService implements PluginMessageListener {
         return proxyType;
     }
 
-    private static final int READY = 967612770;
+    private static final int READY = 1448549742;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

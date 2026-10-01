@@ -35,6 +35,24 @@ Authentication
 | `auth.reminder.enabled` | `true` | reminders (ActionBar) until the player logs in |
 | `auth.reminder.interval_seconds` | `2` | how often |
 | `auth.reminder.send_chat` | `true` | also send them to chat |
+| `auth.reminder.chat_interval_seconds` | `10` | How often to repeat the reminder in chat (seconds); 0 = same as interval_seconds |
+
+### `screen_hints`
+
+Hints in the middle of the screen: what the player should do right now — register, log in, type the password, pass a check stage. For those who do not read chat. Texts are in lang/ru.yml and lang/en.yml (hint_* keys)
+
+| Setting | Default | What it does |
+|---|---|---|
+| `screen_hints.enabled` | `true` | master switch for all on-screen hints |
+| `screen_hints.auth` | `true` | registration / login / "type your password" |
+| `screen_hints.antibot` | `true` | anti-bot check stages: "Check 1/2 — what to do" |
+| `screen_hints.prepare` | `true` | the "Get ready!" countdown before the check |
+| `screen_hints.done` | `true` | "Done!" after logging in |
+| `screen_hints.stay_seconds` | `3` | how many seconds the text stays on screen (1–30) |
+| `screen_hints.refresh_seconds` | `3` | how often to show it again until the step is done (0 — once) |
+| `screen_hints.max_repeats` | `0` | how many times to show one hint (0 — until the step is done) |
+| `screen_hints.fade_in_ticks` | `8` | fade-in in ticks (20 = 1 s); repeats appear without blinking |
+| `screen_hints.fade_out_ticks` | `10` | fade-out in ticks |
 
 ### `password`
 
@@ -47,6 +65,15 @@ Passwords
 | `password.enforce_strength` | `true` | check strength (different character types) |
 | `password.allow_easy_passwords` | `false` | Allow passwords from easy-passwords.yml (even simple/short ones) |
 | `password.require_confirm` | `false` | Ask to repeat the password on registration/change (secure mode) |
+
+### `ip_limit`
+
+Account limit per IP. Protection against multi-accounts and bots: no more than max_accounts accounts per IP (counts accounts created from this IP or last joined from it). A new nickname over the limit is refused on join and on /register; existing accounts can always log in. Does not work behind a proxy without real-IP forwarding (everyone has the same address). Mobile internet often gives one IP to many people — if newcomers complain about being refused, raise max_accounts
+
+| Setting | Default | What it does |
+|---|---|---|
+| `ip_limit.enabled` | `true` | turn the limit on |
+| `ip_limit.max_accounts` | `3` | how many accounts are allowed per IP |
 
 ### `security`
 
@@ -76,8 +103,8 @@ Security
 | `security.max_trusted_ips` | `3` | How many trusted IPs to keep per account |
 | `security.pbkdf2_iterations` | `200000` | PBKDF2 iterations (50000–2000000). More = stronger but slightly slower login |
 | `security.hash_algorithm` | `"argon2id"` | Password hashing algorithm: argon2id (recommended) \| pbkdf2 |
-| `security.argon2_memory_kib` | `65536` | Argon2id parameters: memory in KiB (65536 = 64 MB), iterations, threads |
-| `security.argon2_iterations` | `3` | Argon2id passes (more = stronger and slower) |
+| `security.argon2_memory_kib` | `19456` | Argon2id parameters: memory in KiB, iterations, threads. Default is the OWASP recommendation (19456 KiB = 19 MB, 2 passes): ~45 ms of CPU per login and little garbage for the GC — the server does not stutter when many players join at once. Stricter: 65536 and 3 (about 5x heavier). Old hashes with other parameters keep working. |
+| `security.argon2_iterations` | `2` | Argon2id passes (more = stronger and slower) |
 | `security.argon2_parallelism` | `1` | Argon2id threads per hash |
 | `security.password_pepper` | `""` | Secret additive (pepper). ⚠️ Changing/removing it breaks existing passwords! |
 | `security.admin_setpw_timeout_seconds` | `30` | Timeout for the new password in /authadmin setpw (seconds) |
@@ -102,11 +129,12 @@ Multi-stage anti-bot check. The player goes to a separate EMPTY world (zero load
 | Setting | Default | What it does |
 |---|---|---|
 | `antibot.enabled` | `true` | main anti-bot switch |
-| `antibot.fast_mode` | `false` | SIMPLE SETUP — these lines are usually enough. Fast anti-bot mode: false (default) — normal mode: queue (queue_mode), the "take a step" test (afk_first), stages from stages below; true — the check starts RIGHT on join: no queues, no afk_first, no lobby; stages from fast_stages. Minimal waiting for the player |
-| `antibot.fast_stages` | `[fall, puzzle, block]` | Fast-mode stages in order. Choose from: fall (fall physics), camera (camera turn), slots (slots + camera jolts), captcha (code), click (click a message), puzzle (remove extra pictures), math (example), secret (cheat-command test), block (path + chest + break a block). 2–3 stages ≈ 30–60 s for a human. Empty [] — use stages below |
+| `antibot.fast_mode` | `true` | SIMPLE SETUP — these lines are usually enough. Fast anti-bot mode: true (default) — the check starts RIGHT on join: no queues, no afk_first, no lobby; stages from fast_stages. Minimal waiting for the player and minimal server load; false — regular mode: queue (queue_mode), the "take a step" test (afk_first), stages from stages below |
+| `antibot.fast_stages` | `[fall, puzzle]` | Fast-mode stages in order. Choose from: fall (fall physics), camera (camera turn), slots (slots + camera jolts), captcha (code), click (click a message), puzzle (remove extra pictures), math (example), secret (cheat-command test), block (path + chest + break a block), air_captcha (block code in the air). Default physics + puzzle ≈ 30–40 s for a human. Empty [] — use stages below |
 | `antibot.fast_max_concurrent` | `50` | How many players are checked at once (each has their own arena in the empty world). Others wait in place with a bossbar timer — no lobby |
-| `antibot.only_new_players` | `true` | ADVANCED SETTINGS BELOW. Check only new players (no account yet). false — everyone |
-| `antibot.world_name` | `"auth_verify"` | Check world (created automatically; on Folia create it manually) |
+| `antibot.recheck_hours` | `24` | Re-check of regular players: an already registered player passes the check again on join if this many hours passed since the last one (24–48 is reasonable). Protects against "sleeping" bot accounts. Players online longer than that are not kicked — the check happens on their next join. 0 — never re-check regular players |
+| `antibot.only_new_players` | `true` | Check only new players (no account yet) — regular players are re-checked by the recheck_hours period. false — everyone on every join |
+| `antibot.world_name` | `"auth_verify"` | Check world (created automatically; the staged check does not run on Folia) |
 | `antibot.empty_inventory` | `true` | During the check AND in the queue lobby real items go to a stash (with a copy in plugins/<plugin>/stash/ in case of a crash) and come back on any exit. false — the player keeps their items in the lobby, a PvP death drops nothing |
 | `antibot.restore_player_state` | `true` | Restore the player's game mode/flight after the check |
 | `antibot.max_concurrent_checks` | `8` | Limit of simultaneous checks — the rest wait in the queue |
@@ -183,7 +211,7 @@ Multi-stage anti-bot check. The player goes to a separate EMPTY world (zero load
 | `antibot.stages.math` | `false` | an example on screen/in chat (off by default) |
 | `antibot.stages.secret` | `false` | cheat-command test (.bind/#help/...) — off by default |
 | `antibot.stages.air_captcha` | `false` | sky captcha: turn the camera → a code of blocks appears → type it in chat |
-| `antibot.stages.block` | `true` | final stage: random path, break a block, pick it up |
+| `antibot.stages.block` | `false` | path + chest + break a block and pick it up — off by default |
 | `antibot.lobby_item_clean_seconds` | `60` | Clear dropped items in the queue lobby every N seconds (0 = off) |
 | **`antibot.timeouts`** | — | Stage timeouts (seconds) |
 | `antibot.timeouts.fall` | `45` | for the whole fall stage (with 5 repetitions — at least 45) |
@@ -287,7 +315,7 @@ Multi-stage anti-bot check. The player goes to a separate EMPTY world (zero load
 | **`antibot.slot_lock`** | — | Forbid moving items during the check |
 | `antibot.slot_lock.enabled` | `true` | turn the restriction on |
 | `antibot.slot_lock.kick_after` | `5` | violations before a kick |
-| `antibot.recheck_on_restart` | `true` | After a server RESTART every player (even old accounts) must pass the anti-bot check again. false = a restart does not reset it |
+| `antibot.recheck_on_restart` | `false` | true — after a server RESTART every player (even old accounts) passes the anti-bot check again: protection against "sleeping" bot accounts. false (default) — regular players are re-checked only by the recheck_hours period (above), not after every restart |
 | `antibot.slime_extra_seconds` | `8` | SLIME: extra seconds for the bounce (fly up + land + stop). Margin for ping and client lag |
 | `antibot.puzzle_sign_lines` | `["&6&lПАЗЛ", "прямо перед тобой", "убери &cлишние&r предметы", "&aостальное не трогай"]` | Sign text in front of the player on the puzzle stage (4 lines, &-colors) |
 | `antibot.fall_void_max` | `3` | VOID on the FALL stage: message + forced retry. Falls allowed before a kick |
@@ -337,13 +365,12 @@ Multi-stage anti-bot check. The player goes to a separate EMPTY world (zero load
 | `antibot.bans.permanent` | `false` | a PERMANENT ban after the last tier (off by default) |
 | `antibot.bans.free_fails` | `2` | How many first PROVEN fails only kick (a human might make a mistake). The IP ban starts at fail (free_fails+1): with 2 — the third fail = 1 min, then 5, 15… Timeouts (lag) and AFK NEVER ban |
 | `antibot.bans.forget_after_hours` | `24` | after this many hours without new fails the tier resets |
-| **`antibot.guard`** | — |  |
+| **`antibot.guard`** | — | Pre-join guard: join limits per IP and globally, attack mode, name filter, account and online limits per IP |
 | `antibot.guard.enabled` | `true` | join guard (per-IP and global join limits, attack mode, name filter) |
 | `antibot.guard.window_seconds` | `60` | connection counting window |
 | `antibot.guard.max_joins_per_ip` | `5` | maximum joins from one IP per window |
 | `antibot.guard.max_joins_global` | `60` | maximum joins to the whole server per window |
 | `antibot.guard.attack_mode_threshold` | `30` | this many joins turns on attack mode |
-| `antibot.guard.max_accounts_per_ip` | `0` | account limit per IP (0 = no limit) |
 | `antibot.guard.reconnect_seconds` | `0` | >0 — in attack mode ask players to reconnect |
 | `antibot.guard.fail_ban_minutes` | `0` | (only with bans.mode: off) IP ban after a failed check, minutes |
 | `antibot.guard.max_online_per_ip` | `4` | Online at the same time from one IP — only for NEW accounts (0 = no limit). Proxy IPs are not limited |
@@ -391,7 +418,7 @@ Info bossbar #3 (ads/donations/message rotation)
 | `info_bar.enabled` | `true` | turn the info bossbar on/off |
 | `info_bar.interval_seconds` | `8` | message rotation |
 | `info_bar.color` | `"PURPLE"` | info bossbar color |
-| `info_bar.messages` | `["&dДобро пожаловать! Пройди проверку и войди.", "&bДонат и инфо: &fmineleak.pro", "&6Оцени VTRegister 5 звёзд на MineLeak.pro — мы читаем отзывы!", "&eЕсть идея для плагина? Предложи её на MineLeak.pro!"]` | Info bossbar messages in turn |
+| `info_bar.messages` | `["&dДобро пожаловать! Пройди проверку и войди.", "&bРегистрация: &f/reg&b, вход: &f/login", "&6Пароль вводится в чат и не попадает в логи сервера", "&eНикому не сообщай свой пароль — даже администрации"]` | Info bossbar messages in turn |
 
 ### `twofactor`
 
@@ -483,7 +510,7 @@ Shared blacklist between servers: partner servers exchange ban lists, so a bot o
 | `global_blacklist.ignore_private_ips` | `true` | never block local addresses (127.x, 10.x, 192.168.x) |
 | `global_blacklist.max_entries_per_peer` | `50000` | protection against a "bloated" partner list |
 | `global_blacklist.pull_interval_seconds` | `60` | how often to fetch partner lists |
-| **`global_blacklist.publish`** | — |  |
+| **`global_blacklist.publish`** | — | Publish this server's bans to partner servers (opens an HTTP port protected by a token) |
 | `global_blacklist.publish.enabled` | `false` | share your list with partners |
 | `global_blacklist.publish.bind` | `"0.0.0.0"` | address to listen on |
 | `global_blacklist.publish.port` | `8765` | port (open it in your host's firewall) |
@@ -552,6 +579,14 @@ State watchdog: watches for replaced commands/listeners and plugin disabling. By
 | `selfdefense.max_tamper_strikes` | `3` | how many detections before disabling |
 | `allowed_commands_unauthorized` | `["login", "l", "register", "reg"]` | Commands allowed BEFORE login |
 
+### `metrics`
+
+bStats statistics (optional)
+
+| Setting | Default | What it does |
+|---|---|---|
+| `metrics.enabled` | `false` | true — every 30 minutes send ANONYMOUS statistics to bstats.org: server, Java and plugin versions, OS, online player count, server country, anti-bot mode, storage, language and password input mode. No names, IPs or passwords. Helps the author see what the plugin runs on. The global switch for all plugins is plugins/bStats/config.yml |
+
 ### `console_reminder`
 
 Console reminder about updates — written ONLY to the console (players do not see it). Can be disabled
@@ -561,8 +596,8 @@ Console reminder about updates — written ONLY to the console (players do not s
 | `console_reminder.enabled` | `true` | turn the console reminder on/off |
 | `console_reminder.delay_seconds` | `10` | seconds after startup |
 | `console_reminder.times` | `2` | how many times to repeat |
-| `console_reminder.message` | `"VTRegister может обновляться — проверяйте обновления на MineLeak.pro"` | console text |
-| `console_reminder.messages` | `["Пожалуйста, оцените VTRegister 5 звёзд на MineLeak.pro — нам очень нужны отзывы!"]` | Extra lines after the main message (console only too) |
+| `console_reminder.message` | `"VTRegister — новые версии выходят на GitHub: github.com/Vitaliy222121/VTRegister/releases"` | console text |
+| `console_reminder.messages` | `["Нравится VTRegister? Поставь звезду на GitHub — это помогает проекту."]` | Extra lines after the main message (console only too) |
 
 ### `messages`
 
@@ -592,6 +627,7 @@ Messages. All texts live in lang/ru.yml and lang/en.yml. Any key can be overridd
 | `storage.table_prefix` | `"rp_"` | Table prefix (several servers can share one database) |
 | `storage.pool_size` | `4` | Connection pool size (1–16). More than 8 is rarely needed |
 | `storage.sqlite_file` | `"accounts.db"` | SQLite file name |
+| `storage.sqlite_busy_timeout_ms` | `5000` | SQLite: how many milliseconds to wait while the database is busy writing instead of a "database is locked" error (WAL and synchronous=NORMAL are always on) |
 | `storage.match_by_name` | `true` | Find an account by name if the UUID did not match (online-mode change, migration from another core, a licensed player's name change) |
 
 ### `maintenance`
@@ -602,6 +638,18 @@ Maintenance: how often account changes are written to disk
 |---|---|---|
 | `maintenance.flush_interval_ticks` | `40` | How often changed accounts are written to disk/database (ticks, 20 = 1 s) |
 | `maintenance.warn_sync_reads` | `false` | Log when an account is read from the database synchronously (may lag) |
+
+### `purge`
+
+Auto-purge of inactive accounts (OFF by default — deletion is irreversible). Accounts that have not logged in for inactive_days are deleted, so the database does not pile up "dead" registrations. Online players are never touched. Applied after a restart
+
+| Setting | Default | What it does |
+|---|---|---|
+| `purge.enabled` | `false` | on/off |
+| `purge.inactive_days` | `180` | days without a login (minimum 30) |
+| `purge.keep_with_email` | `true` | do not delete accounts with a linked e-mail |
+| `purge.keep_with_2fa` | `true` | do not delete accounts with 2FA enabled |
+| `purge.check_hours` | `24` | how often to check (hours) |
 
 ### `limits`
 

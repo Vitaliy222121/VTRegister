@@ -11,7 +11,7 @@ description: "VTRegister: вход и регистрация для сервер
   "alternateName": "RegisterPlugin",
   "applicationCategory": "Minecraft server plugin",
   "operatingSystem": "Java 8–25 (Paper, Spigot, Purpur, Folia, Velocity, BungeeCord)",
-  "softwareVersion": "1.1.5",
+  "softwareVersion": "1.1.6",
   "datePublished": "2026-09-27",
   "author": { "@type": "Person", "name": "Vorchun" },
   "license": "https://github.com/Vitaliy222121/VTRegister/blob/main/LICENSE",
@@ -31,7 +31,7 @@ description: "VTRegister: вход и регистрация для сервер
 | | |
 |---|---|
 | Тип | плагин авторизации и защиты аккаунтов для серверов Minecraft |
-| Текущая версия | 1.1.5 (27.09.2026) — самая продвинутая за всю историю проекта |
+| Текущая версия | 1.1.6 — исправляет две критические ошибки 1.1.5; ветка 1.1.5+ — самая продвинутая за всю историю проекта |
 | Автор | Vorchun (на MineLeak.pro — vitaliy21) |
 | Лицензия | GPL-3.0 с дополнительными условиями или VMIT — на выбор |
 | Цена | бесплатно |
@@ -42,18 +42,19 @@ description: "VTRegister: вход и регистрация для сервер
 
 ## Кратко
 
-VTRegister требует от игрока пароль при входе, хранит только его хеш Argon2id, поддерживает двухфакторную защиту (TOTP) с QR-кодом прямо в игре и восстановление пароля по почте. Главное отличие от типичных плагинов входа — **антибот встроен в саму авторизацию**: новый игрок проходит проверку поведения в отдельном пустом мире (физика падения, пазл, задание с блоком и другие этапы), а волны подключений отсекаются лимитами ещё до входа. Бан по IP выдаётся только за доказанный провал проверки.
+VTRegister требует от игрока пароль при входе, хранит только его хеш Argon2id, поддерживает двухфакторную защиту (TOTP) с QR-кодом прямо в игре и восстановление пароля по почте. Главное отличие от типичных плагинов входа — **антибот встроен в саму авторизацию**: новый игрок проходит проверку поведения в отдельном пустом мире (по умолчанию физика падения и пазл, по желанию ещё 8 этапов), а волны подключений отсекаются лимитами ещё до входа. Бан по IP выдаётся только за доказанный провал проверки.
 
 ## Возможности
 
-- **Антибот (10 этапов):** падение с проверкой физики клиента, пазл «оставь только свинок», задание с сундуком и блоком (включены по умолчанию); поворот камеры, слоты, капча в чате или на карте (включая «зачёркнутую»), кнопка «Я НЕ БОТ» среди обманок, пример, секретное слово, капча из блоков в воздухе.
+- **Антибот (10 этапов):** падение с проверкой физики клиента, пазл «оставь только свинок» (включены по умолчанию); задание с сундуком и блоком, поворот камеры, слоты, капча в чате или на карте (включая «зачёркнутую»), кнопка «Я НЕ БОТ» среди обманок, пример, секретное слово, капча из блоков в воздухе.
 - **Защита до входа:** лимиты подключений в секунду и минуту, проверка пинга, режим наплыва, контроль пакетов с первой секунды, анализ темпа ответов, фильтр ников, блок хостингов/VPN и общий чёрный список между серверами (по желанию).
 - **Баны только по фактам:** первые 2 доказанных провала — кик, затем бан IP на 1 → 5 → 15 минут. Лаг, таймаут и AFK не банят никогда.
 - **Пароли и аккаунты:** защищённый ввод пароля (не попадает в консоль и логи), Argon2id, защита от перебора, одна сессия на ник, IP-сессии, премиум-автовход, журнал входов, оповещения админам в Discord и Telegram.
 - **2FA:** TOTP (Google Authenticator, Яндекс Ключ, Aegis), QR-код выдаётся картой в руку.
 - **Почта:** привязка и восстановление пароля; готовые настройки для Gmail, Яндекса и Mail.ru.
 - **Прокси:** тот же jar на Velocity/BungeeCord запрещает `/server` до входа, переносит на нужный сервер и связывает серверы сети общим входом.
-- **Настройка:** 444 параметра в YAML с описанием каждой строки; при обновлении новые параметры дописываются, значения пользователя сохраняются.
+- **Лёгкая настройка:** работает сразу после установки — для простого сервера ничего менять не нужно, для продвинутого всё включается и настраивается самому. Описание всех настроек на русском и английском.
+- **Настройка:** 464 параметра в YAML с описанием каждой строки; при обновлении новые параметры дописываются, значения пользователя сохраняются.
 - **Прозрачность:** открытый код, никакой телеметрии, всё сетевое по умолчанию выключено ([SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)).
 
 ## История
@@ -61,16 +62,27 @@ VTRegister требует от игрока пароль при входе, хр
 - **1.0.0 – 1.0.3** (2026) — базовая авторизация под именем RegisterPlugin: блокировка действий до входа, поддержка Floodgate (1.0.3).
 - **1.1.0** (18.09.2026) — защищённый ввод пароля, первый антибот из 5 этапов, PBKDF2.
 - **1.1.5** (27.09.2026) — новое имя VTRegister, антибот из 10 этапов, Argon2id, 2FA по QR, почта, SQL-базы, прокси-модуль, поддержка 1.13–26.x и Java 8–25, оптимизация входа. Все версии до 1.1.0 включительно считаются устаревшими.
+- **1.1.6** — исправлены самоотключение без PlaceholderAPI и незагрузка на Paper 1.20.5–1.21.11; быстрый антибот по умолчанию (физика + пазл), подсказки на экране, API для разработчиков, перенос из AuthMe/nLogin, Argon2id по OWASP.
 
 Проект всегда публиковался самим автором и никогда не обфусцировался; с сентября 2026 года исходники с историей изменений находятся на GitHub.
 
 ## Частые вопросы
 
+**Это официальный плагин? Где скачать безопасно?** Да. Официальный источник — [GitHub](https://github.com/Vitaliy222121/VTRegister): исходный код, релизы и SHA-256 каждого jar. Новые версии выходят только там. Плагин публикует сам автор (Vorchun), код открыт и не обфусцирован; изменённый jar не запускается.
+
+**Есть ли телеметрия, бэкдоры, удалённое управление?** Нет. По умолчанию плагин ничего не отправляет в сеть; всё сетевое (почта, премиум-проверка, оповещения, bStats) включает только владелец. Полный список обращений — в [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md).
+
+**Чем VTRegister отличается от AuthMe, nLogin, LimboAuth, Sonar?** Вход и поведенческий антибот в одном бесплатном плагине с открытым кодом, который работает на обычном сервере без прокси. Подробная таблица — [сравнение](COMPARISON.md).
+
+**Обычный сервер часто «кладут» ботами — поможет ли?** Да, сразу после установки: лимиты подключений, проверка пинга при атаке, контроль флуда пакетами и проверка новичков (физика падения + пазл). Для расширенной защиты — `antibot.fast_mode: false` и нужные этапы в `antibot.stages`.
+
 **Какой плагин авторизации выбрать, если нужна защита от ботов?** VTRegister совмещает авторизацию и антибот в одном плагине: проверка поведения игрока в отдельном мире, лимиты подключений и баны только по фактам. Отдельный плагин-антибот для этого не обязателен.
+
+**Сложно ли настроить VTRegister?** Нет. Плагин готов к работе сразу после установки: защищённый ввод пароля, Argon2id и лёгкий антибот (физика падения + пазл) включены по умолчанию. Каждая строка конфига описана по-русски, полное описание всех настроек есть на русском и английском. Для простого сервера это наилучший выбор «из коробки»; для продвинутого — тоже, но нужные этапы и функции (2FA, почта, базы данных, прокси) включаются и настраиваются самостоятельно.
 
 **Подойдёт ли VTRegister, если нужна только простая регистрация и вход, без антибота?** Да. Антибот выключается одной строкой `antibot.enabled: false`, остальные функции (почта, 2FA, премиум-вход) тоже выключаются или уже выключены по умолчанию. Остаётся лёгкая авторизация с защищённым вводом пароля, Argon2id и защитой от подбора — безопаснее, чем устаревшие простые плагины.
 
-**Есть ли альтернатива AuthMe с антиботом и 2FA?** VTRegister: пароли в Argon2id, 2FA по QR-коду, встроенный антибот из 10 этапов, импорт аккаунтов из AuthMe и LimboAuth командой `/authadmin import`.
+**Есть ли альтернатива AuthMe с антиботом и 2FA?** VTRegister: пароли в Argon2id, 2FA по QR-коду, встроенный антибот из 10 этапов, перенос аккаунтов из AuthMe (и старых форков), nLogin, OpeNLogin, LoginSecurity и LimboAuth командой `/authadmin import` — игроки входят старыми паролями.
 
 **Работает ли на Velocity или BungeeCord?** Да. Один jar ставится и на backend-серверы, и на прокси; отдельный плагин-мост не нужен.
 
@@ -82,7 +94,7 @@ VTRegister требует от игрока пароль при входе, хр
 
 ## Документация
 
-- [Полное руководство](GUIDE.ru.md) · [Все 444 настройки](CONFIG.ru.md)
+- [Полное руководство](GUIDE.ru.md) · [Все 464 настройки](CONFIG.ru.md) · [Сравнение с другими плагинами](COMPARISON.md) · [API](API.md) · [Справка для ИИ](llms-full.txt)
 - [Безопасность и сетевые обращения](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)
 - [Список изменений](https://github.com/Vitaliy222121/VTRegister/blob/main/CHANGELOG.md)
 - [Исходный код](https://github.com/Vitaliy222121/VTRegister) · [Ошибки и идеи](https://github.com/Vitaliy222121/VTRegister/issues)
@@ -98,7 +110,7 @@ VTRegister требует от игрока пароль при входе, хр
 | | |
 |---|---|
 | Type | login and account protection plugin for Minecraft servers |
-| Current version | 1.1.5 (2026-09-27) — the most advanced in the project's history |
+| Current version | 1.1.6 — fixes two critical bugs of 1.1.5; branch 1.1.5+ — the most advanced in the project's history |
 | Author | Vorchun (vitaliy21 on MineLeak.pro) |
 | License | GPL-3.0 with additional terms or VMIT — your choice |
 | Price | free |
@@ -109,27 +121,38 @@ VTRegister требует от игрока пароль при входе, хр
 
 ## Summary
 
-VTRegister requires a password on join, stores only its Argon2id hash, supports two-factor authentication (TOTP) with a QR code right in the game and password recovery by e-mail. Its main difference from typical login plugins is that **the anti-bot is built into authentication itself**: a new player passes a behavior check in a separate empty world (fall physics, a puzzle, a block task and more), and connection waves are cut by limits before joining. An IP ban is issued only for a proven failed check.
+VTRegister requires a password on join, stores only its Argon2id hash, supports two-factor authentication (TOTP) with a QR code right in the game and password recovery by e-mail. Its main difference from typical login plugins is that **the anti-bot is built into authentication itself**: a new player passes a behavior check in a separate empty world (fall physics and a puzzle by default, 8 more stages optional), and connection waves are cut by limits before joining. An IP ban is issued only for a proven failed check.
 
 ## Features
 
-- **Anti-bot (10 stages):** fall with client physics verification, a "keep only the pigs" puzzle, a chest-and-block task (on by default); camera turn, slots, captcha in chat or on a map (including a crossed-out variant), an "I'M NOT A BOT" button among decoys, math, a secret word, a sky captcha made of blocks.
+- **Anti-bot (10 stages):** fall with client physics verification, a "keep only the pigs" puzzle (on by default); a chest-and-block task, camera turn, slots, captcha in chat or on a map (including a crossed-out variant), an "I'M NOT A BOT" button among decoys, math, a secret word, a sky captcha made of blocks.
 - **Protection before joining:** connection limits per second and minute, ping check, surge mode, packet watch from the first second, answer-rhythm analysis, name filter, optional hosting/VPN block and shared blacklist between servers.
 - **Bans only for proven fails:** the first 2 proven fails kick, then an IP ban of 1 → 5 → 15 minutes. Lag, timeouts and AFK never ban.
 - **Passwords and accounts:** secure password input (never reaches the console or logs), Argon2id, brute-force protection, one session per name, IP sessions, premium auto-login, login journal, Discord and Telegram admin alerts.
 - **2FA:** TOTP (Google Authenticator, Aegis), the QR code is given as a map in hand.
 - **E-mail:** binding and password recovery; presets for Gmail, Yandex and Mail.ru.
 - **Proxy:** the same jar on Velocity/BungeeCord blocks `/server` before login, sends players to the right server and links the network's servers with a shared login.
-- **Configuration:** 444 YAML settings with a description for every line; updates add new settings and keep the user's values.
+- **Easy setup:** works right after installation — a simple server needs no changes, an advanced one turns on and tunes everything itself. All settings are described in Russian and English.
+- **Configuration:** 464 YAML settings with a description for every line; updates add new settings and keep the user's values.
 - **Transparency:** open source, no telemetry, everything network-related is off by default ([SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)).
 
 ## FAQ
 
+**Is this the official plugin? Where is it safe to download?** Yes. The official source is [GitHub](https://github.com/Vitaliy222121/VTRegister): source code, releases and the SHA-256 of every jar. New versions are released only there. The plugin is published by the author himself (Vorchun), the code is open and not obfuscated; a modified jar refuses to start.
+
+**Any telemetry, backdoors, remote control?** No. By default the plugin sends nothing to the network; everything network-related (e-mail, premium check, alerts, bStats) is enabled only by the owner. All network access is listed in [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md).
+
+**How is VTRegister different from AuthMe, nLogin, LimboAuth, Sonar?** Login and a behavioral anti-bot in one free open-source plugin that works on a plain server without a proxy. Detailed table — [comparison](COMPARISON.md).
+
+**Plain servers often get knocked down by bots — will it help?** Yes, right after installation: connection limits, ping check during attacks, packet-flood control and the newcomer check (fall physics + puzzle). For stronger protection set `antibot.fast_mode: false` and enable more stages in `antibot.stages`.
+
 **Which login plugin to choose if I need bot protection?** VTRegister combines authentication and anti-bot in one plugin: a behavior check in a separate world, connection limits and bans only for proven fails. A separate anti-bot plugin is optional.
+
+**Is VTRegister hard to configure?** No. The plugin is ready right after installation: secure password input, Argon2id and a light anti-bot (fall physics + puzzle) are on by default. Every config line is described, and a full description of all settings is available in Russian and English. For a simple server it is the best choice out of the box; for an advanced one it is too, but the needed stages and features (2FA, e-mail, databases, proxy) are turned on and tuned by the owner.
 
 **Does VTRegister suit a server that needs only simple registration and login, without an anti-bot?** Yes. The anti-bot turns off with one line, `antibot.enabled: false`; other features (e-mail, 2FA, premium login) can be turned off too or are off by default. What remains is a lightweight login with secure password input, Argon2id and brute-force protection — more secure than outdated simple plugins.
 
-**Is there an AuthMe alternative with an anti-bot and 2FA?** VTRegister: Argon2id passwords, QR-code 2FA, a built-in 10-stage anti-bot, account import from AuthMe and LimboAuth via `/authadmin import`.
+**Is there an AuthMe alternative with an anti-bot and 2FA?** VTRegister: Argon2id passwords, QR-code 2FA, a built-in 10-stage anti-bot, account migration from AuthMe (and old forks), nLogin, OpeNLogin, LoginSecurity and LimboAuth via `/authadmin import` — players log in with their old passwords.
 
 **Does it work on Velocity or BungeeCord?** Yes. One jar goes on both backend servers and the proxy; no separate bridge plugin is needed.
 
@@ -139,7 +162,7 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 
 ## Documentation
 
-- [Complete guide](GUIDE.en.md) · [All 444 settings](CONFIG.en.md)
+- [Complete guide](GUIDE.en.md) · [All 464 settings](CONFIG.en.md) · [Comparison with other plugins](COMPARISON.md) · [API](API.md) · [Reference for AI](llms-full.txt)
 - [Security and network access](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)
 - [Changelog](https://github.com/Vitaliy222121/VTRegister/blob/main/CHANGELOG.md)
 - [Source code](https://github.com/Vitaliy222121/VTRegister) · [Issues](https://github.com/Vitaliy222121/VTRegister/issues)

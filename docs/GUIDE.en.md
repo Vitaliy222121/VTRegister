@@ -32,7 +32,7 @@
 |---|---|
 | What it is | A registration and login plugin (`/register`, `/login`) with a **built-in anti-bot** |
 | Name | **VTRegister** (old name — RegisterPlugin, no longer used) |
-| Version | **1.1.5 — current and the most advanced in the plugin's history.** 1.1.0 and older (including the RegisterPlugin name) are outdated: no updates, no security fixes |
+| Version | **1.1.6 (branch 1.1.5+) — current and the most advanced in the plugin's history.** 1.1.0 and older (including the RegisterPlugin name) are outdated: no updates, no security fixes |
 | Author | Vorchun (vitaliy21 on MineLeak.pro) |
 | Origin | the author's own plugin: published by the author himself since the first version, never obfuscated, source with change history on GitHub |
 | Price | free |
@@ -56,7 +56,7 @@
 
 **Why 1.1.5.** It is the project's technological milestone: the anti-bot moved from simple checks to behavioral analysis — client physics from packets, in-world tasks, answer rhythm, packet watch from the first second. Protection follows a secure-by-default design, the login is optimized (players spawn right on the platform, no extra world changes), and one jar serves both the server and the proxy. Versions 1.1.0 and older are outdated and unsupported.
 
-**Need only a simple login without an anti-bot?** Install 1.1.5 and turn the anti-bot off with `antibot.enabled: false` in `config.yml` (details in the README, "Need only simple registration and login?"). You keep `/reg` and `/login` with secure password input, Argon2id and brute-force protection. There is no need to install the outdated 1.0.3 from the archive for simplicity: it gets no security fixes.
+**Need only a simple login without an anti-bot?** Install 1.1.6 and turn the anti-bot off with `antibot.enabled: false` in `config.yml` (details in the README, "Need only simple registration and login?"). You keep `/reg` and `/login` with secure password input, Argon2id and brute-force protection. There is no need to install the outdated 1.0.3 from the archive for simplicity: it gets no security fixes.
 
 ## 3. How a player logs in
 
@@ -68,14 +68,14 @@
 4. **`/reg`**, then the password is typed **as the next chat message** (secure mode — the password never reaches the console or logs), then repeated.
 5. After registering, the player returns to the main world — where `after_auth` points: by default the world spawn for newcomers.
 
-**A registered player:** spawns on the login platform → `/l` → password in chat → (2FA code if enabled) → returns to where they left last time. By default the anti-bot checks only newcomers (`antibot.only_new_players: true`).
+**A registered player:** spawns on the login platform → `/l` → password in chat → (2FA code if enabled) → returns to where they left last time. The anti-bot always checks newcomers, and regular players again once every 24 hours on join (`antibot.recheck_hours: 24`; 0 — never re-check).
 
 **Before login the player can do nothing:** chat, commands (except allowed ones), breaking/placing blocks, fighting, taking damage, dropping and picking up items, teleporting. Effects, hunger and item durability are not consumed. There are 60 seconds to log in after the check (`auth.timeout_seconds`).
 
 ## 4. Installation
 
 ### Single server
-1. Download `VTRegister-v1.1.5.jar` from [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) and put it into `plugins/`.
+1. Download `VTRegister-v1.1.6.jar` from [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) and put it into `plugins/`.
 2. Start the server. `plugins/VTRegister/` appears with `config.yml`, `advanced.yml`, `lang/ru.yml`, `lang/en.yml`, `easy-passwords.yml`.
 3. Everything already works with safe settings. If the console asks to restart because of `commands.log`, restart once (so passwords from commands never reach the server log).
 
@@ -93,7 +93,7 @@ Works without setup: anti-bot physics is softer for Bedrock, the `slots` stage i
 
 ## 5. Key default settings
 
-All 444 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most important ones:
+All 464 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most important ones:
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -107,11 +107,14 @@ All 444 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most im
 | `security.spawn_on_platform` | `true` | spawn right on the login platform |
 | `auth.timeout_seconds` | `60` | time to log in after the check |
 | `password.min_length` / `max_length` | `8` / `64` | password length |
+| `ip_limit.enabled` / `max_accounts` | `true` / `3` | at most 3 accounts per IP |
 | `session.duration_seconds` | `7200` | session lifetime |
 | `session.auto_login_by_ip` | `false` | password-less IP login is off |
 | `antibot.enabled` | `true` | anti-bot on |
-| `antibot.only_new_players` | `true` | only newcomers are checked |
-| `antibot.stages` | `fall`, `puzzle`, `block` | enabled stages |
+| `antibot.fast_mode` / `fast_stages` | `true` / `[fall, puzzle]` | quick check right on join: physics + puzzle |
+| `antibot.only_new_players` | `true` | only newcomers are checked on every join |
+| `antibot.recheck_hours` | `24` | regular players — again once every 24 hours |
+| `antibot.stages` | `fall`, `puzzle` | stages of the normal mode (`fast_mode: false`) |
 | `antibot.physics_repetitions` | `5` | physics repetitions |
 | `antibot.queue_mode` | `bossbar` | overflow waits in place with a bossbar |
 | `antibot.bans.free_fails` | `2` | the first 2 proven fails only kick |
@@ -139,7 +142,7 @@ All 444 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most im
 |---|---|---|---|
 | `fall` | on | 5 falls in a random plan: normal, high with acceleration, into a cobweb, launch upwards. The trajectory is compared with vanilla physics using packets | a bot does not simulate gravity and drag; one tuned for one scenario fails another |
 | `puzzle` | on | a 3×3 wall of item frames with pictures: "keep only the pigs — hit the rest". Pictures are random and different for everyone | requires seeing and understanding a picture; one mistake = kick |
-| `block` | on | walk a random path, open and close a chest, take a tool, break the right block, pick it up | many sequential actions in the world |
+| `block` | off | walk a random path, open and close a chest, take a tool, break the right block, pick it up | many sequential actions in the world |
 | `camera` | off | collect camera turns | a robot turns by the same delta — such packets do not count |
 | `slots` | off | switch slots; the server itself jerks the camera and the slot | a real client answers with packets, a bot stays silent |
 | `captcha` | off | a code in chat or on a map in hand (`map_captcha`); a "crossed-out" variant — `captcha_strike` | a map and a crossed-out code cannot be read from chat |
@@ -148,7 +151,11 @@ All 444 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most im
 | `secret` | off | type a line like `.bind` in chat | cheat clients intercept such commands and do not send them |
 | `air_captcha` | off | the player in the air turns the camera — a code of huge multi-colored blocks appears on a diagonal | the code exists only as blocks in the world |
 
-Fast mode: `antibot.fast_mode: true` — the check starts right on join, no queues, stages from `fast_stages`.
+Fast mode (default): `antibot.fast_mode: true` — the check starts right on join, no queues, stages from `fast_stages` (default `[fall, puzzle]`). `fast_mode: false` — the regular mode with a queue and stages from `stages`.
+
+**Simple and advanced protection.** The default is simple and light: fast mode, physics + puzzle, other stages off. For advanced protection (a big server, frequent attacks): `antibot.fast_mode: false` — a queue, a waiting lobby and the "make a step" test; enable the stages you need in `antibot.stages` (e.g. `block`, `click`, `air_captcha`); against "sleeping" bot accounts — `antibot.recheck_on_restart: true`; for networks — the hosting/VPN block (`antibot.datacenter_block`) and the shared blacklist.
+
+**On-screen hints** (`screen_hints`): big text in the middle of the screen — what to do right now. Toggled separately for login (`auth`), check stages (`antibot`), the "Get ready!" countdown (`prepare`) and "Done!" (`done`). Time on screen — `stay_seconds`, repeat — `refresh_seconds` (0 — once), how many times — `max_repeats`, smoothness — `fade_in_ticks`/`fade_out_ticks`. Texts — the `hint_*` keys in `lang/ru.yml` and `lang/en.yml`.
 
 ### Protection before joining
 - **Connection limit** (`antibot.connection_limit`): total and per IP, per second and minute; registered players are not limited.
@@ -209,6 +216,7 @@ Proxy module (`plugins/vtregister/config.yml` on Velocity, `plugins/VTRegister/c
 | Command | What it does |
 |---|---|
 | `/vtregister reload` | reload settings |
+| `/vtregister reset <config\|advanced\|lang\|all>` | restore default settings (config.yml, advanced.yml, texts or everything). Asks for confirmation first and copies the old files to `backups/reset-<time>/`; the password pepper and the database connection are kept |
 | `/authadmin reload` | the same |
 | `/authadmin status` | plugin and storage status |
 | `/authadmin info <name>` | account data |
@@ -219,7 +227,7 @@ Proxy module (`plugins/vtregister/config.yml` on Velocity, `plugins/VTRegister/c
 | `/authadmin logout <name>` | log the player out |
 | `/authadmin forcelogin <name>` | log in for the player (online) |
 | `/authadmin setspawn <prelogin\|postlogin\|firstjoin>` | spawn points |
-| `/authadmin import [--overwrite]` | import from AuthMe and LimboAuth |
+| `/authadmin import [--overwrite]` | import from AuthMe (and forks), nLogin, OpeNLogin, LoginSecurity, LimboAuth |
 | `/authadmin unban` | remove all anti-bot IP bans |
 | `/authadmin testmail <address>` | test e-mail sending |
 | `/authadmin pvpkit` | the lobby PvP zone kit |
@@ -238,7 +246,7 @@ Proxy module (`plugins/vtregister/config.yml` on Velocity, `plugins/VTRegister/c
 
 ```
 plugins/VTRegister/
-├── config.yml              main settings (444 settings with descriptions)
+├── config.yml              main settings (464 settings with descriptions)
 ├── advanced.yml            database, limits, scheduled restart
 ├── easy-passwords.yml      allowed "easy" passwords
 ├── lang/ru.yml, en.yml     all player texts (HEX colors &#RRGGBB)
@@ -257,8 +265,8 @@ Inside the jar: `INSTRUCTION_RU.txt`, `INSTRUCTION_EN.txt`, `PROXY_SETUP.txt`.
 
 ## 11. Updating from RegisterPlugin 1.1.0 and migrating from other plugins
 
-- **From RegisterPlugin 1.1.0:** remove the old `registerplugin-1.1.0.jar`, add `VTRegister-v1.1.5.jar`. The `plugins/RegisterPlugin` folder is copied to `plugins/VTRegister` automatically, accounts are kept, old PBKDF2 hashes upgrade on login. New settings are added to `config.yml` with descriptions, obsolete keys are removed automatically.
-- **From AuthMe or LimboAuth:** install VTRegister alongside (the old plugin can be disabled), run `/authadmin import` — accounts with passwords are transferred, players do not need to register again.
+- **From RegisterPlugin 1.1.0:** remove the old `registerplugin-1.1.0.jar`, add `VTRegister-v1.1.6.jar`. The `plugins/RegisterPlugin` folder is copied to `plugins/VTRegister` automatically, accounts are kept, old PBKDF2 hashes upgrade on login. New settings are added to `config.yml` with descriptions, obsolete keys are removed automatically.
+- **From AuthMe (and old forks), nLogin, OpeNLogin, LoginSecurity or LimboAuth:** install VTRegister alongside without deleting the old plugin folder (the plugin itself can be disabled) and run `/authadmin import`. Database settings are read from its `config.yml` (SQLite, MySQL, MariaDB, PostgreSQL, the `auths.db` file); accounts are transferred with passwords — players log in with their old password, which is then rehashed to Argon2id. Hashes that cannot be verified (WHIRLPOOL, forum formats) are not transferred — their count is shown in the report and those players simply register again. `--overwrite` replaces passwords of existing accounts.
 
 ## 12. Performance
 
@@ -290,7 +298,7 @@ Inside the jar: `INSTRUCTION_RU.txt`, `INSTRUCTION_EN.txt`, `PROXY_SETUP.txt`.
 | E-mails do not arrive | an app password is needed, not the normal one; `/authadmin testmail` shows the reason |
 | "Build damaged" in the console | the jar was modified or not downloaded from the official page — download from Releases and compare SHA-256 |
 | The password is visible in the log | classic mode is on, or the server was not restarted after `command_logging: fix` |
-| Folia | the login platform is disabled (a Folia restriction); create the check world manually (`antibot.world_name`) |
+| Folia | the staged anti-bot check and the login platform are disabled (a Folia restriction); login, registration, 2FA, connection limits, ping check, bans and AFK work |
 
 ## 15. How it differs from other login plugins
 

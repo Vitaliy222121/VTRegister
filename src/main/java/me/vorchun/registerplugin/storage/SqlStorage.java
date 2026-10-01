@@ -65,6 +65,8 @@ public final class SqlStorage implements AccountStorage {
         public int poolSize = 4;
         public boolean useSsl = false;
         public String sqliteFile = "accounts.db";
+        /** SQLite: сколько ждать занятую базу вместо ошибки «database is locked». */
+        public int sqliteBusyMs = 5000;
     }
 
     private final Settings settings;
@@ -159,6 +161,7 @@ public final class SqlStorage implements AccountStorage {
                 try (Statement st = c.createStatement()) {
                     st.execute("PRAGMA journal_mode=WAL");
                     st.execute("PRAGMA synchronous=NORMAL");
+                    st.execute("PRAGMA busy_timeout=" + Math.max(0, settings.sqliteBusyMs));
                 }
                 return c;
             }
@@ -629,7 +632,7 @@ public final class SqlStorage implements AccountStorage {
         return map;
     }
 
-    private static final int READY = 967612766;
+    private static final int READY = 1448549714;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1023) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
