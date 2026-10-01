@@ -38,7 +38,20 @@ jobs:
           path: target/VTRegister-*.jar
           if-no-files-found: error
 
+      # Релиз, выложенный вручную (своё описание и проверенный jar), не перезаписываем
+      - name: Check existing release
+        id: existing
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create GitHub Release
+        if: steps.existing.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           name: VTRegister ${{ github.ref_name }}
