@@ -32,6 +32,7 @@ public final class StandaloneTest {
         testConfigMerge();
         testDefaults116();
         testNoDuplicateKeys();
+        testDropMetricsSection();
         testCidr();
         testPhase13();
         testAirFont();
@@ -349,6 +350,27 @@ public final class StandaloneTest {
             check("merge before next comment", text.indexOf("permanent") < text.indexOf("# комментарий следующей"));
         } catch (Throwable t) {
             check("config merge ran (" + t + ")", false);
+        }
+    }
+
+    /** 1.1.7: старая секция metrics (1.1.6) убирается целиком, соседние не задеваются. */
+    private static void testDropMetricsSection() {
+        System.out.println("--- drop metrics section ---");
+        try {
+            java.lang.reflect.Method d = Class.forName("me.vorchun.registerplugin.util.ConfigMerger")
+                    .getDeclaredMethod("dropTopSection", java.util.List.class, String.class);
+            d.setAccessible(true);
+            java.util.List<String> c = new java.util.ArrayList<>(java.util.Arrays.asList(
+                    "  - \"reg\"", "", "# ── Статистика bStats (по желанию) ──", "# true — отправлять статистику",
+                    "metrics:", "  enabled: false", "", "# ── Консольное напоминание ──", "console_reminder:", "  enabled: true"));
+            boolean changed = (Boolean) d.invoke(null, c, "metrics");
+            String text = String.join("\n", c);
+            check("metrics section dropped", changed && !text.contains("metrics") && !text.contains("Статистика bStats"));
+            check("neighbours kept", text.contains("  - \"reg\"") && text.contains("# ── Консольное напоминание ──")
+                    && text.contains("console_reminder:") && !text.contains("\n\n\n"));
+            check("drop idempotent", !(Boolean) d.invoke(null, c, "metrics"));
+        } catch (Throwable t) {
+            check("drop metrics ran (" + t + ")", false);
         }
     }
 

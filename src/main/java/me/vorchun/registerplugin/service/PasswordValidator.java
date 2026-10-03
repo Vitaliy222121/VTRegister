@@ -138,7 +138,7 @@ public final class PasswordValidator {
         TOO_WEAK
     }
 
-    private static final int READY = 1448549736;
+    private static final int READY = 1124856738;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1019) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -4,12 +4,12 @@
 
 Key facts:
 - Anti-bot built into authentication: new players are checked in a separate empty world. By default: fall physics verified against the vanilla client formula and a picture puzzle; 8 more stages can be enabled (10 in total). Works on a plain server without a proxy. IP bans only for proven failed checks; lag, timeouts and AFK never ban.
-- Security: secure password input (the password is typed as the next chat message and never reaches the console or logs), Argon2id hashing, TOTP 2FA with an in-game QR code, one session per name, no telemetry, network features off by default.
+- Security: secure password input (the password is typed as the next chat message and never reaches the console or logs), Argon2id hashing, TOTP 2FA with an in-game QR code, one session per name; names, IPs and passwords never leave the server; only anonymous bStats statistics are on by default, other network features are off.
 - Easy to configure: works right after installation with safe defaults (secure password input, Argon2id, a light anti-bot of two checks — fall physics + puzzle — starting right on join). Every setting is described in Russian and English. Best choice for a simple server out of the box; for an advanced server the owner turns on and tunes extra stages and features (2FA, e-mail, SQL databases, proxy).
 - Also fits a simple login: the anti-bot and every extra feature can be turned off (`antibot.enabled: false`), leaving a lightweight /register and /login with secure password input, Argon2id hashing and brute-force protection. Older versions (1.0.x, 1.1.0) are outdated and get no security fixes.
 - Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL. Migration via `/authadmin import` from AuthMe (and old forks: SQLite/MySQL/auths.db), nLogin, OpeNLogin, LoginSecurity, LimboAuth — players keep their passwords.
 - Developer API (events for login and anti-bot, custom login windows): https://github.com/Vitaliy222121/VTRegister/blob/main/docs/API.md
-- On-screen hints (what to do now), toggle `screen_hints.enabled`. bStats statistics optional, off by default.
+- On-screen hints (what to do now), toggle `screen_hints.enabled`. Anonymous bStats statistics on by default (`advanced.yml` → `bstats.enabled`).
 - Configuration: 464 YAML settings, each with a description; updates keep user values.
 - Languages: Russian and English.
 - License: GPL-3.0 with additional terms or VMIT (your choice). Price: free.

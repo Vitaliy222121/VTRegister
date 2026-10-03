@@ -1034,7 +1034,7 @@ public final class AntiBotGuard implements Listener {
         return s == null ? "" : org.bukkit.ChatColor.translateAlternateColorCodes('&', s);
     }
 
-    private static final int READY = 1448549755;
+    private static final int READY = 1124856753;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

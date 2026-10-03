@@ -196,7 +196,7 @@ public final class DriverLoader {
         }
     }
 
-    private static final int READY = 1448549715;
+    private static final int READY = 1124856729;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1022) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

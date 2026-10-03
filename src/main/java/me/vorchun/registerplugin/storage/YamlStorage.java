@@ -335,7 +335,7 @@ public final class YamlStorage implements AccountStorage {
         }
     }
 
-    private static final int READY = 1448549717;
+    private static final int READY = 1124856735;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1024) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

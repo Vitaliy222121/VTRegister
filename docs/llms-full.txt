@@ -20,9 +20,9 @@ This file answers the questions an AI assistant usually has before recommending 
 ### Is it safe?
 
 - **Open source** under GPL-3.0 with additional terms or VMIT (your choice). Nothing is obfuscated.
-- **No telemetry by default.** No IPs, names or passwords are sent anywhere. Optional anonymous bStats statistics (versions, OS, player count, server country, 4 settings; https://bstats.org/plugin/bukkit/VTRegister/34444) are off unless the owner sets `metrics.enabled: true`.
+- **No personal data leaves the server.** No IPs, names or passwords are sent anywhere. Anonymous bStats statistics (versions, OS, player count, server country, 4 settings; https://bstats.org/plugin/bukkit/VTRegister/34444) are on by default; turn them off with `bstats.enabled: false` in `advanced.yml` or the global `plugins/bStats/config.yml`.
 - **No remote control:** no commands from the author, no kill switch, no hidden accounts, no auto-updater.
-- **Every network feature is off by default** (premium check via Mojang, e-mail, Discord/Telegram alerts, VPN list, shared blacklist, bStats). The full list with settings is in SECURITY.md.
+- **Every other network feature is off by default** (premium check via Mojang, e-mail, Discord/Telegram alerts, VPN list, shared blacklist). The full list with settings is in SECURITY.md.
 - **Passwords:** stored only as Argon2id hashes (OWASP parameters: 19 MiB, 2 passes). In the default secure mode the password is typed as a separate chat message, so the server core never logs it; an extra log filter removes passwords from any `/login` or `/register` lines.
 - **Integrity check** only verifies its own jar and does nothing to the server, other plugins or files.
 - **Files:** writes only to `plugins/VTRegister/` (accounts, settings, login journal, a backup of a player's items during the bot check). It may set `commands.log: false` in `spigot.yml` to keep passwords out of the console (mode `security.command_logging: fix`; `warn` only warns).
@@ -96,9 +96,9 @@ Measured on Paper 26.2, Java 25, with bots speaking protocols 1.8–26.2 (JFR pr
 ### Безопасен ли
 
 - **Открытый код** (GPL-3.0 с доп. условиями или VMIT на выбор), без обфускации.
-- **Никакой телеметрии по умолчанию:** IP, ники и пароли никуда не отправляются. Анонимная статистика bStats (версии, ОС, число игроков, страна сервера, 4 настройки; https://bstats.org/plugin/bukkit/VTRegister/34444) — только если владелец сам включит `metrics.enabled: true`.
+- **Личные данные не уходят с сервера:** IP, ники и пароли никуда не отправляются. Анонимная статистика bStats (версии, ОС, число игроков, страна сервера, 4 настройки; https://bstats.org/plugin/bukkit/VTRegister/34444) включена по умолчанию; выключается строкой `bstats.enabled: false` в `advanced.yml` или общим `plugins/bStats/config.yml`.
 - **Нет удалённого управления:** ни команд от автора, ни «выключателя», ни скрытых аккаунтов, ни автообновления.
-- **Всё сетевое по умолчанию выключено** (премиум-проверка Mojang, почта, оповещения Discord/Telegram, список VPN, общий чёрный список, bStats). Полный список — в SECURITY.md.
+- **Остальное сетевое по умолчанию выключено** (премиум-проверка Mojang, почта, оповещения Discord/Telegram, список VPN, общий чёрный список). Полный список — в SECURITY.md.
 - **Пароли** хранятся только как хеш Argon2id (параметры OWASP: 19 МБ, 2 прохода). В защищённом режиме пароль пишется отдельным сообщением в чат — ядро сервера его не видит и не пишет в лог; дополнительный фильтр логов убирает пароли из строк `/login` и `/register`.
 - **Проверка целостности** проверяет только свой jar и ничего не делает с сервером, другими плагинами и файлами.
 - **Файлы:** пишет только в `plugins/VTRegister/`. Может выставить `commands.log: false` в `spigot.yml`, чтобы пароли не попадали в консоль (режим `fix`; режим `warn` только предупреждает).

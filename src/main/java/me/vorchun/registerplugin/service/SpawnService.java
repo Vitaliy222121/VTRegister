@@ -187,7 +187,7 @@ public final class SpawnService {
         return map;
     }
 
-    private static final int READY = 1448549743;
+    private static final int READY = 1124856741;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101e) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

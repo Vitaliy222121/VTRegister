@@ -6,7 +6,7 @@ VTRegister — плагин с открытым исходным кодом. З�
 
 ## Коротко
 
-- **Никакой телеметрии по умолчанию.** Плагин не отправляет IP, ники или пароли автору или третьим лицам. Анонимная статистика bStats (версии, ОС, число игроков онлайн, страна сервера, 4 настройки) — только если владелец сам включит `metrics.enabled: true`.
+- **Ники, IP и пароли никуда не отправляются.** Единственное, что включено по умолчанию, — анонимная статистика bStats (версии, ОС, число игроков онлайн, страна сервера, 4 настройки плагина; https://bstats.org/plugin/bukkit/VTRegister/34444). Выключается строкой `bstats.enabled: false` в `advanced.yml` или общим `plugins/bStats/config.yml`.
 - **Нет удалённого управления.** Ни команд «с сервера автора», ни удалённого отключения, ни скрытых учётных записей.
 - **Пароли хранятся только как хеш** Argon2id (соль + параметры в PHC-формате). Сам плагин пароли нигде не сохраняет и в логи не пишет.
 - **Всё, что выходит в сеть, по умолчанию выключено**, кроме случая, когда ты сам выбрал PostgreSQL (тогда скачивается драйвер, см. ниже).
@@ -21,7 +21,7 @@ VTRegister — плагин с открытым исходным кодом. З�
 | `raw.githubusercontent.com/X4BNet/lists_vpn` | список подсетей хостингов/VPN | выкл | `antibot.datacenter_block` |
 | серверы-партнёры (адреса задаёшь ты) | общий чёрный список банов; при `publish` открывает HTTP-порт с токеном | выкл | `global_blacklist` |
 | `repo1.maven.org` | JDBC-драйвер PostgreSQL 42.7.4 | только при `storage.type: postgresql` | `advanced.yml` |
-| `bstats.org` | анонимная статистика: версии сервера/Java/плагина, ОС и число ядер, онлайн-режим, число игроков, страна сервера; режим антибота, хранилище, язык, способ ввода пароля | выкл | `metrics.enabled` (и общий `plugins/bStats/config.yml`) |
+| `bstats.org` | анонимная статистика: версии сервера/Java/плагина, ОС и число ядер, онлайн-режим, число игроков, страна сервера; режим антибота, хранилище, язык, способ ввода пароля | **вкл** | `advanced.yml` → `bstats.enabled` (и общий `plugins/bStats/config.yml`) |
 | база AuthMe / nLogin (адрес из их `config.yml`) | перенос аккаунтов | только по команде `/authadmin import` | — |
 
 Скачанный драйвер PostgreSQL проверяется по **SHA-256** (`188976721ead8e8627eb6d8389d500dccc0c9bebd885268a3047180274a6031e`, официальный файл Maven Central). Файл с другой суммой удаляется и не загружается.
@@ -67,7 +67,7 @@ VTRegister is open source. This page lists honestly everything it does with the 
 
 ## In short
 
-- **No telemetry by default.** The plugin sends no IPs, names or passwords to the author or third parties. Anonymous bStats statistics (versions, OS, online player count, server country, 4 settings) only if the owner enables `metrics.enabled: true`.
+- **Names, IPs and passwords are never sent anywhere.** The only thing on by default is anonymous bStats statistics (versions, OS, online player count, server country, 4 plugin settings; https://bstats.org/plugin/bukkit/VTRegister/34444). Turn it off with `bstats.enabled: false` in `advanced.yml` or the global `plugins/bStats/config.yml`.
 - **No remote control.** No commands from the author's servers, no remote kill switch, no hidden accounts.
 - **Passwords are stored only as Argon2id hashes** (salt + parameters in PHC format). The plugin itself never stores or logs plain passwords.
 - **Everything that uses the network is off by default**, except when you choose PostgreSQL yourself (the driver is downloaded, see below).
@@ -82,7 +82,7 @@ VTRegister is open source. This page lists honestly everything it does with the 
 | `raw.githubusercontent.com/X4BNet/lists_vpn` | hosting/VPN subnet list | off | `antibot.datacenter_block` |
 | partner servers (addresses you set) | shared ban list; with `publish` opens a token-protected HTTP port | off | `global_blacklist` |
 | `repo1.maven.org` | PostgreSQL JDBC driver 42.7.4 | only with `storage.type: postgresql` | `advanced.yml` |
-| `bstats.org` | anonymous statistics: server/Java/plugin versions, OS and core count, online mode, player count, server country; anti-bot mode, storage, language, password input mode | off | `metrics.enabled` (and the global `plugins/bStats/config.yml`) |
+| `bstats.org` | anonymous statistics: server/Java/plugin versions, OS and core count, online mode, player count, server country; anti-bot mode, storage, language, password input mode | **on** | `advanced.yml` → `bstats.enabled` (and the global `plugins/bStats/config.yml`) |
 | AuthMe / nLogin database (address from their `config.yml`) | account migration | only on `/authadmin import` | — |
 
 The downloaded PostgreSQL driver is verified by **SHA-256** (`188976721ead8e8627eb6d8389d500dccc0c9bebd885268a3047180274a6031e`, the official Maven Central file). A file with a different checksum is deleted and never loaded.

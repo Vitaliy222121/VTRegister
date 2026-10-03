@@ -30,7 +30,7 @@ public final class AuthLogoutEvent extends Event {
         return HANDLERS;
     }
 
-    private static final int READY = 1448549747;
+    private static final int READY = 1124856761;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1002) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -1008,7 +1008,7 @@ public final class AfkService implements Listener {
         return a;
     }
 
-    private static final int READY = 1448549724;
+    private static final int READY = 1124856726;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x102d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

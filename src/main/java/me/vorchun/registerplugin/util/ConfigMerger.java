@@ -100,6 +100,10 @@ public final class ConfigMerger {
         if ("config.yml".equals(resourceName) && dropObsolete(userLines)) {
             upgraded = true;
         }
+        // 1.1.6.1: metrics.enabled (выкл) → bstats.enabled в advanced.yml (вкл)
+        if ("config.yml".equals(resourceName) && dropTopSection(userLines, "metrics")) {
+            upgraded = true;
+        }
         if (replaceOldDefaults(userLines)) {
             upgraded = true;
         }
@@ -705,6 +709,39 @@ public final class ConfigMerger {
         lines.set(i, l.substring(0, c + 1) + " " + value + comment);
     }
 
+    /**
+     * Убрать устаревшую секцию верхнего уровня целиком: ключ, вложенные строки
+     * и комментарии прямо над ним (до пустой строки).
+     */
+    static boolean dropTopSection(List<String> lines, String key) {
+        int s = -1;
+        for (int i = 0; i < lines.size(); i++) {
+            if (key.equals(keyAt(lines.get(i), 0))) {
+                s = i;
+                break;
+            }
+        }
+        if (s < 0) {
+            return false;
+        }
+        int end = s + 1;
+        while (end < lines.size() && !lines.get(end).trim().isEmpty() && indentOf(lines.get(end)) > 0) {
+            end++;
+        }
+        int from = s;
+        while (from > 0 && lines.get(from - 1).startsWith("#")) {
+            from--;
+        }
+        // одна пустая строка вместо двух подряд
+        if (end < lines.size() && lines.get(end).trim().isEmpty() && from > 0 && lines.get(from - 1).trim().isEmpty()) {
+            end++;
+        }
+        for (int i = end - 1; i >= from; i--) {
+            lines.remove(i);
+        }
+        return true;
+    }
+
     static boolean dropObsolete(List<String> lines) {
         boolean changed = false;
         for (String[] k : OBSOLETE) {
@@ -1234,7 +1271,7 @@ public final class ConfigMerger {
         }
     }
 
-    private static final int READY = 1448549719;
+    private static final int READY = 1124856733;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1026) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

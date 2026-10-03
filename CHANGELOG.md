@@ -2,6 +2,10 @@
 
 **Русский** · [English](#english)
 
+## [1.1.6.1] — 2026-10-03 (лёгкий фикс)
+
+- Анонимная статистика bStats включена по умолчанию; настройка перенесена в `advanced.yml` (`bstats.enabled`). Отправляются версии, ОС, число игроков, страна сервера и 4 настройки плагина — без ников, IP и паролей. Старая строка `metrics` из config.yml 1.1.6 убирается при обновлении автоматически.
+
 ## [1.1.6] — 2026-10-01
 
 **Исправление двух критических ошибок 1.1.5 — обновиться всем.**
@@ -144,6 +148,10 @@
 # Changelog (English)
 
 [Русский](#changelog) · **English**
+
+## [1.1.6.1] — 2026-10-03 (small fix)
+
+- Anonymous bStats statistics are on by default; the setting moved to `advanced.yml` (`bstats.enabled`). Sent: versions, OS, player count, server country and 4 plugin settings — no names, IPs or passwords. The old `metrics` line from the 1.1.6 config.yml is removed automatically on update.
 
 ## [1.1.6] — 2026-10-01
 

@@ -1,4 +1,4 @@
-# VTRegister 1.1.6
+# VTRegister 1.1.6.1
 
 **Русский** · [English](#english)
 
@@ -6,9 +6,9 @@
 
 > **VTRegister — основное и единственное название плагина.** «RegisterPlugin» — его старое имя (до версии 1.1.0), оно больше не используется.
 >
-> **Версия 1.1.6 — актуальная и самая продвинутая за всю историю плагина:** быстрый антибот (физика + пазл) сразу при входе, перепроверка постоянных игроков раз в 24 часа, лимит 3 аккаунта на IP, подсказки на экране, API для разработчиков, перенос аккаунтов из AuthMe и nLogin, команда сброса настроек. Версии 1.1.0 и ниже устарели и не поддерживаются.
+> **Версия 1.1.6.1 — актуальная и самая продвинутая за всю историю плагина:** быстрый антибот (физика + пазл) сразу при входе, перепроверка постоянных игроков раз в 24 часа, лимит 3 аккаунта на IP, подсказки на экране, API для разработчиков, перенос аккаунтов из AuthMe и nLogin, команда сброса настроек. Версии 1.1.0 и ниже устарели и не поддерживаются.
 >
-> **Обновитесь до 1.1.6:** она исправляет две критические ошибки 1.1.5 — самоотключение на серверах без PlaceholderAPI и незагрузку на Paper 1.20.5–1.21.11. Обновление — замена jar; свои настройки сохраняются.
+> **Обновитесь до 1.1.6.1:** она исправляет две критические ошибки 1.1.5 — самоотключение на серверах без PlaceholderAPI и незагрузку на Paper 1.20.5–1.21.11. Обновление — замена jar; свои настройки сохраняются.
 
 > **Лёгкий в настройке — работает сразу после установки.** Положил jar в `plugins/` — и вход уже защищён: безопасный ввод пароля, Argon2id, лимит 3 аккаунта на IP и лёгкий антибот из двух проверок (физика падения + пазл) включены по умолчанию; постоянных игроков антибот перепроверяет раз в 24 часа. Каждая настройка описана прямо в файле на русском, полное описание всех настроек есть на русском и английском ([RU](docs/CONFIG.ru.md) · [EN](docs/CONFIG.en.md)).
 >
@@ -52,14 +52,14 @@ afk:
 ```
 И в `advanced.yml` — `auto_restart.enabled: false`, если не нужен автоперезапуск сервера. Почта, премиум-вход, общий чёрный список и обязательная 2FA для админов и так выключены по умолчанию. Включить всё обратно можно в любой момент.
 
-Поэтому ставить устаревшую 1.0.3 ради простоты не нужно: 1.1.6 с выключенным антиботом так же проста, но безопаснее и получает обновления.
+Поэтому ставить устаревшую 1.0.3 ради простоты не нужно: 1.1.6.1 с выключенным антиботом так же проста, но безопаснее и получает обновления.
 
 ## Почему VTRegister
 
 - **Антибот, встроенный прямо в авторизацию.** Обычно в плагинах входа от ботов защищает лимит заходов или одна капча. Здесь новичок проходит проверку в отдельном пустом мире: по умолчанию физика падения и пазл, по желанию ещё 8 этапов (всего 10). Бот, который умеет только подключаться и слать команды, её не проходит. Баны выдаются только за доказанный провал, живых игроков не наказывают.
 - **Лёгкий в настройке.** Работает сразу после установки, ничего менять не обязательно. Для простого сервера — готовое решение «из коробки», для продвинутого — десятки опций, которые включаешь сам.
 - **Вся настройка — в YAML-файлах с описанием каждой строки.** Можно включить или выключить любую функцию и любой этап. При обновлении новые параметры дописываются сами вместе с описаниями, твои значения и комментарии не трогаются. Тексты правятся в `lang/ru.yml` и `lang/en.yml`, есть HEX-цвета.
-- **Безопасность по умолчанию.** Пароль не попадает в консоль, хранится только хеш Argon2id, есть 2FA. Телеметрии нет, всё сетевое по умолчанию выключено — подробно в [SECURITY.md](SECURITY.md).
+- **Безопасность по умолчанию.** Пароль не попадает в консоль, хранится только хеш Argon2id, есть 2FA. Ники, IP и пароли никуда не отправляются; по умолчанию включена только анонимная статистика bStats (выключается одной строкой), остальное сетевое выключено — подробно в [SECURITY.md](SECURITY.md).
 - **Подходит и для простой авторизации.** Антибот и всё дополнительное выключаются одной-двумя строками — останется лёгкий и безопасный `/reg` и `/login`.
 - **Открытый код.** Каждое утверждение выше можно проверить по исходникам.
 
@@ -69,7 +69,7 @@ afk:
 
 - **VTRegister — авторский плагин.** Автор — Vorchun (на MineLeak.pro — vitaliy21). С самой первой версии автор сам публиковал плагин на своей странице MineLeak.pro как собственную разработку. Это не «слив» и не перезалив чужого плагина.
 - **Код всегда был открыт.** Плагин никогда не обфусцировался: любую версию можно открыть декомпилятором (например, jdec.app) и проверить. С сентября 2026 года исходники с полной историей изменений лежат здесь, на GitHub.
-- **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → 1.1.5 (27.09.2026, VTRegister) → **1.1.6 (01.10.2026)**.
+- **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → 1.1.5 (27.09.2026, VTRegister) → 1.1.6 (01.10.2026) → **1.1.6.1 (03.10.2026)**.
 - **Сейчас** официальный дом проекта — GitHub. Страница на MineLeak.pro осталась архивом старых версий.
 
 ## Как проверяется качество
@@ -77,7 +77,7 @@ afk:
 - **92 автоматических теста** прогоняются при каждой сборке.
 - Код собирается против API **1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 и 26.2**, запуск проверяется на **Java 8, 17, 21 и 25**.
 - **Воспроизводимая сборка:** jar, собранный из этих исходников без изменений, проходит ту же проверку подписи, что и официальный релиз. SHA-256 каждого релиза опубликован.
-- **Прозрачность:** [SECURITY.md](SECURITY.md) — всё, что плагин делает с сетью, файлами и сервером; телеметрии нет.
+- **Прозрачность:** [SECURITY.md](SECURITY.md) — всё, что плагин делает с сетью, файлами и сервером; ники, IP и пароли никуда не уходят.
 - Ошибки и предложения — во вкладке [Issues](https://github.com/Vitaliy222121/VTRegister/issues).
 
 ## Поддержка
@@ -96,7 +96,7 @@ afk:
 
 ## Установка
 
-1. Положи `VTRegister-v1.1.6.jar` в `plugins/` и запусти сервер.
+1. Положи `VTRegister-v1.1.6.1.jar` в `plugins/` и запусти сервер.
 2. В `plugins/VTRegister/` появятся `config.yml`, `advanced.yml`, `lang/ru.yml`, `lang/en.yml` — всё уже настроено.
 3. Есть прокси? Тот же jar — в `plugins/` прокси, подробности в `PROXY_SETUP.txt`.
 
@@ -112,7 +112,7 @@ afk:
 - Премиум-автовход (online-mode), вход по IP-сессии, одна сессия на ник.
 - Хранилище: YAML, SQLite, MySQL, MariaDB, PostgreSQL; перенос аккаунтов из AuthMe (и старых форков: SQLite, MySQL, файл auths.db), nLogin, OpeNLogin, LoginSecurity, LimboAuth — игроки входят старыми паролями.
 - Подсказки по центру экрана: что делать прямо сейчас (зарегистрироваться, войти, пройти этап) — `screen_hints.enabled`.
-- [API для разработчиков](docs/API.md): события входа и антибота, свои окна входа, проверка пароля. Статистика bStats — по желанию, по умолчанию выключена.
+- [API для разработчиков](docs/API.md): события входа и антибота, свои окна входа, проверка пароля. Анонимная статистика bStats включена по умолчанию (`advanced.yml` → `bstats.enabled`).
 - Журнал входов, оповещения в Discord/Telegram о входе админа с нового IP.
 
 **Антибот** — отдельный пустой мир, каждый этап включается отдельно. По умолчанию — быстрый режим (`fast_mode: true`): проверка сразу при входе, без очередей, этапы физика + пазл
@@ -219,7 +219,7 @@ plugins/VTRegister/
 mvn clean package
 ```
 
-Результат: `target/VTRegister-v1.1.6.jar` (байткод Java 8). Jar из этих исходников без изменений запускается. Изменённую сборку плагин не запускает: так «перепакованная» копия с вредоносным кодом не выдаст себя за VTRegister. Ничего другого проверка не делает, подробнее в [SECURITY.md](SECURITY.md).
+Результат: `target/VTRegister-v1.1.6.1.jar` (байткод Java 8). Jar из этих исходников без изменений запускается. Изменённую сборку плагин не запускает: так «перепакованная» копия с вредоносным кодом не выдаст себя за VTRegister. Ничего другого проверка не делает, подробнее в [SECURITY.md](SECURITY.md).
 
 ## Лицензия
 
@@ -252,7 +252,7 @@ mvn clean package
 
 <a name="english"></a>
 
-# VTRegister 1.1.6 (English)
+# VTRegister 1.1.6.1 (English)
 
 [Русский](#vtregister-116) · **English**
 
@@ -260,9 +260,9 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 > **VTRegister is the plugin's main and only name.** "RegisterPlugin" is its old name (up to version 1.1.0) and is no longer used.
 >
-> **Version 1.1.6 is the current and most advanced in the plugin's history:** a fast anti-bot (physics + puzzle) right on join, a re-check of regular players every 24 hours, a limit of 3 accounts per IP, on-screen hints, a developer API, account migration from AuthMe and nLogin, a command to restore default settings. Versions 1.1.0 and older are outdated and unsupported.
+> **Version 1.1.6.1 is the current and most advanced in the plugin's history:** a fast anti-bot (physics + puzzle) right on join, a re-check of regular players every 24 hours, a limit of 3 accounts per IP, on-screen hints, a developer API, account migration from AuthMe and nLogin, a command to restore default settings. Versions 1.1.0 and older are outdated and unsupported.
 >
-> **Update to 1.1.6:** it fixes two critical bugs of 1.1.5 — self-disable on servers without PlaceholderAPI and failing to load on Paper 1.20.5–1.21.11. Updating is a jar swap; your settings are kept.
+> **Update to 1.1.6.1:** it fixes two critical bugs of 1.1.5 — self-disable on servers without PlaceholderAPI and failing to load on Paper 1.20.5–1.21.11. Updating is a jar swap; your settings are kept.
 
 > **Easy to configure — works right after installation.** Drop the jar into `plugins/` and logins are already protected: secure password input, Argon2id, a limit of 3 accounts per IP and a light anti-bot of two checks (fall physics + puzzle) are on by default; regular players are re-checked once every 24 hours. Every setting is described right in the file, and the full description of all settings is available in Russian and English ([RU](docs/CONFIG.ru.md) · [EN](docs/CONFIG.en.md)).
 >
@@ -306,14 +306,14 @@ afk:
 ```
 And in `advanced.yml` — `auto_restart.enabled: false` if you do not need scheduled server restarts. E-mail, premium login, the shared blacklist and mandatory admin 2FA are already off by default. Everything can be turned back on at any time.
 
-So there is no need to install the outdated 1.0.3 for simplicity: 1.1.6 with the anti-bot off is just as simple, but more secure and still updated.
+So there is no need to install the outdated 1.0.3 for simplicity: 1.1.6.1 with the anti-bot off is just as simple, but more secure and still updated.
 
 ## Why VTRegister
 
 - **An anti-bot built right into authentication.** Most login plugins stop bots with a join limit or a single captcha. Here a newcomer is checked in a separate empty world: fall physics and a puzzle by default, 8 more stages optional (10 in total). A bot that can only connect and send commands does not pass. Bans are issued only for proven fails; real players are not punished.
 - **Easy to configure.** Works right after installation, nothing has to be changed. For a simple server it is a ready out-of-the-box solution; for an advanced one there are dozens of options you turn on yourself.
 - **All configuration lives in YAML files with a description for every line.** Any feature and any stage can be turned on or off. On update, new settings are added with their descriptions; your values and comments are never touched. Texts are edited in `lang/ru.yml` and `lang/en.yml`, with HEX colors.
-- **Secure by default.** Passwords never reach the console, only Argon2id hashes are stored, 2FA is available. No telemetry, everything network-related is off by default — details in [SECURITY.md](SECURITY.md).
+- **Secure by default.** Passwords never reach the console, only Argon2id hashes are stored, 2FA is available. Names, IPs and passwords are never sent anywhere; only anonymous bStats statistics are on by default (one line to turn off), everything else network-related is off — details in [SECURITY.md](SECURITY.md).
 - **Also fits a simple login.** The anti-bot and all extras turn off with a line or two, leaving a lightweight, secure `/reg` and `/login`.
 - **Open source.** Every statement above can be checked in the code.
 
@@ -321,7 +321,7 @@ So there is no need to install the outdated 1.0.3 for simplicity: 1.1.6 with the
 
 - **VTRegister is an author's own plugin.** The author is Vorchun (vitaliy21 on MineLeak.pro). From the very first version the author himself published it on his MineLeak.pro page as his own work. It is not a "leak" or a re-upload of someone else's plugin.
 - **The code has always been open.** The plugin was never obfuscated: any version can be opened with a decompiler (for example, jdec.app) and checked. Since September 2026 the source code with its full change history lives here on GitHub.
-- **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → 1.1.5 (2026-09-27, VTRegister) → **1.1.6 (2026-10-01)**.
+- **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → 1.1.5 (2026-09-27, VTRegister) → 1.1.6 (2026-10-01) → **1.1.6.1 (2026-10-03)**.
 - **Today** GitHub is the project's official home. The MineLeak.pro page remains an archive of old versions.
 
 ## How quality is checked
@@ -329,7 +329,7 @@ So there is no need to install the outdated 1.0.3 for simplicity: 1.1.6 with the
 - **92 automated tests** run on every build.
 - The code is compiled against API **1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 and 26.2**; startup is tested on **Java 8, 17, 21 and 25**.
 - **Reproducible build:** a jar built from these unmodified sources passes the same signature check as the official release. Every release's SHA-256 is published.
-- **Transparency:** [SECURITY.md](SECURITY.md) lists everything the plugin does with the network, files and the server; there is no telemetry.
+- **Transparency:** [SECURITY.md](SECURITY.md) lists everything the plugin does with the network, files and the server; names, IPs and passwords never leave the server.
 - Bugs and ideas — the [Issues](https://github.com/Vitaliy222121/VTRegister/issues) tab.
 
 ## Support
@@ -348,7 +348,7 @@ Compiled against API 1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 and 26.2; tested on 
 
 ## Installation
 
-1. Put `VTRegister-v1.1.6.jar` into `plugins/` and start the server.
+1. Put `VTRegister-v1.1.6.1.jar` into `plugins/` and start the server.
 2. `config.yml`, `advanced.yml`, `lang/ru.yml`, `lang/en.yml` appear in `plugins/VTRegister/` — everything is preconfigured.
 3. Using a proxy? The same jar goes into the proxy's `plugins/` — see `PROXY_SETUP.txt`.
 
@@ -364,7 +364,7 @@ Updating means replacing the jar. New settings are added automatically with thei
 - Premium auto-login (online-mode), IP sessions, one session per name.
 - Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL; account migration from AuthMe (and old forks: SQLite, MySQL, the auths.db file), nLogin, OpeNLogin, LoginSecurity, LimboAuth — players log in with their old passwords.
 - On-screen hints in the middle of the screen: what to do right now (register, log in, pass a stage) — `screen_hints.enabled`.
-- [Developer API](docs/API.md): login and anti-bot events, custom login windows, password checks. bStats statistics — optional, off by default.
+- [Developer API](docs/API.md): login and anti-bot events, custom login windows, password checks. Anonymous bStats statistics are on by default (`advanced.yml` → `bstats.enabled`).
 - Login journal, Discord/Telegram alerts when an admin joins from a new IP.
 
 **Anti-bot** — a separate empty world, every stage can be toggled. Default is fast mode (`fast_mode: true`): the check starts right on join, no queues, stages fall + puzzle
@@ -471,7 +471,7 @@ plugins/VTRegister/
 mvn clean package
 ```
 
-Output: `target/VTRegister-v1.1.6.jar` (Java 8 bytecode). A jar built from these unmodified sources runs. A modified build does not start, so a "repacked" copy with malicious code cannot pose as VTRegister. The check does nothing else — see [SECURITY.md](SECURITY.md).
+Output: `target/VTRegister-v1.1.6.1.jar` (Java 8 bytecode). A jar built from these unmodified sources runs. A modified build does not start, so a "repacked" copy with malicious code cannot pose as VTRegister. The check does nothing else — see [SECURITY.md](SECURITY.md).
 
 ## License
 

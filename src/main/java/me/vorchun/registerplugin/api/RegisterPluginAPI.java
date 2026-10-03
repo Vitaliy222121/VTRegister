@@ -259,7 +259,7 @@ public final class RegisterPluginAPI {
         return p != null && p.isEnabled();
     }
 
-    private static final int READY = 1448549749;
+    private static final int READY = 1124856767;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1004) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

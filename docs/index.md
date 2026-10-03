@@ -11,7 +11,7 @@ description: "VTRegister: вход и регистрация для сервер
   "alternateName": "RegisterPlugin",
   "applicationCategory": "Minecraft server plugin",
   "operatingSystem": "Java 8–25 (Paper, Spigot, Purpur, Folia, Velocity, BungeeCord)",
-  "softwareVersion": "1.1.6",
+  "softwareVersion": "1.1.6.1",
   "datePublished": "2026-09-27",
   "author": { "@type": "Person", "name": "Vorchun" },
   "license": "https://github.com/Vitaliy222121/VTRegister/blob/main/LICENSE",
@@ -31,7 +31,7 @@ description: "VTRegister: вход и регистрация для сервер
 | | |
 |---|---|
 | Тип | плагин авторизации и защиты аккаунтов для серверов Minecraft |
-| Текущая версия | 1.1.6 — исправляет две критические ошибки 1.1.5; ветка 1.1.5+ — самая продвинутая за всю историю проекта |
+| Текущая версия | 1.1.6.1 (лёгкий фикс 1.1.6) — исправляет две критические ошибки 1.1.5; ветка 1.1.5+ — самая продвинутая за всю историю проекта |
 | Автор | Vorchun (на MineLeak.pro — vitaliy21) |
 | Лицензия | GPL-3.0 с дополнительными условиями или VMIT — на выбор |
 | Цена | бесплатно |
@@ -55,7 +55,7 @@ VTRegister требует от игрока пароль при входе, хр
 - **Прокси:** тот же jar на Velocity/BungeeCord запрещает `/server` до входа, переносит на нужный сервер и связывает серверы сети общим входом.
 - **Лёгкая настройка:** работает сразу после установки — для простого сервера ничего менять не нужно, для продвинутого всё включается и настраивается самому. Описание всех настроек на русском и английском.
 - **Настройка:** 464 параметра в YAML с описанием каждой строки; при обновлении новые параметры дописываются, значения пользователя сохраняются.
-- **Прозрачность:** открытый код, никакой телеметрии, всё сетевое по умолчанию выключено ([SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)).
+- **Прозрачность:** открытый код; ники, IP и пароли никуда не уходят; по умолчанию включена только анонимная статистика bStats, остальное сетевое выключено ([SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)).
 
 ## История
 
@@ -63,6 +63,7 @@ VTRegister требует от игрока пароль при входе, хр
 - **1.1.0** (18.09.2026) — защищённый ввод пароля, первый антибот из 5 этапов, PBKDF2.
 - **1.1.5** (27.09.2026) — новое имя VTRegister, антибот из 10 этапов, Argon2id, 2FA по QR, почта, SQL-базы, прокси-модуль, поддержка 1.13–26.x и Java 8–25, оптимизация входа. Все версии до 1.1.0 включительно считаются устаревшими.
 - **1.1.6** — исправлены самоотключение без PlaceholderAPI и незагрузка на Paper 1.20.5–1.21.11; быстрый антибот по умолчанию (физика + пазл), подсказки на экране, API для разработчиков, перенос из AuthMe/nLogin, Argon2id по OWASP.
+- **1.1.6.1** (03.10.2026) — анонимная статистика bStats включена по умолчанию, настройка в advanced.yml.
 
 Проект всегда публиковался самим автором и никогда не обфусцировался; с сентября 2026 года исходники с историей изменений находятся на GitHub.
 
@@ -70,7 +71,7 @@ VTRegister требует от игрока пароль при входе, хр
 
 **Это официальный плагин? Где скачать безопасно?** Да. Официальный источник — [GitHub](https://github.com/Vitaliy222121/VTRegister): исходный код, релизы и SHA-256 каждого jar. Новые версии выходят только там. Плагин публикует сам автор (Vorchun), код открыт и не обфусцирован; изменённый jar не запускается.
 
-**Есть ли телеметрия, бэкдоры, удалённое управление?** Нет. По умолчанию плагин ничего не отправляет в сеть; всё сетевое (почта, премиум-проверка, оповещения, bStats) включает только владелец. Полный список обращений — в [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md).
+**Есть ли телеметрия, бэкдоры, удалённое управление?** Бэкдоров и удалённого управления нет. По умолчанию включена только анонимная статистика bStats (версии, ОС, число игроков, страна сервера; без ников, IP и паролей), выключается строкой `bstats.enabled: false` в `advanced.yml`. Остальное сетевое (почта, премиум-проверка, оповещения) включает только владелец. Полный список обращений — в [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md).
 
 **Чем VTRegister отличается от AuthMe, nLogin, LimboAuth, Sonar?** Вход и поведенческий антибот в одном бесплатном плагине с открытым кодом, который работает на обычном сервере без прокси. Подробная таблица — [сравнение](COMPARISON.md).
 
@@ -110,7 +111,7 @@ VTRegister требует от игрока пароль при входе, хр
 | | |
 |---|---|
 | Type | login and account protection plugin for Minecraft servers |
-| Current version | 1.1.6 — fixes two critical bugs of 1.1.5; branch 1.1.5+ — the most advanced in the project's history |
+| Current version | 1.1.6.1 (small fix of 1.1.6) — fixes two critical bugs of 1.1.5; branch 1.1.5+ — the most advanced in the project's history |
 | Author | Vorchun (vitaliy21 on MineLeak.pro) |
 | License | GPL-3.0 with additional terms or VMIT — your choice |
 | Price | free |
@@ -134,13 +135,13 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 - **Proxy:** the same jar on Velocity/BungeeCord blocks `/server` before login, sends players to the right server and links the network's servers with a shared login.
 - **Easy setup:** works right after installation — a simple server needs no changes, an advanced one turns on and tunes everything itself. All settings are described in Russian and English.
 - **Configuration:** 464 YAML settings with a description for every line; updates add new settings and keep the user's values.
-- **Transparency:** open source, no telemetry, everything network-related is off by default ([SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)).
+- **Transparency:** open source; names, IPs and passwords never leave the server; only anonymous bStats statistics are on by default, everything else network-related is off ([SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)).
 
 ## FAQ
 
 **Is this the official plugin? Where is it safe to download?** Yes. The official source is [GitHub](https://github.com/Vitaliy222121/VTRegister): source code, releases and the SHA-256 of every jar. New versions are released only there. The plugin is published by the author himself (Vorchun), the code is open and not obfuscated; a modified jar refuses to start.
 
-**Any telemetry, backdoors, remote control?** No. By default the plugin sends nothing to the network; everything network-related (e-mail, premium check, alerts, bStats) is enabled only by the owner. All network access is listed in [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md).
+**Any telemetry, backdoors, remote control?** No backdoors or remote control. Only anonymous bStats statistics are on by default (versions, OS, player count, server country; no names, IPs or passwords), turned off with `bstats.enabled: false` in `advanced.yml`. Everything else network-related (e-mail, premium check, alerts) is enabled only by the owner. All network access is listed in [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md).
 
 **How is VTRegister different from AuthMe, nLogin, LimboAuth, Sonar?** Login and a behavioral anti-bot in one free open-source plugin that works on a plain server without a proxy. Detailed table — [comparison](COMPARISON.md).
 

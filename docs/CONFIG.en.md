@@ -579,14 +579,6 @@ State watchdog: watches for replaced commands/listeners and plugin disabling. By
 | `selfdefense.max_tamper_strikes` | `3` | how many detections before disabling |
 | `allowed_commands_unauthorized` | `["login", "l", "register", "reg"]` | Commands allowed BEFORE login |
 
-### `metrics`
-
-bStats statistics (optional)
-
-| Setting | Default | What it does |
-|---|---|---|
-| `metrics.enabled` | `false` | true — every 30 minutes send ANONYMOUS statistics to bstats.org: server, Java and plugin versions, OS, online player count, server country, anti-bot mode, storage, language and password input mode. No names, IPs or passwords. Helps the author see what the plugin runs on. The global switch for all plugins is plugins/bStats/config.yml |
-
 ### `console_reminder`
 
 Console reminder about updates — written ONLY to the console (players do not see it). Can be disabled
@@ -696,6 +688,14 @@ Scheduled server restart. A long uptime piles up "garbage" in the server and plu
 | `auto_restart.warn_message` | `"&c⚠ Перезапуск сервера через &f{time}&c."` | chat warning text ({time} = time left) |
 | `auto_restart.kick_message` | `"&eСервер перезапускается. Зайди через минуту!"` | message shown to players when the server restarts |
 | `auto_restart.command` | `"restart"` | restart — restart command (spigot.yml → restart-script; without a script the server just stops and the host usually starts it again); stop — shut down |
+
+### `bstats`
+
+Anonymous bStats statistics. Every 30 minutes to bstats.org: server, Java and plugin versions, OS, online player count, server country, anti-bot mode, storage, language and password input mode. No names, IPs or passwords. Statistics: https://bstats.org/plugin/bukkit/VTRegister/34444
+
+| Setting | Default | What it does |
+|---|---|---|
+| `bstats.enabled` | `true` | send anonymous statistics |
 
 ## proxy-config.yml — proxy settings (Velocity/BungeeCord)
 
