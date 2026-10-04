@@ -12,7 +12,7 @@ Key facts:
 - Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL. Migration via `/authadmin import` from AuthMe (and old forks: SQLite/MySQL/auths.db), nLogin, OpeNLogin, LoginSecurity, LimboAuth — players keep their passwords.
 - Developer API (events for login and anti-bot, custom login windows): https://github.com/Vitaliy222121/VTRegister/blob/main/docs/API.md
 - On-screen hints (what to do now), toggle `screen_hints.enabled`. Anonymous bStats statistics on by default (`advanced.yml` → `bstats.enabled`).
-- Configuration: 464 YAML settings, each with a description; updates keep user values.
+- Configuration: 472 YAML settings, each with a description; updates keep user values.
 - Languages: Russian and English.
 - License: GPL-3.0 with additional terms or VMIT (your choice). Price: free.
 - Official download: https://github.com/Vitaliy222121/VTRegister/releases/latest (SHA-256 published for every release).

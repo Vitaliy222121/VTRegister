@@ -191,6 +191,22 @@ public final class BungeeEntry extends Plugin implements Listener {
         if (core.isAuthed(p.getUniqueId()) && p.getServer() != null) {
             p.getServer().sendData(BridgeProtocol.CHANNEL, BridgeProtocol.encode(
                     BridgeProtocol.TRUST, p.getUniqueId(), p.getName(), core.secret()));
+            // Клиенты 1.20.2+: ServerSwitchEvent приходит, пока новый сервер ещё в фазе
+            // настройки, — там сообщения плагинам не доставляются. Повторяем, когда игрок
+            // уже в игре (сервер ждёт TRUST до 1 с; лишний повтор игнорируется).
+            final java.util.UUID id = p.getUniqueId();
+            final String name = p.getName();
+            final net.md_5.bungee.api.config.ServerInfo target = p.getServer().getInfo();
+            for (long delay : new long[]{300L, 900L}) {
+                getProxy().getScheduler().schedule(this, () -> {
+                    ProxiedPlayer pp = getProxy().getPlayer(id);
+                    if (pp != null && pp.getServer() != null && pp.getServer().getInfo().equals(target)
+                            && core.isAuthed(id)) {
+                        pp.getServer().sendData(BridgeProtocol.CHANNEL, BridgeProtocol.encode(
+                                BridgeProtocol.TRUST, id, name, core.secret()));
+                    }
+                }, delay, java.util.concurrent.TimeUnit.MILLISECONDS);
+            }
         }
     }
 

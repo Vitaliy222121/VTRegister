@@ -109,7 +109,7 @@ public final class AdminTwoFactorGuard implements Listener {
                         "{prefix}&#A0FFA0Двухфакторка включена — все команды снова доступны.");
             } else if (setupMs > 0 && now > e.getValue()) {
                 pending.remove(e.getKey());
-                p.kickPlayer(messages.format(messages.message("twofa_admin_timeout"), new java.util.HashMap<>()));
+                p.kickPlayer(messages.format(messages.message(p, "twofa_admin_timeout", new java.util.HashMap<>()), new java.util.HashMap<>()));
             }
         }
     }

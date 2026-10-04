@@ -52,6 +52,11 @@ public final class ProxyCore {
     private volatile int globalPerSecond = 25;
     private volatile long attackMs = 120_000L;
     private volatile long verifiedTtlMs = 72L * 3600_000L;
+    /** Во время атаки незнакомых IP пускаем дозированно (в секунду), а не никого. */
+    private volatile double attackAdmitPerSecond = 2.0;
+    private final Object admitLock = new Object();
+    private double admitTokens;
+    private long admitRefillAt;
     private volatile Map<String, String> messages = Collections.emptyMap();
 
     // --- состояние ---
@@ -119,6 +124,7 @@ public final class ProxyCore {
         globalPerSecond = num(c.get("connection_limit.global_per_second"), 25);
         attackMs = Math.max(10, num(c.get("connection_limit.attack_seconds"), 120)) * 1000L;
         verifiedTtlMs = Math.max(1, num(c.get("connection_limit.verified_ip_hours"), 72)) * 3600_000L;
+        attackAdmitPerSecond = Math.max(0, num(c.get("connection_limit.attack_admit_per_second"), 2));
         Map<String, String> m = new HashMap<>();
         for (Map.Entry<String, Object> e : c.entrySet()) {
             if (e.getKey().startsWith("messages.")) {
@@ -224,8 +230,15 @@ public final class ProxyCore {
             return null;
         }
         boolean verified = isVerified(ip, now);
+        // Атака: проверенные IP — без очереди; незнакомые — дозированно (иначе
+        // без общего secret, когда прокси не знает «своих», вход закрыт всем)
         if (attack && !verified) {
-            return msg("attack");
+            Long pt = pinged.get(ip);
+            boolean pingedRecently = pt != null && now - pt <= pingWindowMs;
+            // не пинговал сервер из списка (как настоящий клиент) — места не тратим
+            if (!pingedRecently || !takeAdmitToken(now)) {
+                return msg("attack");
+            }
         }
         // Пинг перед входом: настоящий клиент сначала видит сервер в списке
         if (!verified && ("always".equals(pingMode) || ("attack".equals(pingMode) && now < attackUntil))) {
@@ -254,6 +267,24 @@ public final class ProxyCore {
             }
         }
         return null;
+    }
+
+    /** Дозатор пропуска незнакомых во время атаки: attack_admit_per_second, запас на 2 с. */
+    private boolean takeAdmitToken(long now) {
+        double rate = attackAdmitPerSecond;
+        if (rate <= 0) {
+            return false;
+        }
+        synchronized (admitLock) {
+            double cap = Math.max(1.0, rate * 2.0);
+            admitTokens = admitRefillAt == 0L ? cap : Math.min(cap, admitTokens + (now - admitRefillAt) / 1000.0 * rate);
+            admitRefillAt = now;
+            if (admitTokens >= 1.0) {
+                admitTokens -= 1.0;
+                return true;
+            }
+            return false;
+        }
     }
 
     static boolean isLoopback(String ip) {

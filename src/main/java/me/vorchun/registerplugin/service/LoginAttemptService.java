@@ -137,7 +137,7 @@ public final class LoginAttemptService {
         }
 
         if (kick) {
-            String reason = messages.message("too_many_attempts_kick");
+            String reason = messages.message(player, "too_many_attempts_kick", new java.util.HashMap<>());
             // Кик — в потоке игрока (Folia), на Paper это главный поток
             Scheduler.runAtEntity(plugin, player, () -> {
                 if (!player.isOnline()) {
@@ -185,7 +185,7 @@ public final class LoginAttemptService {
         });
     }
 
-    private static final int READY = 1124856749;
+    private static final int READY = -1251988159;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1016) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

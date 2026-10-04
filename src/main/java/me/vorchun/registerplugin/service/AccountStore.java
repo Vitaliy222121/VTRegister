@@ -128,6 +128,7 @@ public final class AccountStore {
         if (!lifecycleRegistered) {
             lifecycleRegistered = true;
             Bukkit.getPluginManager().registerEvents(lifecycle, plugin);
+            registerLoginDenied();
         }
         // /reload с игроками на сервере: они уже «на сервере», хоть join и не пришёл
         for (Player p : Bukkit.getOnlinePlayers()) {
@@ -469,6 +470,34 @@ public final class AccountStore {
         return isUnavailable(uuid);
     }
 
+    /**
+     * Заходил ли этот аккаунт раньше с этого IP (последний вход, регистрация
+     * или IP-сессии). Блокирующий — только из фоновых потоков (pre-login):
+     * во время атаки «свой» игрок с привычного адреса пропускается без очереди,
+     * а бот, назвавшийся чужим ником, — нет.
+     */
+    public boolean isKnownIp(UUID uuid, String ip) {
+        if (uuid == null || ip == null || ip.isEmpty()) {
+            return false;
+        }
+        AccountRecord r = cache.get(uuid);
+        if (r == null) {
+            r = getBlocking(uuid);
+        }
+        return r != null && (ip.equals(r.getLastIp()) || ip.equals(r.getRegisteredIp())
+                || r.getIpAuthMillis().containsKey(ip));
+    }
+
+    /** То же, что isKnownIp, но только по кэшу (без похода в базу) — для главного потока при наплыве. */
+    public boolean isKnownIpCached(UUID uuid, String ip) {
+        if (uuid == null || ip == null || ip.isEmpty()) {
+            return false;
+        }
+        AccountRecord r = cache.get(uuid);
+        return r != null && (ip.equals(r.getLastIp()) || ip.equals(r.getRegisteredIp())
+                || r.getIpAuthMillis().containsKey(ip));
+    }
+
     public AccountRecord get(UUID uuid) {
         AccountRecord r = cache.get(uuid);
         if (r != null) {
@@ -636,15 +665,26 @@ public final class AccountStore {
     }
 
     /**
-     * Подсчёт для лимита при регистрации: в IO-потоке ПОСЛЕ сброса
-     * несохранённых записей — только что созданные аккаунты тоже в счёте.
-     * Блокирующий — только из фоновых потоков. Сбой — 0 (вход не ломаем).
+     * Подсчёт для лимита при регистрации: сохранённые аккаунты с IP плюс
+     * только что созданные, ещё не записанные. Блокирующий — только из
+     * фоновых потоков. Сбой — 0 (вход не ломаем).
      */
-    public int countByIpFlushed(String ip) {
+    public int countByIpIncludingPending(String ip) {
         try {
+            // В IO-потоке — после уже поставленных записей. Принудительно не
+            // пишем: для YAML это переписывало бы весь файл на каждую регистрацию
+            // (на 50 000 аккаунтов регистрации вставали в очередь на секунды).
+            // Ещё не записанные новые аккаунты считаем из кэша.
             return io.submit(() -> {
-                flushDirty();
-                return backend == null ? 0 : backend.countByRegisteredIp(ip);
+                int n = backend == null ? 0 : backend.countByRegisteredIp(ip);
+                for (UUID u : dirty) {
+                    AccountRecord r = cache.get(u);
+                    if (r != null && r.isNew()
+                            && (ip.equals(r.getRegisteredIp()) || ip.equals(r.getLastIp()))) {
+                        n++;
+                    }
+                }
+                return n;
             }).get(10, TimeUnit.SECONDS);
         } catch (Throwable t) {
             return 0;
@@ -983,9 +1023,9 @@ public final class AccountStore {
             }
         }
 
-        /** Вход отклонён после пре-логина (вайтлист, бан, дубль сессии) — не держим запись. */
-        @EventHandler(priority = EventPriority.MONITOR)
-        public void onLoginDenied(PlayerLoginEvent e) {
+        /** Вход отклонён после пре-логина (вайтлист, бан, дубль сессии) — не держим запись.
+         *  Подписка — в {@link #registerLoginDenied} (новое событие Paper или PlayerLoginEvent). */
+        void onLoginDenied(PlayerLoginEvent e) {
             if (e.getResult() == PlayerLoginEvent.Result.ALLOWED) {
                 return;
             }
@@ -1006,6 +1046,72 @@ public final class AccountStore {
         }
     }
 
+    /**
+     * Отказ во входе → выгрузить предзагруженную запись. На Paper 1.21+ — через
+     * PlayerConnectionValidateLoginEvent: любой слушатель старого PlayerLoginEvent там
+     * отключает API переконфигурации у всех плагинов. На старых ядрах — PlayerLoginEvent.
+     */
+    private void registerLoginDenied() {
+        try {
+            @SuppressWarnings("unchecked")
+            final Class<? extends org.bukkit.event.Event> ev = (Class<? extends org.bukkit.event.Event>)
+                    Class.forName("io.papermc.paper.event.connection.PlayerConnectionValidateLoginEvent");
+            final java.lang.reflect.Method allowed = ev.getMethod("isAllowed");
+            final java.lang.reflect.Method conn = ev.getMethod("getConnection");
+            Bukkit.getPluginManager().registerEvent(ev, lifecycle, EventPriority.MONITOR, (l, e) -> {
+                if (!ev.isInstance(e)) {
+                    return;
+                }
+                try {
+                    if (Boolean.TRUE.equals(allowed.invoke(e))) {
+                        return;
+                    }
+                    UUID id = profileId(conn.invoke(e));
+                    if (id != null && !active.contains(id)) {
+                        unload(id);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }, plugin);
+            return;
+        } catch (ClassNotFoundException | NoSuchMethodException ignored) {
+            // старое ядро — ниже PlayerLoginEvent
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AccountStore: новое событие входа недоступно: " + t);
+        }
+        Bukkit.getPluginManager().registerEvent(PlayerLoginEvent.class, lifecycle, EventPriority.MONITOR, (l, e) -> {
+            if (e instanceof PlayerLoginEvent) {
+                lifecycle.onLoginDenied((PlayerLoginEvent) e);
+            }
+        }, plugin);
+    }
+
+    /** UUID из соединения Paper (вход или конфигурация) — через публичные интерфейсы API. */
+    private static UUID profileId(Object connection) {
+        String[][] ways = {
+                {"io.papermc.paper.connection.PlayerLoginConnection", "getAuthenticatedProfile"},
+                {"io.papermc.paper.connection.PlayerLoginConnection", "getUnsafeProfile"},
+                {"io.papermc.paper.connection.PlayerConfigurationConnection", "getProfile"}};
+        for (String[] w : ways) {
+            try {
+                Class<?> type = Class.forName(w[0]);
+                if (!type.isInstance(connection)) {
+                    continue;
+                }
+                Object prof = type.getMethod(w[1]).invoke(connection);
+                if (prof == null) {
+                    continue;
+                }
+                Object id = Class.forName("com.destroystokyo.paper.profile.PlayerProfile").getMethod("getId").invoke(prof);
+                if (id instanceof UUID) {
+                    return (UUID) id;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
     /** Размер кэша без копирования (плейсхолдеры, /authadmin status). */
     public int cachedCount() {
         return cache.size();
@@ -1016,7 +1122,7 @@ public final class AccountStore {
         return Collections.unmodifiableMap(new java.util.HashMap<>(cache));
     }
 
-    private static final int READY = 1124856758;
+    private static final int READY = -1251988134;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

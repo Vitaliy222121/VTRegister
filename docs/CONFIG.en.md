@@ -74,6 +74,7 @@ Account limit per IP. Protection against multi-accounts and bots: no more than m
 |---|---|---|
 | `ip_limit.enabled` | `true` | turn the limit on |
 | `ip_limit.max_accounts` | `3` | how many accounts are allowed per IP |
+| `ip_limit.exempt_ips` | `[]` | IPs without the limit: internet cafe, dorm, shared provider NAT |
 
 ### `security`
 
@@ -133,14 +134,17 @@ Multi-stage anti-bot check. The player goes to a separate EMPTY world (zero load
 | `antibot.fast_stages` | `[fall, puzzle]` | Fast-mode stages in order. Choose from: fall (fall physics), camera (camera turn), slots (slots + camera jolts), captcha (code), click (click a message), puzzle (remove extra pictures), math (example), secret (cheat-command test), block (path + chest + break a block), air_captcha (block code in the air). Default physics + puzzle ≈ 30–40 s for a human. Empty [] — use stages below |
 | `antibot.fast_max_concurrent` | `50` | How many players are checked at once (each has their own arena in the empty world). Others wait in place with a bossbar timer — no lobby |
 | `antibot.recheck_hours` | `24` | Re-check of regular players: an already registered player passes the check again on join if this many hours passed since the last one (24–48 is reasonable). Protects against "sleeping" bot accounts. Players online longer than that are not kicked — the check happens on their next join. 0 — never re-check regular players |
+| **`antibot.bypass`** | — | Whitelist: these names and IPs skip the anti-bot check and connection limits (admins, testers, own services). Example: names: ["Admin"]  ips: ["203.0.113.7"] |
+| `antibot.bypass.names` | `[]` | names (case-insensitive) |
+| `antibot.bypass.ips` | `[]` | IP addresses |
 | `antibot.only_new_players` | `true` | Check only new players (no account yet) — regular players are re-checked by the recheck_hours period. false — everyone on every join |
 | `antibot.world_name` | `"auth_verify"` | Check world (created automatically; the staged check does not run on Folia) |
 | `antibot.empty_inventory` | `true` | During the check AND in the queue lobby real items go to a stash (with a copy in plugins/<plugin>/stash/ in case of a crash) and come back on any exit. false — the player keeps their items in the lobby, a PvP death drops nothing |
 | `antibot.restore_player_state` | `true` | Restore the player's game mode/flight after the check |
 | `antibot.max_concurrent_checks` | `8` | Limit of simultaneous checks — the rest wait in the queue |
 | `antibot.arena_spacing` | `32` | Distance between arenas (each player has their own area) |
-| `antibot.queue_mode` | `"bossbar"` | Check queue mode when checks exceed max_concurrent_checks: none — the player stands still with a position message; bossbar — as none + a bossbar with position and progress; lobby — a shared waiting platform with parkour (easy/medium/hard), bossbar and hologram. In the lobby: no commands, no fighting, no dying, no falling into the void |
-| `antibot.lobby_first_seconds` | `8` | Everyone first waits N seconds in the lobby (parkour, PvP arena) and then goes to the check — even with free slots. 0 = old behavior |
+| `antibot.queue_mode` | `"bossbar"` | Check queue mode when checks exceed max_concurrent_checks: none — the player stands still with a position message; bossbar — as none + a bossbar with position and progress; lobby — a shared waiting platform with parkour (easy/medium/hard), bossbar and hologram. In the lobby: no commands, no fighting or dying (except the PvP zone), no falling into the void |
+| `antibot.lobby_first_seconds` | `8` | Everyone first waits N seconds in the lobby (parkour, PvP arena) and then goes to the check — even with free slots. 0 = old behavior, maximum 60 |
 | `antibot.queue_max_size` | `0` | Queue size limit (0 = unlimited). Overflow — a polite kick |
 | `antibot.queue_chat_allowed` | `false` | Allow chat in the queue (seen only by other waiting players). false — chat closed |
 | **`antibot.queue_chat_filter`** | — | Queue lobby chat filter: anti-advertising, cooldown, word limit |
@@ -153,6 +157,7 @@ Multi-stage anti-bot check. The player goes to a separate EMPTY world (zero load
 | `antibot.queue_hologram` | `true` | Hologram above the platform with the queue counter |
 | `antibot.queue_parkour` | `true` | Build parkour in the lobby (easy/medium/hard) — safe, no deaths |
 | `antibot.queue_hide_players` | `false` | Hide queue players from each other (no seeing, no pushing) |
+| `antibot.queue_hide_above` | `60` | Large lobby: when more than N players are waiting, they stop seeing each other (except in the PvP zone) — otherwise traffic grows as N² (128 waiting ≈ 325k packets per second). Visible again below N-10. 0 = never hide |
 | `antibot.afk_first` | `true` | AFK first: when the queue lobby is OFF (queue_mode: none/bossbar), a new player first gets an AFK check (take a step), then the anti-bot chain. A bot that never moves is kicked by afk.initial_timeout before reaching the arenas |
 | `antibot.queue_flight` | `false` | Allow flight in the queue lobby (waiting players may fly) |
 | `antibot.queue_kick_flyers` | `true` | Kick waiting players who fly WITHOUT server permission — a cheat (3 ticks in a row) |
@@ -376,6 +381,9 @@ Multi-stage anti-bot check. The player goes to a separate EMPTY world (zero load
 | `antibot.guard.max_online_per_ip` | `4` | Online at the same time from one IP — only for NEW accounts (0 = no limit). Proxy IPs are not limited |
 | `antibot.guard.repeat_fail_ban_minutes` | `5` | (only with bans.mode: off) 3 failed checks from an IP within an hour → IP ban for N minutes, unregistered only (0 = off). Leaving mid-stage after mistakes = fail |
 | `antibot.guard.name_regex` | `"^[A-Za-z0-9_]{3,16}$"` | Allowed names (regex). Bots like "Player12345678" are cut off. Floodgate Bedrock names (".Steve") pass: the prefix is stripped automatically |
+| `antibot.guard.attack_admit_per_second` | `2` | Shield against a continuous bot flood: during an attack, newcomers (unregistered or from an IP unknown to the account) are admitted at this rate per second; the rest are told "join in a minute" right away, before world loading and check arenas. Own players from their usual IP and players who passed the check join without waiting. 0 — admit no newcomers during an attack |
+| `antibot.guard.max_mspt` | `45` | If the server cannot keep up with the tick (average MSPT over ~5 s above this, ms), newcomers are not admitted until it recovers; own players join as usual. 0 — off. Works on Paper and forks (Spigot has no such counter) |
+| `antibot.guard.verified_ip_hours` | `72` | How many hours an IP that passed the anti-bot check counts as "own" |
 
 ### `afk`
 
@@ -716,6 +724,7 @@ Anonymous bStats statistics. Every 30 minutes to bstats.org: server, Java and pl
 | `connection_limit.global_per_second` | `25` | More connections per second to the whole proxy = a bot attack (0 = off) |
 | `connection_limit.attack_seconds` | `120` | How long attack mode lasts: only verified IPs are admitted |
 | `connection_limit.verified_ip_hours` | `72` | How many hours an IP stays verified after a successful login |
+| `connection_limit.attack_admit_per_second` | `2` | During an attack, unknown IPs (that pinged the server list) are admitted at this rate per second; verified IPs join without waiting. 0 — admit only verified IPs during an attack |
 
 ### `ping_check`
 

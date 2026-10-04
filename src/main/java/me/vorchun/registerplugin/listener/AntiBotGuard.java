@@ -75,6 +75,21 @@ public final class AntiBotGuard implements Listener {
     private final Deque<Long> globalJoins = new ArrayDeque<>();
     /** Все попытки входа (детект всплеска → attack-mode). */
     private final Deque<Long> attempts = new ArrayDeque<>();
+    // ── Щит от непрерывного потока ботов (antibot.guard.attack_admit_per_second / max_mspt) ──
+    private volatile double attackAdmitPerSecond = 2.0;
+    private volatile double maxMspt = 45.0;
+    private volatile long verifiedIpTtlMs = 72L * 3600_000L;
+    /** IP, прошедшие проверку на бота → до какого времени считаются своими. */
+    private final Map<String, Long> verifiedIps = new ConcurrentHashMap<>();
+    private final Object admitLock = new Object();
+    private double admitTokens;
+    private long admitRefillAt;
+    /** Белый список антибота и лимитов подключений (antibot.bypass), исключения лимита аккаунтов на IP. */
+    private volatile java.util.Set<String> bypassNames = java.util.Collections.emptySet();
+    private volatile java.util.Set<String> bypassIps = java.util.Collections.emptySet();
+    private volatile java.util.Set<String> ipLimitExempt = java.util.Collections.emptySet();
+    private static volatile java.lang.reflect.Method avgTickTime;
+    private static volatile boolean avgTickMissing;
 
     private static final class LastIp {
         final String ip;
@@ -187,7 +202,7 @@ public final class AntiBotGuard implements Listener {
     }
 
     /** Нужно ли требовать пинг перед входом этого подключения. */
-    private boolean pingRequired(String ip, UUID uuid, long now) {
+    private boolean pingRequired(String ip, UUID uuid, long now, boolean known) {
         String mode = pingMode;
         if ("off".equals(mode) || proxyMode.getAsBoolean()) {
             return false; // за прокси пинги видит прокси, а не сервер — там своя проверка
@@ -196,7 +211,7 @@ public final class AntiBotGuard implements Listener {
             return false;
         }
         // Bedrock (Floodgate) пингует через Geyser — UUID вида 00000000-0000-0000-…
-        if (uuid.getMostSignificantBits() == 0L || isLoopback(ip) || isRegistered(uuid)) {
+        if (uuid.getMostSignificantBits() == 0L || isLoopback(ip) || known) {
             return false;
         }
         Long t = pinged.get(ip);
@@ -232,6 +247,34 @@ public final class AntiBotGuard implements Listener {
         this.global = g;
     }
 
+    /**
+     * PlayerLoginEvent слушаем только ради файрвола прокси и только когда он включён:
+     * на Paper 1.21+ любой слушатель этого события отключает API переконфигурации
+     * у ВСЕХ плагинов сервера (HorriblePlayerLoginEventHack).
+     */
+    private final Listener firewallListener = new Listener() {
+        @EventHandler(priority = EventPriority.LOWEST)
+        public void onLogin(org.bukkit.event.player.PlayerLoginEvent e) {
+            onProxyFirewall(e);
+        }
+    };
+    private boolean firewallRegistered;
+
+    private void syncFirewallListener() {
+        boolean want = firewallEnabled && !firewallIps.isEmpty();
+        try {
+            if (want && !firewallRegistered) {
+                Bukkit.getPluginManager().registerEvents(firewallListener, plugin);
+                firewallRegistered = true;
+            } else if (!want && firewallRegistered) {
+                org.bukkit.event.HandlerList.unregisterAll(firewallListener);
+                firewallRegistered = false;
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Proxy-firewall: не удалось подключить слушатель: " + t);
+        }
+    }
+
     public AntiBotGuard(JavaPlugin plugin, AccountStore accountStore) {
         this.plugin = plugin;
         this.accountStore = accountStore;
@@ -246,6 +289,12 @@ public final class AntiBotGuard implements Listener {
         maxAccountsPerIp = plugin.getConfig().getBoolean("ip_limit.enabled", true)
                 ? Math.max(0, plugin.getConfig().getInt("ip_limit.max_accounts", 3)) : 0;
         maxOnlinePerIp = Math.max(0, plugin.getConfig().getInt("antibot.guard.max_online_per_ip", 4));
+        attackAdmitPerSecond = Math.max(0.0, plugin.getConfig().getDouble("antibot.guard.attack_admit_per_second", 2.0));
+        maxMspt = Math.max(0.0, plugin.getConfig().getDouble("antibot.guard.max_mspt", 45.0));
+        verifiedIpTtlMs = Math.max(1, plugin.getConfig().getInt("antibot.guard.verified_ip_hours", 72)) * 3600_000L;
+        bypassNames = lowerSet(plugin.getConfig().getStringList("antibot.bypass.names"));
+        bypassIps = lowerSet(plugin.getConfig().getStringList("antibot.bypass.ips"));
+        ipLimitExempt = lowerSet(plugin.getConfig().getStringList("ip_limit.exempt_ips"));
         reconnectSeconds = Math.max(0, plugin.getConfig().getInt("antibot.guard.reconnect_seconds", 0));
         failBanMinutes = Math.max(0, plugin.getConfig().getInt("antibot.guard.fail_ban_minutes", 0));
         repeatFailBanMinutes = Math.max(0, plugin.getConfig().getInt("antibot.guard.repeat_fail_ban_minutes", 5));
@@ -313,6 +362,7 @@ public final class AntiBotGuard implements Listener {
         if (firewallEnabled && firewallIps.isEmpty()) {
             plugin.getLogger().warning("proxy.firewall.enabled: true, но allowed_ips пуст — файрвол НЕ работает");
         }
+        syncFirewallListener();
 
         // После /reload плагина игроки уже онлайн — восстанавливаем учёт ников
         for (Player p : Bukkit.getOnlinePlayers()) {
@@ -354,6 +404,7 @@ public final class AntiBotGuard implements Listener {
         failsByIp.entrySet().removeIf(e -> now - e.getValue()[0] > FAIL_WINDOW_MS);
         repeatBanned.entrySet().removeIf(e -> now > e.getValue());
         pinged.entrySet().removeIf(e -> now - e.getValue() > pingWindowMs);
+        verifiedIps.entrySet().removeIf(e -> e.getValue() <= now);
         if (dcEnabled && now - dcLoadedAt > dcRefreshMs) {
             refreshDatacenterList(false);
         }
@@ -376,9 +427,9 @@ public final class AntiBotGuard implements Listener {
      * Файрвол прокси: если включён, на сервер пускаем только подключения,
      * реальный сокет-адрес которых = IP прокси (allowed_ips, можно CIDR).
      * Используем PlayerLoginEvent#getRealAddress — это адрес сокета,
-     * а не подменённый при forwarding адрес игрока.
+     * а не подменённый при forwarding адрес игрока. Слушатель подключается
+     * только при включённом файрволе ({@link #syncFirewallListener}).
      */
-    @EventHandler(priority = EventPriority.LOWEST)
     public void onProxyFirewall(org.bukkit.event.player.PlayerLoginEvent e) {
         if (!firewallEnabled || firewallIps.isEmpty()) {
             return;
@@ -565,6 +616,9 @@ public final class AntiBotGuard implements Listener {
         if (!ready()) {
             return;
         }
+        if (isBypassed(e.getName(), IpUtil.normalize(e.getAddress()))) {
+            return; // белый список (antibot.bypass): без лимитов и проверок
+        }
         if (!enabled) {
             // antibot.guard выключен, а лимит аккаунтов на IP (ip_limit) — свой выключатель
             String ip = IpUtil.normalize(e.getAddress());
@@ -578,6 +632,17 @@ public final class AntiBotGuard implements Listener {
         long now = System.currentTimeMillis();
         long windowMs = windowSeconds * 1000L;
         UUID uuid = e.getUniqueId();
+        // «Свой»: зарегистрирован и (вне атаки — всегда; во время атаки — с
+        // привычного IP), либо IP уже проходил проверку. Чужие во время атаки
+        // идут дозированно, свои — без очереди.
+        boolean registered = isRegistered(uuid);
+        boolean verified = perIp && isVerifiedIp(ip, now);
+        boolean known = verified || (registered && (!isAttackMode() || (perIp && accountStore.isKnownIp(uuid, ip))));
+        // Всплеск попыток: считаем ВСЕ попытки чужих, включая отклонённые ниже
+        // лимитами, — иначе attack-mode включался лишь после 30 пропущенных входов.
+        if (!known) {
+            countAttempt(now, windowMs);
+        }
 
         if (perIp) {
             Long ban = bannedUntil.get(ip);
@@ -598,7 +663,7 @@ public final class AntiBotGuard implements Listener {
             if (rb != null) {
                 if (rb <= now) {
                     repeatBanned.remove(ip);
-                } else if (!isRegistered(uuid)) {
+                } else if (!known) {
                     e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                             msg("antibot_ip_banned", "&cСлишком много неудачных проверок. Попробуй позже."));
                     return;
@@ -617,19 +682,19 @@ public final class AntiBotGuard implements Listener {
             }
         }
 
-        if (perIp && dcEnabled && dcList.contains(ip) && (dcAllPlayers || !isRegistered(uuid))) {
+        if (perIp && dcEnabled && dcList.contains(ip) && (dcAllPlayers || !known)) {
             e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                     msg("antibot_datacenter", "&cВход с адресов хостингов и VPN запрещён. Отключи VPN и зайди снова."));
             return;
         }
 
-        if (perIp && pingRequired(ip, uuid, now)) {
+        if (perIp && pingRequired(ip, uuid, now, known)) {
             e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                     msg("antibot_ping_first", "&eДобавь сервер в список серверов, обнови список и зайди снова."));
             return;
         }
 
-        if (rateEnabled && !(rateRegisteredBypass && isRegistered(uuid))) {
+        if (rateEnabled && !(rateRegisteredBypass && known)) {
             if (!rateAllow(perIp ? ip : null, now)) {
                 e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                         msg("antibot_rate_limit", "&cСлишком много подключений. Подожди пару секунд и зайди снова."));
@@ -644,18 +709,19 @@ public final class AntiBotGuard implements Listener {
             return;
         }
 
-        // Attack-mode: всплеск попыток входа (считаем все, включая отклонённые ниже)
-        synchronized (attempts) {
-            attempts.addLast(now);
-            while (!attempts.isEmpty() && now - attempts.peekFirst() > windowMs) {
-                attempts.pollFirst();
+        // Щит: пока сервер перегружен или идёт атака, чужих новичков пускаем
+        // дозированно, остальным сразу и дёшево отвечаем «зайди через минуту» —
+        // до тяжёлых этапов (загрузка мира, арены проверки).
+        if (!known) {
+            if (msptOverloaded()) {
+                e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                        msg("antibot_server_busy", "&eСервер сейчас под нагрузкой — зайди через минуту."));
+                return;
             }
-            if (attempts.size() >= attackThreshold) {
-                if (!isAttackMode()) {
-                    plugin.getLogger().warning("AntiBot: всплеск подключений (" + attempts.size()
-                            + " за " + windowSeconds + "с) — включён attack-mode");
-                }
-                attackUntil = now + windowMs;
+            if (isAttackMode() && !takeAdmitToken(now)) {
+                e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                        msg("antibot_attack_wait", "&eСервер отбивает атаку ботов. Зайди через минуту — тебя пустят."));
+                return;
             }
         }
 
@@ -683,7 +749,7 @@ public final class AntiBotGuard implements Listener {
             }
             globalFull = globalJoins.size() >= maxGlobalPerWindow;
         }
-        if (globalFull && !isRegistered(uuid)) {
+        if (globalFull && !known) {
             e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                     msg("antibot_global_limit", "&cСервер перегружен подключениями. Попробуй через минуту."));
             return;
@@ -704,7 +770,7 @@ public final class AntiBotGuard implements Listener {
         }
 
         // Одновременно онлайн с IP: ограничиваем только новые аккаунты
-        if (perIp && maxOnlinePerIp > 0 && onlineFrom(ip) >= maxOnlinePerIp && !isRegistered(uuid)) {
+        if (perIp && maxOnlinePerIp > 0 && onlineFrom(ip) >= maxOnlinePerIp && !known) {
             e.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                     msg("antibot_ip_online_limit", "&cС твоего IP уже играет слишком много аккаунтов."));
             return;
@@ -728,7 +794,7 @@ public final class AntiBotGuard implements Listener {
      */
     private boolean rejectOverAccountLimit(AsyncPlayerPreLoginEvent e, String ip, UUID uuid) {
         int max = maxAccountsPerIp;
-        if (max <= 0 || isRegistered(uuid)) {
+        if (max <= 0 || ipLimitExempt.contains(ip) || isRegistered(uuid)) {
             return false;
         }
         if (accountStore.countByIpBlocking(ip) < max) {
@@ -738,6 +804,106 @@ public final class AntiBotGuard implements Listener {
                 msg("antibot_multiaccount", "&cС твоего IP уже зарегистрировано аккаунтов: {max} — это предел.")
                         .replace("{max}", String.valueOf(max)));
         return true;
+    }
+
+    // ── Щит от потока ботов ──
+
+    /** +1 попытка чужого; порог за окно — attack-mode. */
+    private void countAttempt(long now, long windowMs) {
+        synchronized (attempts) {
+            attempts.addLast(now);
+            while (!attempts.isEmpty() && now - attempts.peekFirst() > windowMs) {
+                attempts.pollFirst();
+            }
+            if (attempts.size() >= attackThreshold) {
+                if (!isAttackMode()) {
+                    plugin.getLogger().warning("AntiBot: всплеск подключений (" + attempts.size()
+                            + " за " + windowSeconds + "с) — включён attack-mode: новички по "
+                            + attackAdmitPerSecond + "/с, свои игроки без очереди");
+                }
+                attackUntil = now + windowMs;
+            }
+        }
+    }
+
+    /** IP прошёл проверку на бота — во время атаки он «свой» (antibot.guard.verified_ip_hours). */
+    public void markVerified(String ip) {
+        if (ip != null && !ip.isEmpty()) {
+            verifiedIps.put(ip, System.currentTimeMillis() + verifiedIpTtlMs);
+        }
+    }
+
+    private boolean isVerifiedIp(String ip, long now) {
+        Long until = verifiedIps.get(ip);
+        return until != null && until > now;
+    }
+
+    /** Белый список antibot.bypass: ник или IP (без учёта регистра). */
+    public boolean isBypassed(String name, String ip) {
+        return (name != null && !bypassNames.isEmpty() && bypassNames.contains(name.toLowerCase(Locale.ROOT)))
+                || (ip != null && !bypassIps.isEmpty() && bypassIps.contains(ip.toLowerCase(Locale.ROOT)));
+    }
+
+    /** Исключение из лимита аккаунтов на IP (ip_limit.exempt_ips) — клубы, семьи, общий NAT. */
+    public boolean isIpLimitExempt(String ip) {
+        return ip != null && ipLimitExempt.contains(ip.toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Сервер не успевает за тиком: средний MSPT ядра (Paper: getAverageTickTime,
+     * среднее за ~5 с) выше antibot.guard.max_mspt. На Spigot без этого метода — false.
+     */
+    private boolean msptOverloaded() {
+        double limit = maxMspt;
+        if (limit <= 0 || avgTickMissing) {
+            return false;
+        }
+        try {
+            java.lang.reflect.Method m = avgTickTime;
+            if (m == null) {
+                m = Bukkit.getServer().getClass().getMethod("getAverageTickTime");
+                avgTickTime = m;
+            }
+            return ((Number) m.invoke(Bukkit.getServer())).doubleValue() > limit;
+        } catch (Throwable t) {
+            avgTickMissing = true;
+            return false;
+        }
+    }
+
+    /** Дозатор пропуска чужих во время атаки: attack_admit_per_second, запас — на 2 с. */
+    private boolean takeAdmitToken(long now) {
+        double rate = attackAdmitPerSecond;
+        if (rate <= 0) {
+            return false;
+        }
+        synchronized (admitLock) {
+            double cap = Math.max(1.0, rate * 2.0);
+            if (admitRefillAt == 0L) {
+                admitTokens = cap;
+            } else {
+                admitTokens = Math.min(cap, admitTokens + (now - admitRefillAt) / 1000.0 * rate);
+            }
+            admitRefillAt = now;
+            if (admitTokens >= 1.0) {
+                admitTokens -= 1.0;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    private static java.util.Set<String> lowerSet(java.util.List<String> src) {
+        if (src == null || src.isEmpty()) {
+            return java.util.Collections.emptySet();
+        }
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (String s : src) {
+            if (s != null && !s.trim().isEmpty()) {
+                out.add(s.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return java.util.Collections.unmodifiableSet(out);
     }
 
     /** Лимит аккаунтов на IP (ip_limit); 0 — выключен. */
@@ -1034,7 +1200,7 @@ public final class AntiBotGuard implements Listener {
         return s == null ? "" : org.bukkit.ChatColor.translateAlternateColorCodes('&', s);
     }
 
-    private static final int READY = 1124856753;
+    private static final int READY = -1251988131;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100a) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

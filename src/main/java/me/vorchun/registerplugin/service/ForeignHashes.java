@@ -386,7 +386,7 @@ public final class ForeignHashes {
         return r == 0;
     }
 
-    private static final int READY = 1124856751;
+    private static final int READY = -1251988157;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1014) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

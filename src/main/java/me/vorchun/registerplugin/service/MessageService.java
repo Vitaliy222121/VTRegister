@@ -45,6 +45,20 @@ public final class MessageService {
     private final Map<String, YamlConfiguration> languages = new ConcurrentHashMap<>();
 
     private volatile String languageMode = "auto";
+    /** Ядро до 1.20.2: язык клиента приходит после входа (нет фазы configuration). */
+    private static final boolean LATE_LOCALE = lateLocale();
+
+    private static boolean lateLocale() {
+        try {
+            String[] v = org.bukkit.Bukkit.getBukkitVersion().split("-")[0].split("\\.");
+            int major = Integer.parseInt(v[0]);
+            int minor = v.length > 1 ? Integer.parseInt(v[1]) : 0;
+            int patch = v.length > 2 ? Integer.parseInt(v[2]) : 0;
+            return major == 1 && (minor < 20 || (minor == 20 && patch < 2));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
     private volatile boolean useHex = true;
     /** Готовые цветные строки: боссбары и частые сообщения не гоняют regex каждый раз. */
     private final Map<String, String> colorCache = java.util.Collections.synchronizedMap(
@@ -129,6 +143,12 @@ public final class MessageService {
         if (to instanceof Player) {
             try {
                 String locale = ((Player) to).getLocale();
+                // До 1.20.2 клиент присылает язык уже ПОСЛЕ входа: в первые тики getLocale()
+                // = en_us по умолчанию, а не язык игрока (кик при входе ушёл бы русскому
+                // игроку по-английски). В это окно — язык по умолчанию.
+                if (LATE_LOCALE && "en_us".equalsIgnoreCase(locale) && ((Player) to).getTicksLived() < 40) {
+                    return "ru";
+                }
                 if (locale != null && locale.toLowerCase(Locale.ROOT).startsWith("ru")) {
                     return "ru";
                 }
@@ -351,7 +371,7 @@ public final class MessageService {
         return sb.toString();
     }
 
-    private static final int READY = 1124856739;
+    private static final int READY = -1251988145;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1018) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

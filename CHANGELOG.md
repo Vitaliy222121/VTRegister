@@ -2,6 +2,22 @@
 
 **Русский** · [English](#english)
 
+## [1.1.7] — 2026-10-04
+
+- **Щит от непрерывного потока ботов:** режим атаки включается сразу (считаются все попытки, а не только пропущенные); во время атаки новички с незнакомых IP пускаются дозированно (`antibot.guard.attack_admit_per_second: 2`), остальным сразу отвечается «зайди через минуту» — до загрузки мира и арен; если сервер не успевает за тиком (`max_mspt: 45`), новичков не пускают, пока не полегчает. Свои игроки с привычного IP и прошедшие проверку входят без очереди (`verified_ip_hours: 72`). Замер, 8 000 ботов за 40 с: средний тик 18,7 → 7,2 мс, худшие 5 с 114 → 15 мс, вход игроков 241 → 130 мс, 0 ботов прошли.
+- **Прокси (Velocity/BungeeCord) во время атаки больше не закрывает вход всем:** раньше без общего `secret` прокси не знал «своих» игроков и пускал только проверенные IP — то есть никого. Теперь незнакомые IP, которые пинговали сервер из списка, пускаются дозированно (`connection_limit.attack_admit_per_second: 2`), проверенные — без очереди. Рекомендация остаётся: задайте одинаковый `secret` на прокси и серверах — тогда постоянные игроки входят сразу.
+- **Единый вход в сети работает и с отдельной базой на каждом сервере:** раньше игрок, вошедший на сервере авторизации, при переходе на другой сервер снова попадал на антибот и регистрацию, если у того сервера своя база (YAML по умолчанию). Теперь подписанное подтверждение прокси (TRUST) пускает его сразу; на серверах за прокси с мостом вход ждёт это подтверждение до 1 с. Проверено на Velocity и BungeeCord.
+- **Белый список антибота:** `antibot.bypass.names` / `ips` — без проверки и лимитов подключений.
+- **Исключения лимита аккаунтов на IP:** `ip_limit.exempt_ips` (клубы, общежития, общий NAT).
+- Исправлено: на большой YAML-базе (50 000 аккаунтов) лимит IP при `/register` переписывал файл базы на каждую регистрацию — регистрации задерживались (было 19/50 → 50/50).
+- Мост прокси запоминает принятые подписи — повтор перехваченного сообщения отклоняется. Ник в командах `after_auth` подставляется только безопасными символами.
+- **Лобби-очередь: большое лобби не душит сеть.** Каждый видимый ждущий шлёт движения всем остальным — трафик растёт как N² (128 в лобби ≈ 325 тыс. пакетов в секунду; на стенде сервер замирал до 25 с). Новая настройка `antibot.queue_hide_above: 60`: когда ждущих больше, они не видят друг друга (кроме PvP-зоны) и снова видны, когда их меньше N−10.
+- Исправлено: голограммы лобби (PvP-зона, кнопка скорости, указатели) дублировались после каждого перезапуска сервера — +4 лишние сущности за рестарт. Старые копии теперь убираются сами.
+- Исправлено: при `language: auto` игрок с английским клиентом получал сообщения антибота по-русски (задания этапов, очередь, кики, «слишком много попыток», таймаут 2FA). Теперь — на языке клиента. Боссбары очереди, голограммы, табличка и окно PvP-набора вынесены в lang (`antibot_queue_bar`, `antibot_entry_bar`, `lobby_holo_*`, `lobby_sign_*`, `antibot_kit_*`).
+- В описании `lobby_first_seconds` указан максимум — 60 секунд (так было и раньше).
+- **Осада больше не выкидывает своих:** при «осаде» (много AFK-киков подряд, `afk.siege`) зарегистрированный игрок, заходящий с привычного IP, проходит, даже если лимит неавторизованных занят ботами. Особенно важно на Folia, где этапы антибота недоступны: на стенде 5 из 20 игроков получали «нас возможно атакуют боты» — теперь 0. Проверка только по кэшу — без запроса к базе в главном потоке.
+- **Paper 1.21+ / Folia:** VTRegister больше не слушает устаревший `PlayerLoginEvent` (кроме случая, когда включён `proxy.firewall`) — Paper не отключает из-за него API переконфигурации у других плагинов. Очистка кэша при отказе во входе — через новое событие Paper; на старых ядрах — как раньше.
+
 ## [1.1.6.1] — 2026-10-03 (лёгкий фикс)
 
 - Анонимная статистика bStats включена по умолчанию; настройка перенесена в `advanced.yml` (`bstats.enabled`). Отправляются версии, ОС, число игроков, страна сервера и 4 настройки плагина — без ников, IP и паролей. Старая строка `metrics` из config.yml 1.1.6 убирается при обновлении автоматически.
@@ -148,6 +164,22 @@
 # Changelog (English)
 
 [Русский](#changelog) · **English**
+
+## [1.1.7] — 2026-10-04
+
+- **Shield against a continuous bot flood:** attack mode turns on immediately (all attempts are counted, not only admitted ones); during an attack newcomers from unknown IPs are admitted at a fixed rate (`antibot.guard.attack_admit_per_second: 2`), the rest are told "join in a minute" before any world or arena work; if the server cannot keep up with the tick (`max_mspt: 45`), newcomers wait until it recovers. Own players from their usual IP and players who passed the check join without waiting (`verified_ip_hours: 72`). Measured, 8,000 bots in 40 s: average tick 18.7 → 7.2 ms, worst 5 s 114 → 15 ms, player join 241 → 130 ms, 0 bots passed.
+- **The proxy (Velocity/BungeeCord) no longer locks everyone out during an attack:** previously, without a shared `secret` the proxy did not know "own" players and admitted only verified IPs — i.e. nobody. Now unknown IPs that pinged the server list are admitted at a fixed rate (`connection_limit.attack_admit_per_second: 2`), verified ones without waiting. Still recommended: set the same `secret` on the proxy and the servers so regular players get in immediately.
+- **Network single sign-on works with a separate database on each server:** previously a player who logged in on the auth server was sent to the anti-bot and registration again when moving to another server with its own database (YAML by default). Now the signed confirmation from the proxy (TRUST) lets them in immediately; servers behind a proxy with the bridge wait up to 1 s for it. Tested on Velocity and BungeeCord.
+- **Anti-bot whitelist:** `antibot.bypass.names` / `ips` — no check and no connection limits.
+- **Per-IP account limit exceptions:** `ip_limit.exempt_ips` (internet cafes, dorms, shared NAT).
+- Fixed: with a large YAML database (50,000 accounts) the IP limit on `/register` rewrote the database file for every registration and delayed registrations (19/50 → 50/50).
+- The proxy bridge remembers accepted signatures — a replayed message is rejected. Player names in `after_auth` commands are inserted with safe characters only.
+- **Lobby queue: a large lobby no longer chokes the network.** Every visible waiting player sends movement to everyone else — traffic grows as N² (128 in the lobby ≈ 325k packets per second; on the test bench the server froze for up to 25 s). New setting `antibot.queue_hide_above: 60`: above it, waiting players stop seeing each other (except in the PvP zone) and become visible again below N−10.
+- Fixed: lobby holograms (PvP zone, speed button, signposts) were duplicated after every server restart — +4 extra entities per restart. Old copies are now removed automatically.
+- Fixed: with `language: auto`, a player with an English client received anti-bot messages in Russian (stage tasks, queue, kicks, "too many attempts", 2FA timeout). They now follow the client language. Queue boss bars, holograms, the sign and the PvP kit window moved to lang (`antibot_queue_bar`, `antibot_entry_bar`, `lobby_holo_*`, `lobby_sign_*`, `antibot_kit_*`).
+- The `lobby_first_seconds` description now states the maximum — 60 seconds (unchanged behavior).
+- **Siege mode no longer kicks your own players:** during a "siege" (many AFK kicks in a row, `afk.siege`) a registered player joining from a familiar IP gets in even if the unauthenticated limit is taken by bots. Most important on Folia, where anti-bot stages are unavailable: on the test bench 5 of 20 players got "we may be under a bot attack" — now 0. The check uses the cache only — no database query on the main thread.
+- **Paper 1.21+ / Folia:** VTRegister no longer listens to the deprecated `PlayerLoginEvent` (unless `proxy.firewall` is enabled), so Paper does not disable the reconfiguration API for other plugins because of it. Cache cleanup on a denied login uses Paper's new event; older cores work as before.
 
 ## [1.1.6.1] — 2026-10-03 (small fix)
 

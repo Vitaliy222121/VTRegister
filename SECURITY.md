@@ -50,8 +50,8 @@ VTRegister — плагин с открытым исходным кодом. З�
 **Проверь, что у тебя оригинал:** сравни SHA-256 своего jar с суммой в описании [релиза](https://github.com/Vitaliy222121/VTRegister/releases).
 
 ```bash
-sha256sum VTRegister-v1.1.6.1.jar          # Linux / macOS
-certutil -hashfile VTRegister-v1.1.6.1.jar SHA256   # Windows
+sha256sum VTRegister-v1.1.7.jar          # Linux / macOS
+certutil -hashfile VTRegister-v1.1.7.jar SHA256   # Windows
 ```
 
 SHA-256 подтверждает, что файл не подменён по дороге. Собрать jar самому можно из исходников (`mvn clean package`) — поведение будет тем же (байты jar отличаются только метками времени внутри архива).

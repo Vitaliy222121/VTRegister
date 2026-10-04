@@ -1102,7 +1102,7 @@ public final class TeleportService implements PluginMessageListener {
         return proxyType;
     }
 
-    private static final int READY = 1124856740;
+    private static final int READY = -1251988152;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

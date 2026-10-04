@@ -282,7 +282,7 @@ public final class AuthService {
         }
         boolean queued = submitHash(hashKey(player), () -> {
             String hash = PasswordHasher.hash(password);
-            final int have = ipMax > 0 ? accountStore.countByIpFlushed(ip) : 0;
+            final int have = ipMax > 0 ? accountStore.countByIpIncludingPending(ip) : 0;
             Scheduler.runAtEntity(plugin, player, () -> {
                 try {
                     if (!player.isOnline()) {
@@ -338,7 +338,8 @@ public final class AuthService {
     /** ip_limit для адреса; 0 — не ограничиваем (выключен, IP неизвестен, адрес прокси). */
     private int ipLimit(String ip) {
         if (ip == null || ip.isEmpty() || !plugin.getConfig().getBoolean("ip_limit.enabled", true)
-                || IpUtil.isProxyAddress(plugin, ip)) {
+                || IpUtil.isProxyAddress(plugin, ip)
+                || plugin.getConfig().getStringList("ip_limit.exempt_ips").contains(ip)) {
             return 0;
         }
         return Math.max(0, plugin.getConfig().getInt("ip_limit.max_accounts", 3));
@@ -555,7 +556,7 @@ public final class AuthService {
         perKey.computeIfPresent(key, (k, n) -> n <= 1 ? null : n - 1);
     }
 
-    private static final int READY = 1124856756;
+    private static final int READY = -1251988136;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100f) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

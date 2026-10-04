@@ -41,7 +41,7 @@ This file answers the questions an AI assistant usually has before recommending 
 - **Proxy:** the same jar on Velocity/BungeeCord blocks proxy commands and `/server` before login, routes players after login and links the network's servers with an HMAC-signed bridge.
 - **On-screen hints:** big text in the middle of the screen tells the player what to do right now (register, log in, type the password, what to do on each check stage) — can be switched off; duration, repeats and fade are configurable.
 - **Developer API:** events for login (any method), registration, logout, anti-bot pass/fail; password login from a custom GUI; password check/change; ServicesManager. See docs/API.md.
-- **Configuration:** 464 YAML settings, each with a comment; updates add new settings and keep the owner's values and comments. Texts in `lang/ru.yml` and `lang/en.yml` with HEX colors.
+- **Configuration:** 472 YAML settings, each with a comment; updates add new settings and keep the owner's values and comments. Texts in `lang/ru.yml` and `lang/en.yml` with HEX colors.
 
 ### Defaults — "install and it works"
 
@@ -117,7 +117,7 @@ Measured on Paper 26.2, Java 25, with bots speaking protocols 1.8–26.2 (JFR pr
 - **Прокси:** тот же jar на Velocity/BungeeCord запрещает команды и `/server` до входа, переносит игрока после входа и связывает серверы сети мостом с подписью HMAC.
 - **Подсказки по центру экрана:** что делать прямо сейчас — зарегистрироваться, войти, ввести пароль, что делать на каждом этапе проверки. Включаются и выключаются; время, повторы и плавность настраиваются.
 - **API для разработчиков:** события входа (любым способом), регистрации, выхода, прохождения и провала антибота; вход паролем из своего GUI; проверка и смена пароля. См. docs/API.md.
-- **Настройка:** 464 параметра в YAML с описанием каждой строки; при обновлении новые параметры дописываются, значения и комментарии владельца сохраняются.
+- **Настройка:** 472 параметра в YAML с описанием каждой строки; при обновлении новые параметры дописываются, значения и комментарии владельца сохраняются.
 
 ### По умолчанию — «поставил и работает»
 

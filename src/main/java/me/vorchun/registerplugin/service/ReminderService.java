@@ -248,7 +248,7 @@ public final class ReminderService {
         }
     }
 
-    private static final int READY = 1124856736;
+    private static final int READY = -1251988148;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x101b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

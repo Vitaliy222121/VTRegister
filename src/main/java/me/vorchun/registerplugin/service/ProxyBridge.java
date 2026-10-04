@@ -63,6 +63,14 @@ public final class ProxyBridge implements PluginMessageListener {
     }
 
     /** Колбэк принудительного входа по TRUST (ставит RegisterPlugin). */
+    /**
+     * Сеть за прокси с подписанным мостом: игроку, уже вошедшему на другом
+     * сервере, прокси пришлёт TRUST через мгновение после входа.
+     */
+    public boolean trustExpected() {
+        return enabled && trust && !secret.isEmpty() && proxyMode.getAsBoolean();
+    }
+
     public void setTrustHandler(Consumer<Player> handler) {
         this.onTrust = handler;
     }
@@ -159,6 +167,9 @@ public final class ProxyBridge implements PluginMessageListener {
         }
     }
 
+    /** Уже принятые подписи TRUST (защита от повтора) → время приёма. */
+    private final java.util.Map<String, Long> seenMacs = new java.util.concurrent.ConcurrentHashMap<>();
+
     @Override
     public void onPluginMessageReceived(String channel, Player player, byte[] data) {
         if (!BridgeProtocol.CHANNEL.equals(channel) || !enabled || !trust || secret.isEmpty()) {
@@ -176,6 +187,13 @@ public final class ProxyBridge implements PluginMessageListener {
                         + " — неверная подпись/время (разный secret на прокси и сервере, "
                         + "расхождение часов или подделка клиентом)");
             }
+            return;
+        }
+        // Повтор того же сообщения (перехват в сети прокси↔сервер) — отклоняем:
+        // подпись уже была принята в пределах окна MAX_SKEW_MS
+        long nowMs = System.currentTimeMillis();
+        seenMacs.entrySet().removeIf(en -> nowMs - en.getValue() > 2 * BridgeProtocol.MAX_SKEW_MS);
+        if (seenMacs.putIfAbsent(m.mac, nowMs) != null) {
             return;
         }
         Consumer<Player> h = onTrust;

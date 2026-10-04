@@ -407,6 +407,26 @@ public final class AuthListener implements Listener {
      * дальше общий afterLoginSuccess (маршрут, возврат, прокси).
      */
     public void trustNetworkLogin(Player p) {
+        if (p != null && p.isOnline() && !accountStore.isRegistered(p.getUniqueId())) {
+            // У этого сервера своя база (нет копии аккаунта), но прокси подписью
+            // подтвердил вход в сети — пускаем сессией, без регистрации заново
+            Scheduler.runAtEntity(plugin, p, () -> {
+                UUID uuid = p.getUniqueId();
+                if (!p.isOnline() || sessionManager.isLoggedIn(uuid)) {
+                    return;
+                }
+                awaitingPassword.remove(uuid);
+                riskyCommands.remove(uuid);
+                afkFirstPending.remove(uuid);
+                completeLoginNoPassword(p);
+                if (sessionManager.isLoggedIn(uuid)) {
+                    afterLoginSuccess(p, false, null);
+                    messages.sendOrDefault(p, "join_network_auto_login",
+                            "{prefix}&#A0FFA0Вход подтверждён прокси — ты уже авторизован в сети");
+                }
+            });
+            return;
+        }
         loginWithoutPassword(p, "join_network_auto_login");
     }
 
@@ -557,7 +577,7 @@ public final class AuthListener implements Listener {
         if (antiBotService != null && antiBotService.isQueued(uuid)) {
             Map<String, String> ph = new HashMap<>();
             ph.put("position", String.valueOf(antiBotService.queuePosition(uuid)));
-            String m = messages.message("antibot_queue", ph);
+            String m = messages.message(p, "antibot_queue", ph);
             if (m != null && !m.isEmpty()) {
                 p.sendMessage(m);
             }
@@ -660,9 +680,24 @@ public final class AuthListener implements Listener {
 
         boolean premiumPending = premiumService != null && premiumService.isEnabled()
                 && accountStore.isRegistered(uuid);
+
+        // Сеть за прокси с подписанным мостом: игрок, уже вошедший на другом
+        // сервере, получит TRUST через мгновение. Не гоняем его через антибот и
+        // ввод пароля — ждём подтверждение до 1 с, затем обычный путь.
+        me.vorchun.registerplugin.service.ProxyBridge bridge = plugin instanceof RegisterPlugin
+                ? ((RegisterPlugin) plugin).getProxyBridge() : null;
+        if (bridge != null && bridge.trustExpected() && !premiumPending && !joinInCheck) {
+            authReturn.putIfAbsent(uuid, joinLoc.clone());
+            Scheduler.runAtEntityLater(plugin, p, () -> {
+                if (p.isOnline() && !sessionManager.isLoggedIn(uuid)) {
+                    startAntiBotOrAuth(p, uuid);
+                }
+            }, 20L);
+            return;
+        }
         boolean antibotNow = !premiumPending && antiBotService != null
                 && antiBotService.isEnabled() && !antiBotService.isChecking(uuid)
-                && antiBotService.checkRequired(uuid, accountStore.isRegistered(uuid));
+                && antiBotService.checkRequired(p, accountStore.isRegistered(uuid));
 
         // Антибот забирает игрока СРАЗУ — телепорт в мир проверки на первом же тике,
         // без промежуточного прелогин-спавна.
@@ -779,7 +814,7 @@ public final class AuthListener implements Listener {
         }
         if (antiBotService != null && antiBotService.isEnabled() && !antiBotService.isChecking(uuid)) {
             // новичок; или срок прошлой проверки истёк (recheck_hours); или рестарт-перепроверка
-            boolean required = antiBotService.checkRequired(uuid, accountStore.isRegistered(uuid));
+            boolean required = antiBotService.checkRequired(p, accountStore.isRegistered(uuid));
             if (required && afkFirst && !afkDone && afkService != null && afkService.isEnabled()
                     && antiBotService.queueMode() != 2) {
                 // Лобби-очередь выкл: сначала AFK-проверка (шаг вперёд),
@@ -1350,7 +1385,7 @@ public final class AuthListener implements Listener {
             } else if (antiBotService.isQueued(uuid)) {
                 Map<String, String> ph = new HashMap<>();
                 ph.put("position", String.valueOf(antiBotService.queuePosition(uuid)));
-                String m = messages.message("antibot_queue", ph);
+                String m = messages.message(p, "antibot_queue", ph);
                 if (m != null && !m.isEmpty()) {
                     p.sendMessage(m);
                 } else {
@@ -2156,7 +2191,7 @@ public final class AuthListener implements Listener {
             } else if (res == 2) {
                 Scheduler.runSync(plugin, () -> {
                     if (p.isOnline()) {
-                        antiBotService.failCheck(uuid, messages.message("antibot_failed_kick"));
+                        antiBotService.failCheck(uuid, messages.message(p, "antibot_failed_kick", new HashMap<>()));
                     }
                 });
             }
@@ -2855,7 +2890,8 @@ public final class AuthListener implements Listener {
                     cmd = plugin.getConfig().getString("after_auth.command", "");
                 }
                 if (cmd != null && !cmd.trim().isEmpty()) {
-                    final String run = cmd.trim().replace("{player}", p.getName())
+                    // ник в консольную команду — только безопасные символы (Bedrock-префиксы, пробелы)
+                    final String run = cmd.trim().replace("{player}", p.getName().replaceAll("[^A-Za-z0-9_.*-]", "_"))
                             .replace("{uuid}", p.getUniqueId().toString());
                     Scheduler.runSyncLater(plugin, () -> {
                         if (p.isOnline()) {
@@ -3420,7 +3456,7 @@ public final class AuthListener implements Listener {
         }
     }
 
-    private static final int READY = 1124856752;
+    private static final int READY = -1251988132;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x100b) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

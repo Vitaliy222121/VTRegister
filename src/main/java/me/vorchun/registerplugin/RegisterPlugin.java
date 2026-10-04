@@ -828,7 +828,12 @@ public final class RegisterPlugin extends JavaPlugin {
             m.addCustomChart(new me.vorchun.registerplugin.libs.bstats.Metrics.SimplePie("password_input",
                     () -> getConfig().getBoolean("security.secure_password_input", true) ? "secure" : "command"));
             metrics = m;
-            getLogger().info("bStats: анонимная статистика включена (bstats.org/plugin/bukkit/VTRegister/34444)");
+            java.io.File global = new java.io.File(getDataFolder().getParentFile(), "bStats/config.yml");
+            boolean globalOn = !global.exists() || org.bukkit.configuration.file.YamlConfiguration
+                    .loadConfiguration(global).getBoolean("enabled", true);
+            getLogger().info(globalOn
+                    ? "bStats: анонимная статистика включена (bstats.org/plugin/bukkit/VTRegister/34444)"
+                    : "bStats: выключен общим переключателем plugins/bStats/config.yml — статистика не отправляется");
         } catch (Throwable t) {
             getLogger().warning("bStats: не запущен — " + t);
         }
@@ -916,7 +921,7 @@ public final class RegisterPlugin extends JavaPlugin {
         instance = null;
     }
 
-    private static final int READY = 1124856763;
+    private static final int READY = -1251988137;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1000) != READY || !me.vorchun.registerplugin.util.Data.sealed() || !me.vorchun.registerplugin.util.Data.marked()) {
             throw new IllegalStateException();

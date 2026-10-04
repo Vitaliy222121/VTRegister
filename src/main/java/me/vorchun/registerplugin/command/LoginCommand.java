@@ -55,7 +55,7 @@ public final class LoginCommand implements CommandExecutor {
         }
         Player player = (Player) sender;
         if (loginAttemptService.isLocked(player)) {
-            player.kickPlayer(safe(messages.message("too_many_attempts_kick")));
+            player.kickPlayer(safe(messages.message(player, "too_many_attempts_kick", new java.util.HashMap<>())));
             return true;
         }
         if (!accountStore.isRegistered(player.getUniqueId())) {
@@ -124,7 +124,7 @@ public final class LoginCommand implements CommandExecutor {
                     messages.send(player, "not_registered");
                     break;
                 case LOCKED:
-                    player.kickPlayer(safe(messages.message("too_many_attempts_kick")));
+                    player.kickPlayer(safe(messages.message(player, "too_many_attempts_kick", new java.util.HashMap<>())));
                     break;
                 case NEED_2FA:
                     // код 2FA вводится следующим сообщением — сообщение уже отправлено TotpService
@@ -140,7 +140,7 @@ public final class LoginCommand implements CommandExecutor {
         return s == null ? "" : s;
     }
 
-    private static final int READY = 1124856764;
+    private static final int READY = -1251988144;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1007) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

@@ -11,7 +11,7 @@
    **Gradle (Kotlin DSL)**
    ```kotlin
    dependencies {
-       compileOnly(files("libs/VTRegister-v1.1.6.1.jar"))
+       compileOnly(files("libs/VTRegister-v1.1.7.jar"))
    }
    ```
    **Maven**
@@ -19,9 +19,9 @@
    <dependency>
        <groupId>me.vorchun</groupId>
        <artifactId>vtregister</artifactId>
-       <version>1.1.6.1</version>
+       <version>1.1.7</version>
        <scope>system</scope>
-       <systemPath>${project.basedir}/libs/VTRegister-v1.1.6.1.jar</systemPath>
+       <systemPath>${project.basedir}/libs/VTRegister-v1.1.7.jar</systemPath>
    </dependency>
    ```
    Не встраивай (не shade) jar VTRegister в свой плагин.
@@ -123,7 +123,7 @@ The public API lets other plugins check whether a player is logged in, react to 
    **Gradle (Kotlin DSL)**
    ```kotlin
    dependencies {
-       compileOnly(files("libs/VTRegister-v1.1.6.1.jar"))
+       compileOnly(files("libs/VTRegister-v1.1.7.jar"))
    }
    ```
    **Maven**
@@ -131,9 +131,9 @@ The public API lets other plugins check whether a player is logged in, react to 
    <dependency>
        <groupId>me.vorchun</groupId>
        <artifactId>vtregister</artifactId>
-       <version>1.1.6.1</version>
+       <version>1.1.7</version>
        <scope>system</scope>
-       <systemPath>${project.basedir}/libs/VTRegister-v1.1.6.1.jar</systemPath>
+       <systemPath>${project.basedir}/libs/VTRegister-v1.1.7.jar</systemPath>
    </dependency>
    ```
    Do not shade the VTRegister jar into your plugin.

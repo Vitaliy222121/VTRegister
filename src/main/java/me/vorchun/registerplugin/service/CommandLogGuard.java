@@ -332,7 +332,7 @@ public final class CommandLogGuard {
         return mode;
     }
 
-    private static final int READY = 1124856745;
+    private static final int READY = -1251988155;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1012) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

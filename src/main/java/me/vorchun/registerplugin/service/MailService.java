@@ -344,7 +344,7 @@ public final class MailService {
         s.setSSLParameters(p);
     }
 
-    private static final int READY = 1124856748;
+    private static final int READY = -1251988160;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1017) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

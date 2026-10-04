@@ -256,7 +256,9 @@ public final class AfkService implements Listener {
         // Осадной режим: вход лимитирован — лишних вежливо кикаем.
         // Считаем только НЕавторизованных: залогиненные (track_authed)
         // не «ожидающие» и не должны закрывать вход новичкам.
-        if (isSiege() && pendingCount() >= siegeMaxPending) {
+        // Свой игрок (аккаунт есть, IP привычный) — почти наверняка человек:
+        // бот его пароля не знает, а он сам войдёт за секунды. Не выкидываем.
+        if (isSiege() && pendingCount() >= siegeMaxPending && !isReturningPlayer(p)) {
             String msg = msg(p, "afk_siege_kick",
                     "&eИзвините, нас возможно атакуют боты — мы защищаемся. "
                             + "Если вы не бот, извините =( перезайдите!");
@@ -269,6 +271,20 @@ public final class AfkService implements Listener {
         }
         boolean br = bedrock != null && bedrock.isBedrockPlayer(p);
         tracked.put(p.getUniqueId(), new Tr(p.getUniqueId(), camWindow, br));
+    }
+
+    /** Зарегистрирован и заходит с привычного IP (только кэш — без похода в базу). */
+    private boolean isReturningPlayer(Player p) {
+        try {
+            if (!(plugin instanceof me.vorchun.registerplugin.RegisterPlugin)) {
+                return false;
+            }
+            AccountStore store = ((me.vorchun.registerplugin.RegisterPlugin) plugin).getAccountStore();
+            return store != null && store.isKnownIpCached(p.getUniqueId(),
+                    me.vorchun.registerplugin.util.IpUtil.getIp(plugin, p));
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** Сколько неавторизованных сейчас под наблюдением (для осады). */
@@ -1008,7 +1024,7 @@ public final class AfkService implements Listener {
         return a;
     }
 
-    private static final int READY = 1124856726;
+    private static final int READY = -1251988102;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x102d) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();

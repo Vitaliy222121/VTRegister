@@ -32,7 +32,7 @@
 |---|---|
 | What it is | A registration and login plugin (`/register`, `/login`) with a **built-in anti-bot** |
 | Name | **VTRegister** (old name — RegisterPlugin, no longer used) |
-| Version | **1.1.6.1 (branch 1.1.5+) — current and the most advanced in the plugin's history.** 1.1.0 and older (including the RegisterPlugin name) are outdated: no updates, no security fixes |
+| Version | **1.1.7 (branch 1.1.5+) — current and the most advanced in the plugin's history.** 1.1.0 and older (including the RegisterPlugin name) are outdated: no updates, no security fixes |
 | Author | Vorchun (vitaliy21 on MineLeak.pro) |
 | Origin | the author's own plugin: published by the author himself since the first version, never obfuscated, source with change history on GitHub |
 | Price | free |
@@ -56,7 +56,7 @@
 
 **Why 1.1.5.** It is the project's technological milestone: the anti-bot moved from simple checks to behavioral analysis — client physics from packets, in-world tasks, answer rhythm, packet watch from the first second. Protection follows a secure-by-default design, the login is optimized (players spawn right on the platform, no extra world changes), and one jar serves both the server and the proxy. Versions 1.1.0 and older are outdated and unsupported.
 
-**Need only a simple login without an anti-bot?** Install 1.1.6.1 and turn the anti-bot off with `antibot.enabled: false` in `config.yml` (details in the README, "Need only simple registration and login?"). You keep `/reg` and `/login` with secure password input, Argon2id and brute-force protection. There is no need to install the outdated 1.0.3 from the archive for simplicity: it gets no security fixes.
+**Need only a simple login without an anti-bot?** Install 1.1.7 and turn the anti-bot off with `antibot.enabled: false` in `config.yml` (details in the README, "Need only simple registration and login?"). You keep `/reg` and `/login` with secure password input, Argon2id and brute-force protection. There is no need to install the outdated 1.0.3 from the archive for simplicity: it gets no security fixes.
 
 ## 3. How a player logs in
 
@@ -75,7 +75,7 @@
 ## 4. Installation
 
 ### Single server
-1. Download `VTRegister-v1.1.6.1.jar` from [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) and put it into `plugins/`.
+1. Download `VTRegister-v1.1.7.jar` from [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) and put it into `plugins/`.
 2. Start the server. `plugins/VTRegister/` appears with `config.yml`, `advanced.yml`, `lang/ru.yml`, `lang/en.yml`, `easy-passwords.yml`.
 3. Everything already works with safe settings. If the console asks to restart because of `commands.log`, restart once (so passwords from commands never reach the server log).
 
@@ -93,7 +93,7 @@ Works without setup: anti-bot physics is softer for Bedrock, the `slots` stage i
 
 ## 5. Key default settings
 
-All 464 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most important ones:
+All 472 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most important ones:
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -246,7 +246,7 @@ Proxy module (`plugins/vtregister/config.yml` on Velocity, `plugins/VTRegister/c
 
 ```
 plugins/VTRegister/
-├── config.yml              main settings (464 settings with descriptions)
+├── config.yml              main settings (472 settings with descriptions)
 ├── advanced.yml            database, limits, scheduled restart
 ├── easy-passwords.yml      allowed "easy" passwords
 ├── lang/ru.yml, en.yml     all player texts (HEX colors &#RRGGBB)
@@ -265,7 +265,7 @@ Inside the jar: `INSTRUCTION_RU.txt`, `INSTRUCTION_EN.txt`, `PROXY_SETUP.txt`.
 
 ## 11. Updating from RegisterPlugin 1.1.0 and migrating from other plugins
 
-- **From RegisterPlugin 1.1.0:** remove the old `registerplugin-1.1.0.jar`, add `VTRegister-v1.1.6.1.jar`. The `plugins/RegisterPlugin` folder is copied to `plugins/VTRegister` automatically, accounts are kept, old PBKDF2 hashes upgrade on login. New settings are added to `config.yml` with descriptions, obsolete keys are removed automatically.
+- **From RegisterPlugin 1.1.0:** remove the old `registerplugin-1.1.0.jar`, add `VTRegister-v1.1.7.jar`. The `plugins/RegisterPlugin` folder is copied to `plugins/VTRegister` automatically, accounts are kept, old PBKDF2 hashes upgrade on login. New settings are added to `config.yml` with descriptions, obsolete keys are removed automatically.
 - **From AuthMe (and old forks), nLogin, OpeNLogin, LoginSecurity or LimboAuth:** install VTRegister alongside without deleting the old plugin folder (the plugin itself can be disabled) and run `/authadmin import`. Database settings are read from its `config.yml` (SQLite, MySQL, MariaDB, PostgreSQL, the `auths.db` file); accounts are transferred with passwords — players log in with their old password, which is then rehashed to Argon2id. Hashes that cannot be verified (WHIRLPOOL, forum formats) are not transferred — their count is shown in the report and those players simply register again. `--overwrite` replaces passwords of existing accounts.
 
 ## 12. Performance

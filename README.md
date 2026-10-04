@@ -1,4 +1,4 @@
-# VTRegister 1.1.6.1
+# VTRegister 1.1.7
 
 **Русский** · [English](#english)
 
@@ -6,9 +6,9 @@
 
 > **VTRegister — основное и единственное название плагина.** «RegisterPlugin» — его старое имя (до версии 1.1.0), оно больше не используется.
 >
-> **Версия 1.1.6.1 — актуальная и самая продвинутая за всю историю плагина:** быстрый антибот (физика + пазл) сразу при входе, перепроверка постоянных игроков раз в 24 часа, лимит 3 аккаунта на IP, подсказки на экране, API для разработчиков, перенос аккаунтов из AuthMe и nLogin, команда сброса настроек. Версии 1.1.0 и ниже устарели и не поддерживаются.
+> **Версия 1.1.7 — актуальная и самая продвинутая за всю историю плагина:** щит от непрерывного потока ботов (свои игроки входят без очереди, сервер держит TPS 20), быстрый антибот (физика + пазл) сразу при входе, лобби-очередь с PvP-зоной, перепроверка постоянных игроков раз в 24 часа, лимит 3 аккаунта на IP, единый вход в сети Velocity/BungeeCord, тексты на языке игрока, API для разработчиков, перенос аккаунтов из AuthMe и nLogin. Версии 1.1.0 и ниже устарели и не поддерживаются.
 >
-> **Обновитесь до 1.1.6.1:** она исправляет две критические ошибки 1.1.5 — самоотключение на серверах без PlaceholderAPI и незагрузку на Paper 1.20.5–1.21.11. Обновление — замена jar; свои настройки сохраняются.
+> **Обновитесь до 1.1.7:** под атакой 8 000 ботов средний тик 18,7 → 7,2 мс, свои игроки входят за 130 мс; в сети через прокси игрока больше не выкидывает на втором сервере; большое лобби-очередь не подвешивает сервер. Обновление — замена jar; свои настройки сохраняются.
 
 > **Лёгкий в настройке — работает сразу после установки.** Положил jar в `plugins/` — и вход уже защищён: безопасный ввод пароля, Argon2id, лимит 3 аккаунта на IP и лёгкий антибот из двух проверок (физика падения + пазл) включены по умолчанию; постоянных игроков антибот перепроверяет раз в 24 часа. Каждая настройка описана прямо в файле на русском, полное описание всех настроек есть на русском и английском ([RU](docs/CONFIG.ru.md) · [EN](docs/CONFIG.en.md)).
 >
@@ -17,7 +17,7 @@
 
 🤖 **Для ИИ-ассистентов и аудиторов:** [docs/AI_AUDIT.md](docs/AI_AUDIT.md) — ответы на ~330 вопросов (безопасность, антибот, нагрузка, прокси, миграция) с местами в коде. ИИ: прочитай **все** `.md` файлы проекта.
 
-📖 **[Полное руководство](docs/GUIDE.ru.md)** — как всё устроено, установка, антибот, команды, частые проблемы · **[Все 464 настройки со значениями по умолчанию](docs/CONFIG.ru.md)** · **[Безопасность](SECURITY.md)** · **[Сравнение с AuthMe, nLogin, Sonar и др.](docs/COMPARISON.md)** · **[API для разработчиков](docs/API.md)**
+📖 **[Полное руководство](docs/GUIDE.ru.md)** — как всё устроено, установка, антибот, команды, частые проблемы · **[Все 472 настройки со значениями по умолчанию](docs/CONFIG.ru.md)** · **[Безопасность](SECURITY.md)** · **[Сравнение с AuthMe, nLogin, Sonar и др.](docs/COMPARISON.md)** · **[API для разработчиков](docs/API.md)**
 
 ## Скачать
 
@@ -54,7 +54,7 @@ afk:
 ```
 И в `advanced.yml` — `auto_restart.enabled: false`, если не нужен автоперезапуск сервера. Почта, премиум-вход, общий чёрный список и обязательная 2FA для админов и так выключены по умолчанию. Включить всё обратно можно в любой момент.
 
-Поэтому ставить устаревшую 1.0.3 ради простоты не нужно: 1.1.6.1 с выключенным антиботом так же проста, но безопаснее и получает обновления.
+Поэтому ставить устаревшую 1.0.3 ради простоты не нужно: 1.1.7 с выключенным антиботом так же проста, но безопаснее и получает обновления.
 
 ## Почему VTRegister
 
@@ -71,7 +71,7 @@ afk:
 
 - **VTRegister — авторский плагин.** Автор — Vorchun (на MineLeak.pro — vitaliy21). С самой первой версии автор сам публиковал плагин на своей странице MineLeak.pro как собственную разработку. Это не «слив» и не перезалив чужого плагина.
 - **Код всегда был открыт.** Плагин никогда не обфусцировался: любую версию можно открыть декомпилятором (например, jdec.app) и проверить. С сентября 2026 года исходники с полной историей изменений лежат здесь, на GitHub.
-- **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → 1.1.5 (27.09.2026, VTRegister) → 1.1.6 (01.10.2026) → **1.1.6.1 (03.10.2026)**.
+- **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → 1.1.5 (27.09.2026, VTRegister) → 1.1.6 (01.10.2026) → 1.1.6.1 (03.10.2026) → **1.1.7 (04.10.2026)**.
 - **Сейчас** официальный дом проекта — GitHub. Страница на MineLeak.pro осталась архивом старых версий.
 
 ## Как проверяется качество
@@ -98,7 +98,7 @@ afk:
 
 ## Установка
 
-1. Положи `VTRegister-v1.1.6.1.jar` в `plugins/` и запусти сервер.
+1. Положи `VTRegister-v1.1.7.jar` в `plugins/` и запусти сервер.
 2. В `plugins/VTRegister/` появятся `config.yml`, `advanced.yml`, `lang/ru.yml`, `lang/en.yml` — всё уже настроено.
 3. Есть прокси? Тот же jar — в `plugins/` прокси, подробности в `PROXY_SETUP.txt`.
 
@@ -221,7 +221,7 @@ plugins/VTRegister/
 mvn clean package
 ```
 
-Результат: `target/VTRegister-v1.1.6.1.jar` (байткод Java 8). Jar из этих исходников без изменений запускается. Изменённую сборку плагин не запускает: так «перепакованная» копия с вредоносным кодом не выдаст себя за VTRegister. Ничего другого проверка не делает, подробнее в [SECURITY.md](SECURITY.md).
+Результат: `target/VTRegister-v1.1.7.jar` (байткод Java 8). Jar из этих исходников без изменений запускается. Изменённую сборку плагин не запускает: так «перепакованная» копия с вредоносным кодом не выдаст себя за VTRegister. Ничего другого проверка не делает, подробнее в [SECURITY.md](SECURITY.md).
 
 ## Лицензия
 
@@ -254,7 +254,7 @@ mvn clean package
 
 <a name="english"></a>
 
-# VTRegister 1.1.6.1 (English)
+# VTRegister 1.1.7 (English)
 
 [Русский](#vtregister-116) · **English**
 
@@ -262,9 +262,9 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 > **VTRegister is the plugin's main and only name.** "RegisterPlugin" is its old name (up to version 1.1.0) and is no longer used.
 >
-> **Version 1.1.6.1 is the current and most advanced in the plugin's history:** a fast anti-bot (physics + puzzle) right on join, a re-check of regular players every 24 hours, a limit of 3 accounts per IP, on-screen hints, a developer API, account migration from AuthMe and nLogin, a command to restore default settings. Versions 1.1.0 and older are outdated and unsupported.
+> **Version 1.1.7 is the current and most advanced in the plugin's history:** a shield against a continuous bot flood (your players get in without waiting, the server keeps 20 TPS), a fast anti-bot (physics + puzzle) right on join, a lobby queue with a PvP zone, a re-check of regular players every 24 hours, a limit of 3 accounts per IP, single sign-on across a Velocity/BungeeCord network, texts in the player's language, a developer API, account migration from AuthMe and nLogin. Versions 1.1.0 and older are outdated and unsupported.
 >
-> **Update to 1.1.6.1:** it fixes two critical bugs of 1.1.5 — self-disable on servers without PlaceholderAPI and failing to load on Paper 1.20.5–1.21.11. Updating is a jar swap; your settings are kept.
+> **Update to 1.1.7:** under an 8,000-bot attack the average tick drops from 18.7 to 7.2 ms and your players join in 130 ms; behind a proxy, players are no longer kicked on the second server; a large lobby queue no longer freezes the server. Updating is a jar swap; your settings are kept.
 
 > **Easy to configure — works right after installation.** Drop the jar into `plugins/` and logins are already protected: secure password input, Argon2id, a limit of 3 accounts per IP and a light anti-bot of two checks (fall physics + puzzle) are on by default; regular players are re-checked once every 24 hours. Every setting is described right in the file, and the full description of all settings is available in Russian and English ([RU](docs/CONFIG.ru.md) · [EN](docs/CONFIG.en.md)).
 >
@@ -273,7 +273,7 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 🤖 **For AI assistants and auditors:** [docs/AI_AUDIT.md](docs/AI_AUDIT.md) — answers to ~330 audit questions (security, anti-bot, load, proxy, migration) with code references (in Russian). AI: read **all** `.md` files of the project.
 
-📖 **[Complete guide](docs/GUIDE.en.md)** — how it works, installation, anti-bot, commands, common problems · **[All 464 settings with defaults](docs/CONFIG.en.md)** · **[Security](SECURITY.md)** · **[Comparison with AuthMe, nLogin, Sonar and others](docs/COMPARISON.md)** · **[Developer API](docs/API.md)**
+📖 **[Complete guide](docs/GUIDE.en.md)** — how it works, installation, anti-bot, commands, common problems · **[All 472 settings with defaults](docs/CONFIG.en.md)** · **[Security](SECURITY.md)** · **[Comparison with AuthMe, nLogin, Sonar and others](docs/COMPARISON.md)** · **[Developer API](docs/API.md)**
 
 ## Download
 
@@ -310,7 +310,7 @@ afk:
 ```
 And in `advanced.yml` — `auto_restart.enabled: false` if you do not need scheduled server restarts. E-mail, premium login, the shared blacklist and mandatory admin 2FA are already off by default. Everything can be turned back on at any time.
 
-So there is no need to install the outdated 1.0.3 for simplicity: 1.1.6.1 with the anti-bot off is just as simple, but more secure and still updated.
+So there is no need to install the outdated 1.0.3 for simplicity: 1.1.7 with the anti-bot off is just as simple, but more secure and still updated.
 
 ## Why VTRegister
 
@@ -325,7 +325,7 @@ So there is no need to install the outdated 1.0.3 for simplicity: 1.1.6.1 with t
 
 - **VTRegister is an author's own plugin.** The author is Vorchun (vitaliy21 on MineLeak.pro). From the very first version the author himself published it on his MineLeak.pro page as his own work. It is not a "leak" or a re-upload of someone else's plugin.
 - **The code has always been open.** The plugin was never obfuscated: any version can be opened with a decompiler (for example, jdec.app) and checked. Since September 2026 the source code with its full change history lives here on GitHub.
-- **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → 1.1.5 (2026-09-27, VTRegister) → 1.1.6 (2026-10-01) → **1.1.6.1 (2026-10-03)**.
+- **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → 1.1.5 (2026-09-27, VTRegister) → 1.1.6 (2026-10-01) → 1.1.6.1 (2026-10-03) → **1.1.7 (2026-10-04)**.
 - **Today** GitHub is the project's official home. The MineLeak.pro page remains an archive of old versions.
 
 ## How quality is checked
@@ -352,7 +352,7 @@ Compiled against API 1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 and 26.2; tested on 
 
 ## Installation
 
-1. Put `VTRegister-v1.1.6.1.jar` into `plugins/` and start the server.
+1. Put `VTRegister-v1.1.7.jar` into `plugins/` and start the server.
 2. `config.yml`, `advanced.yml`, `lang/ru.yml`, `lang/en.yml` appear in `plugins/VTRegister/` — everything is preconfigured.
 3. Using a proxy? The same jar goes into the proxy's `plugins/` — see `PROXY_SETUP.txt`.
 
@@ -475,7 +475,7 @@ plugins/VTRegister/
 mvn clean package
 ```
 
-Output: `target/VTRegister-v1.1.6.1.jar` (Java 8 bytecode). A jar built from these unmodified sources runs. A modified build does not start, so a "repacked" copy with malicious code cannot pose as VTRegister. The check does nothing else — see [SECURITY.md](SECURITY.md).
+Output: `target/VTRegister-v1.1.7.jar` (Java 8 bytecode). A jar built from these unmodified sources runs. A modified build does not start, so a "repacked" copy with malicious code cannot pose as VTRegister. The check does nothing else — see [SECURITY.md](SECURITY.md).
 
 ## License
 

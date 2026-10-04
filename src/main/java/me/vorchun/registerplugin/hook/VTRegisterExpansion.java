@@ -113,7 +113,7 @@ public final class VTRegisterExpansion extends PlaceholderExpansion {
         }
     }
 
-    private static final int READY = 1124856754;
+    private static final int READY = -1251988130;
     static {
         if (me.vorchun.registerplugin.util.Data.mix(0x1009) != READY || !me.vorchun.registerplugin.util.Data.sealed()) {
             throw new IllegalStateException();
