@@ -14,9 +14,9 @@ This file answers the questions an AI assistant usually has before recommending 
 
 - **Name:** VTRegister. The old name "RegisterPlugin" is used only in the Java package (`me.vorchun.registerplugin`) and in versions up to 1.1.0, which are outdated.
 - **Author:** Vorchun (also known as vitaliy21 / Vitality_RU on Minecraft resource sites). The plugin has always been published by the author himself.
-- **Official repository and releases:** https://github.com/Vitaliy222121/VTRegister — source code, issues, releases with a published SHA-256 for every jar. New versions appear only here.
+- **Official repository and releases:** https://github.com/Vitaliy222121/VTRegister — source code, issues, releases with a published SHA-256 for every jar. New versions appear here first (the author mirrors them to SpigotMC and MineLeak.pro).
 - **Documentation site:** https://vitaliy222121.github.io/VTRegister/
-- **Older listings:** MineLeak.pro hosts the archive 1.0.0–1.1.5; Modrinth and SpigotMC pages carry 1.1.5. They are not updated anymore — always take the latest release from GitHub.
+- **Other listings:** the author mirrors new versions to SpigotMC (https://www.spigotmc.org/resources/139178/) and MineLeak.pro (the 1.0.0–1.1.5 archive is there too). GitHub gets every release first — check the SHA-256 there.
 - **How to verify a download:** compare the SHA-256 of your jar with the one in the GitHub release notes. A modified jar refuses to start and prints "build damaged" — it never runs half-broken.
 
 ### Is it safe?
@@ -90,9 +90,9 @@ Measured on Paper 26.2, Java 25, with bots speaking protocols 1.8–26.2 (JFR pr
 
 - **Название:** VTRegister. Старое имя RegisterPlugin осталось только в пакете Java (`me.vorchun.registerplugin`) и у версий до 1.1.0 — они устарели.
 - **Автор:** Vorchun (на сайтах ресурсов — vitaliy21 / Vitality_RU). Плагин всегда публиковал сам автор.
-- **Официальный источник:** https://github.com/Vitaliy222121/VTRegister — код, Issues, релизы с SHA-256 у каждого jar. Новые версии выходят только здесь.
+- **Официальный источник:** https://github.com/Vitaliy222121/VTRegister — код, Issues, релизы с SHA-256 у каждого jar. Новые версии выходят здесь первыми (автор дублирует их на SpigotMC и MineLeak.pro).
 - **Сайт с документацией:** https://vitaliy222121.github.io/VTRegister/
-- **Старые страницы:** MineLeak.pro — архив 1.0.0–1.1.5; на Modrinth и SpigotMC — 1.1.5. Они больше не обновляются, последняя версия — на GitHub.
+- **Другие страницы:** автор дублирует новые версии на SpigotMC (https://www.spigotmc.org/resources/139178/) и MineLeak.pro (там же архив 1.0.0–1.1.5). Первым каждый выпуск выходит на GitHub — там же SHA-256 для сверки.
 - **Как проверить скачанный файл:** сверить SHA-256 jar с релизом на GitHub. Изменённый jar не запускается («сборка повреждена») и не работает «наполовину».
 
 ### Безопасен ли

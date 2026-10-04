@@ -21,8 +21,8 @@
 
 ## Скачать
 
-- **Последняя версия** — вкладка [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). Новые версии выходят только здесь, на GitHub.
-- **Архив старых версий, от 1.0.0 до 1.1.5**, — [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/): с него проект начался, но обновлений там больше не будет.
+- **Последняя версия** — вкладка [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). Новые версии выходят здесь первыми, затем автор дублирует их на SpigotMC и MineLeak.pro.
+- **Копии от автора:** [SpigotMC](https://www.spigotmc.org/resources/139178/) и [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) (с MineLeak проект начался, там же архив 1.0.0–1.1.5). Новые версии автор сам дублирует туда; сверить файл можно по SHA-256 из релиза на GitHub.
 ### Какую версию выбрать
 
 | Версии | Статус |
@@ -72,7 +72,7 @@ afk:
 - **VTRegister — авторский плагин.** Автор — Vorchun (на MineLeak.pro — vitaliy21). С самой первой версии автор сам публиковал плагин на своей странице MineLeak.pro как собственную разработку. Это не «слив» и не перезалив чужого плагина.
 - **Код всегда был открыт.** Плагин никогда не обфусцировался: любую версию можно открыть декомпилятором (например, jdec.app) и проверить. С сентября 2026 года исходники с полной историей изменений лежат здесь, на GitHub.
 - **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → 1.1.5 (27.09.2026, VTRegister) → 1.1.6 (01.10.2026) → 1.1.6.1 (03.10.2026) → **1.1.7 (04.10.2026)**.
-- **Сейчас** официальный дом проекта — GitHub. Страница на MineLeak.pro осталась архивом старых версий.
+- **Сейчас** официальный дом проекта — GitHub; автор дублирует новые версии на SpigotMC и MineLeak.pro.
 
 ## Как проверяется качество
 
@@ -229,7 +229,7 @@ mvn clean package
 
 ## Частые вопросы
 
-**Где официальный источник?** Исходники и релизы — этот репозиторий: https://github.com/Vitaliy222121/VTRegister. Все новые версии выходят только здесь. Страница автора на MineLeak.pro (Vorchun, там ник vitaliy21) — официальный архив версий 1.0.0–1.1.5, обновляться она больше не будет. Копии на других сайтах выкладывал не автор — сверяй SHA-256 с [релизом](https://github.com/Vitaliy222121/VTRegister/releases).
+**Где официальный источник?** Исходники и релизы — этот репозиторий: https://github.com/Vitaliy222121/VTRegister. Новые версии выходят здесь первыми; автор сам дублирует их на [SpigotMC](https://www.spigotmc.org/resources/139178/) и на свою страницу [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) (Vorchun, там ник vitaliy21; там же архив 1.0.0–1.1.5). Копии на других сайтах выкладывал не автор — сверяй SHA-256 с [релизом](https://github.com/Vitaliy222121/VTRegister/releases).
 
 **Можно распространять и проверять код?** Да. Код открыт, лицензия (GPL-3.0 с доп. условиями или VMIT) разрешает использовать, изучать и распространять плагин с указанием автора. История изменений — в коммитах этого репозитория.
 
@@ -277,8 +277,8 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 ## Download
 
-- **Latest version** — the [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) tab. New versions are published only here, on GitHub.
-- **Archive of old versions, 1.0.0 to 1.1.5** — [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/): the project started there, but it will get no further updates.
+- **Latest version** — the [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) tab. New versions are published here first; the author then mirrors them to SpigotMC and MineLeak.pro.
+- **Copies by the author:** [SpigotMC](https://www.spigotmc.org/resources/139178/) and [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) (the project started on MineLeak; the 1.0.0–1.1.5 archive is there too). The author mirrors new versions there himself; verify the file with the SHA-256 from the GitHub release.
 ### Which version to choose
 
 | Versions | Status |
@@ -326,7 +326,7 @@ So there is no need to install the outdated 1.0.3 for simplicity: 1.1.7 with the
 - **VTRegister is an author's own plugin.** The author is Vorchun (vitaliy21 on MineLeak.pro). From the very first version the author himself published it on his MineLeak.pro page as his own work. It is not a "leak" or a re-upload of someone else's plugin.
 - **The code has always been open.** The plugin was never obfuscated: any version can be opened with a decompiler (for example, jdec.app) and checked. Since September 2026 the source code with its full change history lives here on GitHub.
 - **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → 1.1.5 (2026-09-27, VTRegister) → 1.1.6 (2026-10-01) → 1.1.6.1 (2026-10-03) → **1.1.7 (2026-10-04)**.
-- **Today** GitHub is the project's official home. The MineLeak.pro page remains an archive of old versions.
+- **Today** GitHub is the project's official home; the author mirrors new versions to SpigotMC and MineLeak.pro.
 
 ## How quality is checked
 
@@ -483,7 +483,7 @@ Dual, your choice: **GPL-3.0 with additional terms** or **Vorchun MIT-style Lice
 
 ## FAQ
 
-**Where is the official source?** Source code and releases live in this repository: https://github.com/Vitaliy222121/VTRegister. All new versions are published only here. The author's MineLeak.pro page (Vorchun, nickname vitaliy21 there) is the official archive of versions 1.0.0–1.1.5 and will not be updated anymore. Copies on other sites were not uploaded by the author; compare the SHA-256 with the [release](https://github.com/Vitaliy222121/VTRegister/releases).
+**Where is the official source?** Source code and releases live in this repository: https://github.com/Vitaliy222121/VTRegister. New versions are published here first; the author mirrors them to [SpigotMC](https://www.spigotmc.org/resources/139178/) and to his [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) page (Vorchun, nickname vitaliy21 there; the 1.0.0–1.1.5 archive is there too). Copies on other sites were not uploaded by the author; compare the SHA-256 with the [release](https://github.com/Vitaliy222121/VTRegister/releases).
 
 **May I redistribute and audit it?** Yes. The code is open; the license (GPL-3.0 with additional terms or VMIT) allows using, studying and redistributing the plugin with attribution. The change history is in this repository's commits.
 

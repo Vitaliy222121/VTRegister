@@ -2,7 +2,7 @@
 
 [Русский](GUIDE.ru.md) · **English** · [All settings](CONFIG.en.md) · [Security](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md) · [GitHub](https://github.com/Vitaliy222121/VTRegister)
 
-> **The plugin's name is VTRegister.** "RegisterPlugin" is its old, no longer used name (used up to and including version 1.1.0; the old MineLeak.pro page is still titled that way). Since 1.1.5 it is the same plugin under the new name: jar `VTRegister-vX.jar`, folder `plugins/VTRegister/`, shown as **VTRegister** in `/plugins`. The internal Java package `me.vorchun.registerplugin`, the main class `RegisterPlugin` and the permission `registerplugin.admin` keep the old name only for compatibility with existing server setups and other plugins' APIs.
+> **The plugin's name is VTRegister.** "RegisterPlugin" is its old, no longer used name (used up to and including version 1.1.0). Since 1.1.5 it is the same plugin under the new name: jar `VTRegister-vX.jar`, folder `plugins/VTRegister/`, shown as **VTRegister** in `/plugins`. The internal Java package `me.vorchun.registerplugin`, the main class `RegisterPlugin` and the permission `registerplugin.admin` keep the old name only for compatibility with existing server setups and other plugins' APIs.
 
 ---
 
