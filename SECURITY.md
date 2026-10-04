@@ -9,7 +9,8 @@ VTRegister — плагин с открытым исходным кодом. З�
 - **Ники, IP и пароли никуда не отправляются.** Единственное, что включено по умолчанию, — анонимная статистика bStats (версии, ОС, число игроков онлайн, страна сервера, 4 настройки плагина; https://bstats.org/plugin/bukkit/VTRegister/34444). Выключается строкой `bstats.enabled: false` в `advanced.yml` или общим `plugins/bStats/config.yml`.
 - **Нет удалённого управления.** Ни команд «с сервера автора», ни удалённого отключения, ни скрытых учётных записей.
 - **Пароли хранятся только как хеш** Argon2id (соль + параметры в PHC-формате). Сам плагин пароли нигде не сохраняет и в логи не пишет.
-- **Всё, что выходит в сеть, по умолчанию выключено**, кроме случая, когда ты сам выбрал PostgreSQL (тогда скачивается драйвер, см. ниже).
+- **Остальное сетевое по умолчанию выключено** (премиум-проверка, почта, оповещения, списки VPN, общий чёрный список); драйвер PostgreSQL скачивается, только если ты сам выбрал PostgreSQL (см. ниже).
+- **Подробный разбор безопасности по коду** — ответы на ~330 вопросов аудита с указанием файлов: [docs/AI_AUDIT.md](docs/AI_AUDIT.md).
 
 ## Сетевые обращения
 
@@ -49,13 +50,17 @@ VTRegister — плагин с открытым исходным кодом. З�
 **Проверь, что у тебя оригинал:** сравни SHA-256 своего jar с суммой в описании [релиза](https://github.com/Vitaliy222121/VTRegister/releases).
 
 ```bash
-sha256sum VTRegister-v1.1.5.jar          # Linux / macOS
-certutil -hashfile VTRegister-v1.1.5.jar SHA256   # Windows
+sha256sum VTRegister-v1.1.6.1.jar          # Linux / macOS
+certutil -hashfile VTRegister-v1.1.6.1.jar SHA256   # Windows
 ```
+
+SHA-256 подтверждает, что файл не подменён по дороге. Собрать jar самому можно из исходников (`mvn clean package`) — поведение будет тем же (байты jar отличаются только метками времени внутри архива).
 
 ## Как сообщить об уязвимости
 
-Открой [Issue](https://github.com/Vitaliy222121/VTRegister/issues) (без деталей эксплойта) или напиши автору (Vorchun) в обсуждениях на MineLeak.pro. Серьёзные уязвимости исправляются в первую очередь.
+Открой [Issue](https://github.com/Vitaliy222121/VTRegister/issues) с пометкой **security** — опиши, *что* затронуто (пароли, вход, антибот, мост прокси), **без** готового эксплойта; детали автор запросит отдельно. Серьёзные уязвимости исправляются в первую очередь и выходят отдельным выпуском с пометкой в CHANGELOG.
+
+Что уже проверено по коду (см. [docs/AI_AUDIT.md](docs/AI_AUDIT.md)): все SQL-запросы с данными игроков — PreparedStatement; регистрация только через одну точку с проверкой антибота; мост прокси подписан HMAC-SHA256 и не принимает сообщения от клиентов; хеши и коды сравниваются за постоянное время; сбой базы закрывает вход, а не открывает.
 
 ---
 
@@ -70,7 +75,8 @@ VTRegister is open source. This page lists honestly everything it does with the 
 - **Names, IPs and passwords are never sent anywhere.** The only thing on by default is anonymous bStats statistics (versions, OS, online player count, server country, 4 plugin settings; https://bstats.org/plugin/bukkit/VTRegister/34444). Turn it off with `bstats.enabled: false` in `advanced.yml` or the global `plugins/bStats/config.yml`.
 - **No remote control.** No commands from the author's servers, no remote kill switch, no hidden accounts.
 - **Passwords are stored only as Argon2id hashes** (salt + parameters in PHC format). The plugin itself never stores or logs plain passwords.
-- **Everything that uses the network is off by default**, except when you choose PostgreSQL yourself (the driver is downloaded, see below).
+- **Everything else that uses the network is off by default** (premium check, e-mail, alerts, VPN lists, shared blacklist); the PostgreSQL driver is downloaded only if you choose PostgreSQL yourself (see below).
+- **Detailed code-level security review** — answers to ~330 audit questions with file references (in Russian): [docs/AI_AUDIT.md](docs/AI_AUDIT.md).
 
 ## Network access
 
@@ -111,4 +117,6 @@ Why: plugin sites often host "repacked" jars with malicious code. The check stop
 
 ## Reporting a vulnerability
 
-Open an [Issue](https://github.com/Vitaliy222121/VTRegister/issues) (without exploit details) or contact the author (Vorchun) in the MineLeak.pro discussions. Serious vulnerabilities are fixed first.
+Open an [Issue](https://github.com/Vitaliy222121/VTRegister/issues) marked **security** — describe *what* is affected (passwords, login, anti-bot, proxy bridge) **without** a ready exploit; the author will ask for details. Serious vulnerabilities are fixed first and shipped as a separate release noted in the CHANGELOG.
+
+Already verified in code (see [docs/AI_AUDIT.md](docs/AI_AUDIT.md)): every SQL query with player data uses PreparedStatement; registration has a single entry point that checks the anti-bot; the proxy bridge is HMAC-SHA256 signed and does not accept messages from clients; hashes and codes are compared in constant time; a database failure closes login instead of opening it.

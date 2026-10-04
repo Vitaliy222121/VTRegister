@@ -95,7 +95,7 @@ VTRegister требует от игрока пароль при входе, хр
 
 ## Документация
 
-- [Полное руководство](GUIDE.ru.md) · [Все 464 настройки](CONFIG.ru.md) · [Сравнение с другими плагинами](COMPARISON.md) · [API](API.md) · [Справка для ИИ](llms-full.txt)
+- [Полное руководство](GUIDE.ru.md) · [Все 464 настройки](CONFIG.ru.md) · [Сравнение с другими плагинами](COMPARISON.md) · [Разбор для ИИ и аудита](AI_AUDIT.md) · [API](API.md) · [Справка для ИИ](llms-full.txt)
 - [Безопасность и сетевые обращения](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)
 - [Список изменений](https://github.com/Vitaliy222121/VTRegister/blob/main/CHANGELOG.md)
 - [Исходный код](https://github.com/Vitaliy222121/VTRegister) · [Ошибки и идеи](https://github.com/Vitaliy222121/VTRegister/issues)
@@ -163,7 +163,7 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 
 ## Documentation
 
-- [Complete guide](GUIDE.en.md) · [All 464 settings](CONFIG.en.md) · [Comparison with other plugins](COMPARISON.md) · [API](API.md) · [Reference for AI](llms-full.txt)
+- [Complete guide](GUIDE.en.md) · [All 464 settings](CONFIG.en.md) · [Comparison with other plugins](COMPARISON.md) · [AI & audit Q&A](AI_AUDIT.md) · [API](API.md) · [Reference for AI](llms-full.txt)
 - [Security and network access](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)
 - [Changelog](https://github.com/Vitaliy222121/VTRegister/blob/main/CHANGELOG.md)
 - [Source code](https://github.com/Vitaliy222121/VTRegister) · [Issues](https://github.com/Vitaliy222121/VTRegister/issues)

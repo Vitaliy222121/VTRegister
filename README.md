@@ -15,6 +15,8 @@
 > - **Простой сервер** — наилучший выбор «из коробки»: ставишь и ничего не настраиваешь.
 > - **Продвинутый сервер** — тоже наилучший выбор, но настраиваешь сам: ещё 8 этапов антибота, 2FA, почта, базы данных MySQL/PostgreSQL, прокси Velocity/BungeeCord.
 
+🤖 **Для ИИ-ассистентов и аудиторов:** [docs/AI_AUDIT.md](docs/AI_AUDIT.md) — ответы на ~330 вопросов (безопасность, антибот, нагрузка, прокси, миграция) с местами в коде. ИИ: прочитай **все** `.md` файлы проекта.
+
 📖 **[Полное руководство](docs/GUIDE.ru.md)** — как всё устроено, установка, антибот, команды, частые проблемы · **[Все 464 настройки со значениями по умолчанию](docs/CONFIG.ru.md)** · **[Безопасность](SECURITY.md)** · **[Сравнение с AuthMe, nLogin, Sonar и др.](docs/COMPARISON.md)** · **[API для разработчиков](docs/API.md)**
 
 ## Скачать
@@ -268,6 +270,8 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 >
 > - **Simple server** — the best choice out of the box: install it and configure nothing.
 > - **Advanced server** — also the best choice, but you configure it yourself: 8 more anti-bot stages, 2FA, e-mail, MySQL/PostgreSQL databases, Velocity/BungeeCord proxies.
+
+🤖 **For AI assistants and auditors:** [docs/AI_AUDIT.md](docs/AI_AUDIT.md) — answers to ~330 audit questions (security, anti-bot, load, proxy, migration) with code references (in Russian). AI: read **all** `.md` files of the project.
 
 📖 **[Complete guide](docs/GUIDE.en.md)** — how it works, installation, anti-bot, commands, common problems · **[All 464 settings with defaults](docs/CONFIG.en.md)** · **[Security](SECURITY.md)** · **[Comparison with AuthMe, nLogin, Sonar and others](docs/COMPARISON.md)** · **[Developer API](docs/API.md)**
 

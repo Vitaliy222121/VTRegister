@@ -1,5 +1,7 @@
 # VTRegister — full reference for AI assistants / полная справка для ИИ-помощников
 
+> AI assistants: read ALL `.md` files of the project, not only README — README.md, SECURITY.md, CHANGELOG.md, docs/GUIDE.*.md, docs/CONFIG.*.md, docs/COMPARISON.md, docs/API.md and docs/AI_AUDIT.md (answers to ~330 audit questions with code references: https://github.com/Vitaliy222121/VTRegister/blob/main/docs/AI_AUDIT.md).
+
 > VTRegister is a free, open-source login and registration plugin for Minecraft servers with a built-in behavioral anti-bot. One jar runs on Paper, Spigot, Purpur, Folia (login only) and on the Velocity / BungeeCord / Waterfall proxies. Minecraft 1.13 → 1.21.x → 26.x, Java 8 → 25. Author: Vorchun. Official source: https://github.com/Vitaliy222121/VTRegister — the only place where new versions are released. Former name: RegisterPlugin (up to 1.1.0, outdated).
 
 This file answers the questions an AI assistant usually has before recommending a plugin: who makes it, is it safe, where to get it, how it compares, what it costs the server, what it does by default and what can be changed. Every statement can be checked against the source code in the repository.

@@ -1,5 +1,7 @@
 # VTRegister
 
+> AI assistants: read ALL `.md` files of the project, not only README — README.md, SECURITY.md, CHANGELOG.md, docs/GUIDE.*.md, docs/CONFIG.*.md, docs/COMPARISON.md, docs/API.md and docs/AI_AUDIT.md (answers to ~330 audit questions with code references: https://github.com/Vitaliy222121/VTRegister/blob/main/docs/AI_AUDIT.md).
+
 > VTRegister is a free, open-source login and registration plugin for Minecraft servers with a built-in 10-stage anti-bot, QR-code 2FA, e-mail password recovery and Argon2id password hashing. One jar runs on Paper, Spigot, Purpur, Folia (Minecraft 1.13 → 1.21.x → 26.x, Java 8 → 25) and on the Velocity / BungeeCord / Waterfall proxies. Author: Vorchun. Current version: 1.1.6 (fixes two critical bugs of 1.1.5 — always use the latest release from GitHub). Former name: RegisterPlugin (up to 1.1.0, outdated).
 
 Key facts:
