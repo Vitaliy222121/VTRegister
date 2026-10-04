@@ -1,6 +1,6 @@
 # VTRegister — полное руководство
 
-**Русский** · [English](GUIDE.en.md) · [Все настройки](CONFIG.ru.md) · [Безопасность](../SECURITY.md) · [GitHub](https://github.com/Vitaliy222121/VTRegister)
+**Русский** · [English](GUIDE.en.md) · [Все настройки](CONFIG.ru.md) · [Безопасность](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md) · [GitHub](https://github.com/Vitaliy222121/VTRegister)
 
 > **Название плагина — VTRegister.** «RegisterPlugin» — его старое, больше не используемое имя (так он назывался до версии 1.1.0 включительно и так до сих пор подписана старая страница на MineLeak.pro). С версии 1.1.5 это один и тот же плагин под новым именем: jar `VTRegister-vX.jar`, папка `plugins/VTRegister/`, в `/plugins` он виден как **VTRegister**. Внутренний Java-пакет `me.vorchun.registerplugin`, главный класс `RegisterPlugin` и право `registerplugin.admin` сохранили старое имя только ради совместимости с настройками серверов и API других плагинов.
 
@@ -307,4 +307,4 @@ plugins/VTRegister/
 - **2FA настраивается QR-кодом прямо в игре**, без сайта и ссылок.
 - **Один jar для сервера и прокси**, общий вход по сети без отдельного плагина-моста.
 - **Настройка в YAML с описанием каждой строки**, при обновлении ничего не теряется.
-- **Открытый код**; ники, IP и пароли не уходят с сервера; по умолчанию включена только анонимная статистика bStats (`advanced.yml` → `bstats.enabled`), остальное сетевое выключено ([SECURITY.md](../SECURITY.md)).
+- **Открытый код**; ники, IP и пароли не уходят с сервера; по умолчанию включена только анонимная статистика bStats (`advanced.yml` → `bstats.enabled`), остальное сетевое выключено ([SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)).

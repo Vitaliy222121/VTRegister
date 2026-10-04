@@ -1,6 +1,6 @@
 # VTRegister — complete guide
 
-[Русский](GUIDE.ru.md) · **English** · [All settings](CONFIG.en.md) · [Security](../SECURITY.md) · [GitHub](https://github.com/Vitaliy222121/VTRegister)
+[Русский](GUIDE.ru.md) · **English** · [All settings](CONFIG.en.md) · [Security](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md) · [GitHub](https://github.com/Vitaliy222121/VTRegister)
 
 > **The plugin's name is VTRegister.** "RegisterPlugin" is its old, no longer used name (used up to and including version 1.1.0; the old MineLeak.pro page is still titled that way). Since 1.1.5 it is the same plugin under the new name: jar `VTRegister-vX.jar`, folder `plugins/VTRegister/`, shown as **VTRegister** in `/plugins`. The internal Java package `me.vorchun.registerplugin`, the main class `RegisterPlugin` and the permission `registerplugin.admin` keep the old name only for compatibility with existing server setups and other plugins' APIs.
 
@@ -307,4 +307,4 @@ Inside the jar: `INSTRUCTION_RU.txt`, `INSTRUCTION_EN.txt`, `PROXY_SETUP.txt`.
 - **2FA is set up with a QR code right in the game**, no website or links.
 - **One jar for the server and the proxy**, a shared network login without a separate bridge plugin.
 - **YAML configuration with a description for every line**, nothing is lost on update.
-- **Open source**; names, IPs and passwords never leave the server; only anonymous bStats statistics are on by default (`advanced.yml` → `bstats.enabled`), everything else network-related is off ([SECURITY.md](../SECURITY.md)).
+- **Open source**; names, IPs and passwords never leave the server; only anonymous bStats statistics are on by default (`advanced.yml` → `bstats.enabled`), everything else network-related is off ([SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md)).

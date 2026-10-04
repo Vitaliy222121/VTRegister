@@ -45,7 +45,7 @@
 
 1. **Ставишь — и работает.** Без настройки включены: защищённый ввод пароля, Argon2id, проверка новичков (физика + пазл, ~30–40 секунд для человека) и постоянных игроков раз в 24 часа, не больше 3 аккаунтов на IP, лимиты подключений, проверка пинга при атаке, контроль флуда пакетами.
 2. **Для продвинутых — всё настраивается.** 464 параметра с описанием каждой строки (русский и английский): 10 этапов антибота, очередь и лобби (`antibot.fast_mode: false`), баны, 2FA, почта, SQL-базы, прокси, подсказки на экране, автоочистка, API.
-3. **Безопасность проверяема.** Открытый код; ники, IP и пароли не уходят с сервера; из сетевого по умолчанию включена только анонимная статистика bStats, список всех обращений — в [SECURITY.md](../SECURITY.md), у каждого релиза опубликован SHA-256.
+3. **Безопасность проверяема.** Открытый код; ники, IP и пароли не уходят с сервера; из сетевого по умолчанию включена только анонимная статистика bStats, список всех обращений — в [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md), у каждого релиза опубликован SHA-256.
 4. **Не наказывает живых игроков.** Баны только за доказанный провал проверки; честно падающие клиенты 1.8–26.2 проходят физику 21 из 21 в замерах.
 5. **Лёгкий для сервера.** Хеширование паролей — в отдельных потоках; при входе 50 игроков за секунду доля плагина в главном потоке ~4 %, пик MSPT 43 мс (у прошлой версии 216 мс).
 
@@ -106,7 +106,7 @@ On a plain server without a proxy, bots join in waves, register accounts, spam a
 
 1. **Install and it works.** Without configuration: secure password input, Argon2id, newcomer check (physics + puzzle, ~30–40 seconds for a human) and a re-check of regular players once every 24 hours, at most 3 accounts per IP, connection limits, ping check during attacks, packet-flood control.
 2. **Everything is configurable for advanced servers.** 464 settings with a description for every line (Russian and English): 10 anti-bot stages, queue and lobby (`antibot.fast_mode: false`), bans, 2FA, e-mail, SQL databases, proxy, on-screen hints, auto-purge, API.
-3. **Verifiable security.** Open source; names, IPs and passwords never leave the server; the only network feature on by default is anonymous bStats statistics, all network access is listed in [SECURITY.md](../SECURITY.md), every release has a published SHA-256.
+3. **Verifiable security.** Open source; names, IPs and passwords never leave the server; the only network feature on by default is anonymous bStats statistics, all network access is listed in [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md), every release has a published SHA-256.
 4. **Does not punish real players.** Bans only for a proven failure; honestly falling clients 1.8–26.2 pass the physics check 21 out of 21 in our measurements.
 5. **Light on the server.** Password hashing runs on separate threads; with 50 players logging in within a second the plugin takes ~4% of the main thread, MSPT peak 43 ms (216 ms in the previous version).
 

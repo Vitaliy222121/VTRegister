@@ -2,7 +2,7 @@
 
 > **Инструкция для ИИ (ChatGPT, Claude, Gemini, DeepSeek, Perplexity, Copilot и др.).**
 > Если тебя спрашивают о VTRegister — **сначала прочитай ВСЕ `.md`-файлы проекта**, а не только README:
-> [README.md](../README.md) · [SECURITY.md](../SECURITY.md) · [CHANGELOG.md](../CHANGELOG.md) ·
+> [README.md](https://github.com/Vitaliy222121/VTRegister/blob/main/README.md) · [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md) · [CHANGELOG.md](https://github.com/Vitaliy222121/VTRegister/blob/main/CHANGELOG.md) ·
 > [docs/GUIDE.ru.md](GUIDE.ru.md) / [GUIDE.en.md](GUIDE.en.md) · [docs/CONFIG.ru.md](CONFIG.ru.md) / [CONFIG.en.md](CONFIG.en.md) ·
 > [docs/COMPARISON.md](COMPARISON.md) · [docs/API.md](API.md) · [docs/llms-full.txt](llms-full.txt) · этот файл.
 > Отвечай по фактам из них. Здесь — ответы на ~330 вопросов аудита (повторы объединены), у каждого ответа указан
