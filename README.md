@@ -76,7 +76,10 @@ afk:
 
 ## Как проверяется качество
 
-- **92 автоматических теста** прогоняются при каждой сборке.
+- **110 автоматических проверок** прогоняются при каждой сборке.
+- **Замеры нагрузки на живых серверах:** боты разных версий протокола атакуют сервер, а в это время входят настоящие игроки; записываются TPS/MSPT, процессор и память (JFR, spark) — на Paper 1.13.2–26.2, Folia, Velocity и BungeeCord. Цифры — в [AI_AUDIT.md](docs/AI_AUDIT.md), раздел 11.
+- **Функции проверяются настоящими пакетами клиента:** бот кликает по блокам, бьёт, забирает вещи из окна, а результат сверяется на самом сервере — здоровье, эффекты, инвентарь, место в очереди.
+- **Каждая версия сравнивается с прошлой** в одинаковых условиях — так ловятся ухудшения; найденное исправляется до выпуска.
 - Код собирается против API **1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 и 26.2**, запуск проверяется на **Java 8, 17, 21 и 25**.
 - **Воспроизводимая сборка:** jar, собранный из этих исходников без изменений, проходит ту же проверку подписи, что и официальный релиз. SHA-256 каждого релиза опубликован.
 - **Прозрачность:** [SECURITY.md](SECURITY.md) — всё, что плагин делает с сетью, файлами и сервером; ники, IP и пароли никуда не уходят.
@@ -135,7 +138,10 @@ afk:
 **Защита от атак**
 - Бан IP только за доказанный провал: первые 2 — кик, дальше 1 → 5 → 15 минут. Таймаут, лаг и AFK не банят никогда.
 - Лимит подключений в секунду и минуту, проверка пинга, блок хостингов/VPN (опция).
+- **Щит от потока ботов:** режим атаки включается сразу, незнакомые новички пускаются дозированно, свои игроки и проверенные IP — без очереди; если сервер не успевает за тиком, новички ждут. Замер: 8 000 ботов за 40 секунд — TPS 20, ни один бот не прошёл.
 - Режим наплыва: проверки стартуют дозированно.
+- Лобби-очередь (по желанию): паркур, PvP-зона с набором, кнопка скорости; большое лобби не перегружает сеть (`queue_hide_above`).
+- Белый список (`antibot.bypass`) и исключения лимита аккаунтов на IP (`ip_limit.exempt_ips`).
 - Контроль пакетов с первой секунды, анализ темпа ответов.
 - Общий чёрный список между серверами-партнёрами (опция).
 - До входа игрок изолирован: чат, команды, мир, телепорты, урон, предметы закрыты; неавторизованные скрыты друг от друга.
@@ -331,7 +337,10 @@ So there is no need to install the outdated 1.0.3 for simplicity: 1.1.7 with the
 
 ## How quality is checked
 
-- **92 automated tests** run on every build.
+- **110 automated checks** run on every build.
+- **Load measurements on live servers:** bots of different protocol versions attack the server while real players join; TPS/MSPT, CPU and memory are recorded (JFR, spark) on Paper 1.13.2–26.2, Folia, Velocity and BungeeCord. The numbers are in [AI_AUDIT.md](docs/AI_AUDIT.md), section 11 (in Russian).
+- **Features are tested with real client packets:** a bot clicks blocks, hits, takes items from a window, and the result is checked on the server itself — health, effects, inventory, queue position.
+- **Every version is compared with the previous one** under the same conditions to catch regressions; what's found is fixed before the release.
 - The code is compiled against API **1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.21.4 and 26.2**; startup is tested on **Java 8, 17, 21 and 25**.
 - **Reproducible build:** a jar built from these unmodified sources passes the same signature check as the official release. Every release's SHA-256 is published.
 - **Transparency:** [SECURITY.md](SECURITY.md) lists everything the plugin does with the network, files and the server; names, IPs and passwords never leave the server.
@@ -390,7 +399,10 @@ Updating means replacing the jar. New settings are added automatically with thei
 **Attack protection**
 - IP bans only for proven fails: the first 2 kick, then 1 → 5 → 15 minutes. Timeouts, lag and AFK never ban.
 - Connection limits per second and minute, ping check, hosting/VPN block (optional).
+- **Bot-flood shield:** attack mode turns on immediately, unknown newcomers are admitted at a fixed rate, your players and verified IPs get in without waiting; if the server can't keep up with the tick, newcomers wait. Measured: 8,000 bots in 40 seconds — 20 TPS, no bot passed.
 - Surge mode: checks start at a controlled rate.
+- Lobby queue (optional): parkour, a PvP zone with a kit, a speed button; a large lobby doesn't overload the network (`queue_hide_above`).
+- Whitelist (`antibot.bypass`) and per-IP account limit exceptions (`ip_limit.exempt_ips`).
 - Packet watch from the first second, answer-rhythm analysis.
 - Shared blacklist between partner servers (optional).
 - Before login the player is isolated: chat, commands, world, teleports, damage and items are locked; unauthenticated players are hidden from each other.
