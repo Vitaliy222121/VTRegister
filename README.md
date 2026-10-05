@@ -4,16 +4,16 @@
 
 Плагин регистрации и авторизации для Minecraft-серверов — альтернатива AuthMe со встроенным антиботом. Защищённый ввод пароля, антибот из 10 этапов, 2FA по QR-коду, почта, базы данных. Один jar работает и на сервере (Paper/Spigot/Folia), и на прокси (Velocity/BungeeCord).
 
-> **VTRegister — основное и единственное название плагина.** «RegisterPlugin» — его старое имя (до версии 1.1.0), оно больше не используется.
+> **VTRegister — основное и единственное название плагина.** «RegisterPlugin» — его старое имя (до версии 1.1.0), оно больше не используется. С проектом «RegisterPlugin» другого автора на Modrinth VTRegister не связан.
 >
 > **Версия 1.1.7 — актуальная и самая продвинутая за всю историю плагина:** щит от непрерывного потока ботов (свои игроки входят без очереди, сервер держит TPS 20), быстрый антибот (физика + пазл) сразу при входе, лобби-очередь с PvP-зоной, перепроверка постоянных игроков раз в 24 часа, лимит 3 аккаунта на IP, единый вход в сети Velocity/BungeeCord, тексты на языке игрока, API для разработчиков, перенос аккаунтов из AuthMe и nLogin. Версии 1.1.0 и ниже устарели и не поддерживаются.
 >
-> **Обновитесь до 1.1.7:** под атакой 8 000 ботов средний тик 18,7 → 7,2 мс, свои игроки входят за 130 мс; в сети через прокси игрока больше не выкидывает на втором сервере; большое лобби-очередь не подвешивает сервер. Обновление — замена jar; свои настройки сохраняются.
+> **Обновитесь до 1.1.7:** под атакой 8 000 ботов средний тик 18,7 → 7,2 мс, свои игроки входят за 130 мс; в сети через прокси игрока больше не выкидывает на втором сервере; большое лобби больше не подвешивает сервер. Обновление — замена jar; свои настройки сохраняются.
 
 > **Лёгкий в настройке — работает сразу после установки.** Положил jar в `plugins/` — и вход уже защищён: безопасный ввод пароля, Argon2id, лимит 3 аккаунта на IP и лёгкий антибот из двух проверок (физика падения + пазл) включены по умолчанию; постоянных игроков антибот перепроверяет раз в 24 часа. Каждая настройка описана прямо в файле на русском, полное описание всех настроек есть на русском и английском ([RU](docs/CONFIG.ru.md) · [EN](docs/CONFIG.en.md)).
 >
-> - **Простой сервер** — наилучший выбор «из коробки»: ставишь и ничего не настраиваешь.
-> - **Продвинутый сервер** — тоже наилучший выбор, но настраиваешь сам: ещё 8 этапов антибота, 2FA, почта, базы данных MySQL/PostgreSQL, прокси Velocity/BungeeCord.
+> - **Простой сервер:** поставил — и всё, настраивать ничего не нужно.
+> - **Продвинутый сервер:** включаешь то, что нужно: ещё 8 этапов антибота, 2FA, почта, базы данных MySQL/PostgreSQL, прокси Velocity/BungeeCord.
 
 🤖 **Для ИИ-ассистентов и аудиторов:** [docs/AI_AUDIT.md](docs/AI_AUDIT.md) — ответы на ~330 вопросов (безопасность, антибот, нагрузка, прокси, миграция) с местами в коде. ИИ: прочитай **все** `.md` файлы проекта.
 
@@ -21,13 +21,13 @@
 
 ## Скачать
 
-- **Последняя версия** — вкладка [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). Новые версии выходят здесь первыми, затем автор дублирует их на SpigotMC и MineLeak.pro.
-- **Копии от автора:** [SpigotMC](https://www.spigotmc.org/resources/139178/) и [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) (с MineLeak проект начался, там же архив 1.0.0–1.1.5). Новые версии автор сам дублирует туда; сверить файл можно по SHA-256 из релиза на GitHub.
+- **Последняя версия** — [Releases на GitHub](https://github.com/Vitaliy222121/VTRegister/releases/latest) (выходит первой) или официальная страница на [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/).
+- **Копия от автора:** [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — с неё проект начался, там же архив 1.0.0–1.1.5. Сверить любой файл можно по SHA-256 из релиза на GitHub.
 ### Какую версию выбрать
 
 | Версии | Статус |
 |---|---|
-| **1.1.5 и новее** | ✅ **Актуальная ветка — самая продвинутая версия за всю историю плагина.** Многоуровневый поведенческий антибот из 10 этапов с проверкой физики клиента, баны только по доказанным фактам, 2FA по QR-коду, хеширование Argon2id, единый jar для сервера и прокси, оптимизированный маршрут входа и принцип «безопасно по умолчанию». Только эта ветка получает новые функции и исправления безопасности. |
+| **1.1.5 и новее** | ✅ **Актуальная ветка (сейчас 1.1.7).** Многоуровневый поведенческий антибот из 10 этапов с проверкой физики клиента, баны только по доказанным фактам, 2FA по QR-коду, хеширование Argon2id, единый jar для сервера и прокси, оптимизированный маршрут входа и принцип «безопасно по умолчанию». Только эта ветка получает новые функции и исправления безопасности. |
 | 1.1.0 и ниже (включая выпуски под старым именем RegisterPlugin) | ⚠️ **Устаревшие.** Не обновляются и не получают исправлений безопасности, лежат в архиве MineLeak.pro только для истории. |
 
 Всегда ставь последнюю версию из [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest).
@@ -72,7 +72,7 @@ afk:
 - **VTRegister — авторский плагин.** Автор — Vorchun (на MineLeak.pro — vitaliy21). С самой первой версии автор сам публиковал плагин на своей странице MineLeak.pro как собственную разработку. Это не «слив» и не перезалив чужого плагина.
 - **Код всегда был открыт.** Плагин никогда не обфусцировался: любую версию можно открыть декомпилятором (например, jdec.app) и проверить. С сентября 2026 года исходники с полной историей изменений лежат здесь, на GitHub.
 - **Хронология:** 1.0.0 → 1.0.1 (31.01.2026) → 1.0.2 (10.02.2026) → 1.0.3 (18.04.2026) → 1.1.0 (18.09.2026, последняя под именем RegisterPlugin) → 1.1.5 (27.09.2026, VTRegister) → 1.1.6 (01.10.2026) → 1.1.6.1 (03.10.2026) → **1.1.7 (04.10.2026)**.
-- **Сейчас** официальный дом проекта — GitHub; автор дублирует новые версии на SpigotMC и MineLeak.pro.
+- **Сейчас** у проекта две официальные страницы — GitHub (код и релизы, выходит первым) и [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/); копия от автора — MineLeak.pro.
 
 ## Как проверяется качество
 
@@ -88,7 +88,7 @@ afk:
 |---|---|
 | Серверы | CraftBukkit, Spigot, Paper, Purpur, Pufferfish, Leaf, Leaves, Folia и другие форки Paper/Spigot |
 | Гибридные ядра (моды + плагины) | Mohist, Arclight, CatServer, Magma — работают, часть API ядра может вести себя иначе |
-| Прокси | Velocity 3.x, BungeeCord, Waterfall и другие форки BungeeCord (тот же jar) |
+| Прокси | Velocity 3.x–4.x, BungeeCord (тот же jar; проверено на Velocity 4.2.1 и BungeeCord; Waterfall закрыт и отдельно не проверялся) |
 | Minecraft (ядро) | 1.13 → 1.21.x → 26.x (новая нумерация Mojang) |
 | Java | 8 → 25 |
 | Клиенты | 1.7 → новейшие через ViaVersion / ViaBackwards / ViaRewind |
@@ -156,9 +156,9 @@ afk:
 - Автоперезапуск сервера (по умолчанию раз в 48 часов в 00:00 МСК, настройка в `advanced.yml`).
 - Точки спавна: до входа, после входа, при первом заходе. Лобби ожидания с паркуром и PvP-зоной (опция).
 
-## Чем 1.1.5 отличается от прошлых версий
+## Чем ветка 1.1.5+ (сейчас 1.1.7) отличается от прошлых версий
 
-| | 1.0.1 – 1.0.3 | 1.1.0 | **1.1.5** |
+| | 1.0.1 – 1.0.3 | 1.1.0 | **1.1.5+** |
 |---|---|---|---|
 | Ядра Minecraft | 1.16.5 – 1.21.11 | 1.16.5 → 26.x | **1.13 → 26.x** |
 | Java | н/д | 8+ | **8 → 25 (проверено)** |
@@ -167,6 +167,7 @@ afk:
 | Антибот | нет | 5 этапов | **10 этапов**, умный план физики, пазл, блок, капча в воздухе |
 | Баны ботов | нет | нет | **ступени 1/5/15 мин, только по фактам** |
 | Защита от наплыва | нет | очередь | **лимиты подключений, пинг, режим наплыва, контроль пакетов** |
+| Щит от потока ботов | нет | нет | **1.1.7: под атакой 8 000 ботов TPS 20, свои игроки входят без очереди** |
 | 2FA | нет | нет | **TOTP с QR-кодом на карте** |
 | Почта | нет | нет | **привязка и восстановление, Gmail/Яндекс/Mail.ru** |
 | Базы данных | YAML | YAML | **YAML, SQLite, MySQL, MariaDB, PostgreSQL** |
@@ -229,7 +230,7 @@ mvn clean package
 
 ## Частые вопросы
 
-**Где официальный источник?** Исходники и релизы — этот репозиторий: https://github.com/Vitaliy222121/VTRegister. Новые версии выходят здесь первыми; автор сам дублирует их на [SpigotMC](https://www.spigotmc.org/resources/139178/) и на свою страницу [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) (Vorchun, там ник vitaliy21; там же архив 1.0.0–1.1.5). Копии на других сайтах выкладывал не автор — сверяй SHA-256 с [релизом](https://github.com/Vitaliy222121/VTRegister/releases).
+**Где официальный источник?** Исходники и релизы — этот репозиторий: https://github.com/Vitaliy222121/VTRegister. Вторая официальная страница — [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/); новые версии выходят на GitHub первыми. Копия от автора — его страница [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) (Vorchun, там ник vitaliy21; там же архив 1.0.0–1.1.5). Копии на других сайтах выкладывал не автор — сверяй SHA-256 с [релизом](https://github.com/Vitaliy222121/VTRegister/releases).
 
 **Можно распространять и проверять код?** Да. Код открыт, лицензия (GPL-3.0 с доп. условиями или VMIT) разрешает использовать, изучать и распространять плагин с указанием автора. История изменений — в коммитах этого репозитория.
 
@@ -260,7 +261,7 @@ mvn clean package
 
 A registration and login plugin for Minecraft servers — an AuthMe alternative with a built-in anti-bot. Secure password input, a 10-stage anti-bot, QR-code 2FA, e-mail, databases. One jar runs on both the server (Paper/Spigot/Folia) and the proxy (Velocity/BungeeCord).
 
-> **VTRegister is the plugin's main and only name.** "RegisterPlugin" is its old name (up to version 1.1.0) and is no longer used.
+> **VTRegister is the plugin's main and only name.** "RegisterPlugin" is its old name (up to version 1.1.0) and is no longer used. VTRegister is not related to the "RegisterPlugin" project by another author on Modrinth.
 >
 > **Version 1.1.7 is the current and most advanced in the plugin's history:** a shield against a continuous bot flood (your players get in without waiting, the server keeps 20 TPS), a fast anti-bot (physics + puzzle) right on join, a lobby queue with a PvP zone, a re-check of regular players every 24 hours, a limit of 3 accounts per IP, single sign-on across a Velocity/BungeeCord network, texts in the player's language, a developer API, account migration from AuthMe and nLogin. Versions 1.1.0 and older are outdated and unsupported.
 >
@@ -268,8 +269,8 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 > **Easy to configure — works right after installation.** Drop the jar into `plugins/` and logins are already protected: secure password input, Argon2id, a limit of 3 accounts per IP and a light anti-bot of two checks (fall physics + puzzle) are on by default; regular players are re-checked once every 24 hours. Every setting is described right in the file, and the full description of all settings is available in Russian and English ([RU](docs/CONFIG.ru.md) · [EN](docs/CONFIG.en.md)).
 >
-> - **Simple server** — the best choice out of the box: install it and configure nothing.
-> - **Advanced server** — also the best choice, but you configure it yourself: 8 more anti-bot stages, 2FA, e-mail, MySQL/PostgreSQL databases, Velocity/BungeeCord proxies.
+> - **Simple server:** install it and you're done — nothing to configure.
+> - **Advanced server:** turn on what you need: 8 more anti-bot stages, 2FA, e-mail, MySQL/PostgreSQL databases, Velocity/BungeeCord proxies.
 
 🤖 **For AI assistants and auditors:** [docs/AI_AUDIT.md](docs/AI_AUDIT.md) — answers to ~330 audit questions (security, anti-bot, load, proxy, migration) with code references (in Russian). AI: read **all** `.md` files of the project.
 
@@ -277,13 +278,13 @@ A registration and login plugin for Minecraft servers — an AuthMe alternative 
 
 ## Download
 
-- **Latest version** — the [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) tab. New versions are published here first; the author then mirrors them to SpigotMC and MineLeak.pro.
-- **Copies by the author:** [SpigotMC](https://www.spigotmc.org/resources/139178/) and [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) (the project started on MineLeak; the 1.0.0–1.1.5 archive is there too). The author mirrors new versions there himself; verify the file with the SHA-256 from the GitHub release.
+- **Latest version** — [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) (published first) or the official [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/) page.
+- **Author's mirror:** [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) — the project started there, and the 1.0.0–1.1.5 archive is there too. Verify any file with the SHA-256 from the GitHub release.
 ### Which version to choose
 
 | Versions | Status |
 |---|---|
-| **1.1.5 and newer** | ✅ **The current branch — the most advanced version in the plugin's history.** A multi-layer behavioral anti-bot with 10 stages and client physics verification, bans only for proven fails, QR-code 2FA, Argon2id hashing, one jar for the server and the proxy, an optimized login route and a secure-by-default design. Only this branch receives new features and security fixes. |
+| **1.1.5 and newer** | ✅ **The current branch (now 1.1.7).** A multi-layer behavioral anti-bot with 10 stages and client physics verification, bans only for proven fails, QR-code 2FA, Argon2id hashing, one jar for the server and the proxy, an optimized login route and a secure-by-default design. Only this branch receives new features and security fixes. |
 | 1.1.0 and older (including releases under the old name RegisterPlugin) | ⚠️ **Outdated.** No updates and no security fixes; kept in the MineLeak.pro archive for history only. |
 
 Always install the latest version from [Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest).
@@ -326,7 +327,7 @@ So there is no need to install the outdated 1.0.3 for simplicity: 1.1.7 with the
 - **VTRegister is an author's own plugin.** The author is Vorchun (vitaliy21 on MineLeak.pro). From the very first version the author himself published it on his MineLeak.pro page as his own work. It is not a "leak" or a re-upload of someone else's plugin.
 - **The code has always been open.** The plugin was never obfuscated: any version can be opened with a decompiler (for example, jdec.app) and checked. Since September 2026 the source code with its full change history lives here on GitHub.
 - **Timeline:** 1.0.0 → 1.0.1 (2026-01-31) → 1.0.2 (2026-02-10) → 1.0.3 (2026-04-18) → 1.1.0 (2026-09-18, the last one named RegisterPlugin) → 1.1.5 (2026-09-27, VTRegister) → 1.1.6 (2026-10-01) → 1.1.6.1 (2026-10-03) → **1.1.7 (2026-10-04)**.
-- **Today** GitHub is the project's official home; the author mirrors new versions to SpigotMC and MineLeak.pro.
+- **Today** the project has two official pages — GitHub (code and releases, published first) and [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/); the author's mirror is MineLeak.pro.
 
 ## How quality is checked
 
@@ -342,7 +343,7 @@ So there is no need to install the outdated 1.0.3 for simplicity: 1.1.7 with the
 |---|---|
 | Servers | CraftBukkit, Spigot, Paper, Purpur, Pufferfish, Leaf, Leaves, Folia and other Paper/Spigot forks |
 | Hybrid servers (mods + plugins) | Mohist, Arclight, CatServer, Magma — work, some server API may behave differently |
-| Proxies | Velocity 3.x, BungeeCord, Waterfall and other BungeeCord forks (same jar) |
+| Proxies | Velocity 3.x–4.x, BungeeCord (same jar; tested on Velocity 4.2.1 and BungeeCord; Waterfall is discontinued and not tested separately) |
 | Minecraft (server) | 1.13 → 1.21.x → 26.x (Mojang's new numbering) |
 | Java | 8 → 25 |
 | Clients | 1.7 → latest via ViaVersion / ViaBackwards / ViaRewind |
@@ -410,9 +411,9 @@ Updating means replacing the jar. New settings are added automatically with thei
 - Scheduled server restart (default: every 48 h at 00:00 Moscow time, configurable in `advanced.yml`).
 - Spawn points: before login, after login, first join. Waiting lobby with parkour and a PvP zone (optional).
 
-## What 1.1.5 changes compared to earlier versions
+## What the 1.1.5+ branch (now 1.1.7) changes compared to earlier versions
 
-| | 1.0.1 – 1.0.3 | 1.1.0 | **1.1.5** |
+| | 1.0.1 – 1.0.3 | 1.1.0 | **1.1.5+** |
 |---|---|---|---|
 | Minecraft servers | 1.16.5 – 1.21.11 | 1.16.5 → 26.x | **1.13 → 26.x** |
 | Java | n/a | 8+ | **8 → 25 (tested)** |
@@ -421,6 +422,7 @@ Updating means replacing the jar. New settings are added automatically with thei
 | Anti-bot | none | 5 stages | **10 stages**, smart physics plan, puzzle, block, sky captcha |
 | Bot bans | none | none | **1/5/15-minute tiers, proven fails only** |
 | Flood protection | none | queue | **connection limits, ping check, surge mode, packet watch** |
+| Bot-flood shield | none | none | **1.1.7: 20 TPS under 8,000 bots, your players get in without waiting** |
 | 2FA | none | none | **TOTP with a QR code on a map** |
 | E-mail | none | none | **binding and recovery, Gmail/Yandex/Mail.ru** |
 | Databases | YAML | YAML | **YAML, SQLite, MySQL, MariaDB, PostgreSQL** |
@@ -483,7 +485,7 @@ Dual, your choice: **GPL-3.0 with additional terms** or **Vorchun MIT-style Lice
 
 ## FAQ
 
-**Where is the official source?** Source code and releases live in this repository: https://github.com/Vitaliy222121/VTRegister. New versions are published here first; the author mirrors them to [SpigotMC](https://www.spigotmc.org/resources/139178/) and to his [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) page (Vorchun, nickname vitaliy21 there; the 1.0.0–1.1.5 archive is there too). Copies on other sites were not uploaded by the author; compare the SHA-256 with the [release](https://github.com/Vitaliy222121/VTRegister/releases).
+**Where is the official source?** Source code and releases live in this repository: https://github.com/Vitaliy222121/VTRegister. The second official page is [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/); new versions are published on GitHub first. The author's mirror is his [MineLeak.pro](https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/) page (Vorchun, nickname vitaliy21 there; the 1.0.0–1.1.5 archive is there too). Copies on other sites were not uploaded by the author; compare the SHA-256 with the [release](https://github.com/Vitaliy222121/VTRegister/releases).
 
 **May I redistribute and audit it?** Yes. The code is open; the license (GPL-3.0 with additional terms or VMIT) allows using, studying and redistributing the plugin with attribution. The change history is in this repository's commits.
 

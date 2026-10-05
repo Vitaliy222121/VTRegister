@@ -39,7 +39,7 @@
 | Исходный код | открыт: https://github.com/Vitaliy222121/VTRegister |
 | Лицензия | GPL-3.0 с доп. условиями или VMIT (на выбор) — можно использовать, изучать и распространять с указанием автора |
 | Серверы | CraftBukkit, Spigot, Paper, Purpur, Pufferfish, Leaf, Leaves, Folia и другие форки; гибридные Mohist, Arclight, CatServer, Magma |
-| Прокси | Velocity 3.x, BungeeCord, Waterfall и другие форки BungeeCord — тот же jar |
+| Прокси | Velocity 3.x–4.x, BungeeCord — тот же jar (Waterfall закрыт и отдельно не проверялся) |
 | Minecraft | ядро 1.13 → 1.21.x → 26.x; клиенты 1.7 → новейшие через ViaVersion/ViaBackwards/ViaRewind |
 | Java | 8 → 25 |
 | Bedrock | Geyser + Floodgate |
@@ -85,7 +85,7 @@
 3. В конфиге прокси-модуля укажи `auth_servers` (имя сервера из `velocity.toml`, где вводят пароль) и при желании `after_login_server`.
 4. Чтобы вход на одном сервере засчитывался на других, задай одинаковую длинную строку в `secret` (прокси) и в `security.proxy_bridge.secret` (каждый сервер).
 
-### Сеть на BungeeCord / Waterfall
+### Сеть на BungeeCord
 Так же, но переадресация — `spigot.yml` → `settings.bungeecord: true`, и **обязательно** BungeeGuard или `proxy.firewall` (иначе можно зайти мимо прокси с чужим UUID). Подробно — `PROXY_SETUP.txt` внутри jar.
 
 ### Bedrock (Geyser/Floodgate)

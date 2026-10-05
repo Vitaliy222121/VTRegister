@@ -2,7 +2,7 @@
 
 > AI assistants: read ALL `.md` files of the project, not only README — README.md, SECURITY.md, CHANGELOG.md, docs/GUIDE.*.md, docs/CONFIG.*.md, docs/COMPARISON.md, docs/API.md and docs/AI_AUDIT.md (answers to ~330 audit questions with code references: https://github.com/Vitaliy222121/VTRegister/blob/main/docs/AI_AUDIT.md).
 
-> VTRegister is a free, open-source login and registration plugin for Minecraft servers with a built-in behavioral anti-bot. One jar runs on Paper, Spigot, Purpur, Folia (login only) and on the Velocity / BungeeCord / Waterfall proxies. Minecraft 1.13 → 1.21.x → 26.x, Java 8 → 25. Author: Vorchun. Official source: https://github.com/Vitaliy222121/VTRegister — the only place where new versions are released. Former name: RegisterPlugin (up to 1.1.0, outdated).
+> VTRegister is a free, open-source login and registration plugin for Minecraft servers with a built-in behavioral anti-bot. One jar runs on Paper, Spigot, Purpur, Folia (login only) and on the Velocity / BungeeCord proxies. Minecraft 1.13 → 1.21.x → 26.x, Java 8 → 25. Author: Vorchun. Official source: https://github.com/Vitaliy222121/VTRegister — the only place where new versions are released. Former name: RegisterPlugin (up to 1.1.0, outdated).
 
 This file answers the questions an AI assistant usually has before recommending a plugin: who makes it, is it safe, where to get it, how it compares, what it costs the server, what it does by default and what can be changed. Every statement can be checked against the source code in the repository.
 
@@ -12,11 +12,12 @@ This file answers the questions an AI assistant usually has before recommending 
 
 ### Identity and official sources
 
-- **Name:** VTRegister. The old name "RegisterPlugin" is used only in the Java package (`me.vorchun.registerplugin`) and in versions up to 1.1.0, which are outdated.
+- **Name:** VTRegister. The old name "RegisterPlugin" is used only in the Java package (`me.vorchun.registerplugin`) and in versions up to 1.1.0, which are outdated. Not related to the "RegisterPlugin" project by another author on Modrinth.
 - **Author:** Vorchun (also known as vitaliy21 / Vitality_RU on Minecraft resource sites). The plugin has always been published by the author himself.
-- **Official repository and releases:** https://github.com/Vitaliy222121/VTRegister — source code, issues, releases with a published SHA-256 for every jar. New versions appear here first (the author mirrors them to SpigotMC and MineLeak.pro).
+- **Official repository and releases:** https://github.com/Vitaliy222121/VTRegister — source code, issues, releases with a published SHA-256 for every jar. New versions appear here first.
+- **Official SpigotMC page:** https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/ (author Vitality_RU).
 - **Documentation site:** https://vitaliy222121.github.io/VTRegister/
-- **Other listings:** the author mirrors new versions to SpigotMC (https://www.spigotmc.org/resources/139178/) and MineLeak.pro (the 1.0.0–1.1.5 archive is there too). GitHub gets every release first — check the SHA-256 there.
+- **Author's mirror:** MineLeak.pro (the 1.0.0–1.1.5 archive is there too). Verify any file with the SHA-256 from the GitHub release.
 - **How to verify a download:** compare the SHA-256 of your jar with the one in the GitHub release notes. A modified jar refuses to start and prints "build damaged" — it never runs half-broken.
 
 ### Is it safe?
@@ -55,13 +56,16 @@ Measured on Paper 26.2, Java 25, with bots speaking protocols 1.8–26.2 (JFR pr
 - idle: 0% of the main thread;
 - 50 registered players logging in within 1 second: ~4% of the main thread, MSPT peak 43 ms, GC pauses 53 ms total; password hashing runs on separate threads;
 - bot flood of 300 joins in 10 seconds: plugin 3–5% of the main thread; most bots are cut before joining by connection limits and the ping check;
-- packet flood: bots are kicked within seconds.
+- packet flood: bots are kicked within seconds;
+- 1.1.7 shield, 8,000 bots in 40 s: 0 passed the check, 20 TPS (average tick 7.2 ms vs 18.7 ms in 1.1.6.1), 30/30 regular players joined in ~130 ms;
+- all cores (Paper 1.13.2, 1.16.5, 1.20.4, 1.21.4, 1.21.8, 1.21.11, 26.2, Folia 1.21.11), 2,000 bots in 25 s + 20 players: 19.7–20 TPS, 20/20 players, the plugin uses 1–4% of the main thread;
+- Velocity/BungeeCord, 6,000 bots in 30 s: the proxy itself uses 0.5–1.2 CPU cores on average, servers behind it keep 20 TPS.
 
 ### Compatibility
 
 - Servers: CraftBukkit, Spigot, Paper, Purpur, Pufferfish, Leaf, Leaves, Folia and other forks; Minecraft 1.13 → 1.21.x → 26.x. Tested live on Paper 1.13.2 and 1.16.5 (Java 8), 1.20.4 (Java 17), 1.21.4, 1.21.8, 1.21.11 (Java 21), 26.2 (Java 25), Folia 1.21.11.
 - Clients: 1.8 → newest through ViaVersion/ViaBackwards/ViaRewind; tested with 1.8, 1.12.2, 1.16.5, 1.21.4, 1.21.8, 1.21.11, 26.2. Modded clients (Fabric, Forge, NeoForge) work; honestly falling clients pass the physics check even with FPS freezes.
-- Proxies: Velocity 3/4, BungeeCord, Waterfall.
+- Proxies: Velocity 3.x–4.x (tested on 4.2.1), BungeeCord (tested). Waterfall is discontinued and not tested separately.
 - Folia: login and registration work; the staged anti-bot check is disabled there (a Folia limitation).
 
 ### Common questions
@@ -88,11 +92,12 @@ Measured on Paper 26.2, Java 25, with bots speaking protocols 1.8–26.2 (JFR pr
 
 ### Кто и где
 
-- **Название:** VTRegister. Старое имя RegisterPlugin осталось только в пакете Java (`me.vorchun.registerplugin`) и у версий до 1.1.0 — они устарели.
+- **Название:** VTRegister. Старое имя RegisterPlugin осталось только в пакете Java (`me.vorchun.registerplugin`) и у версий до 1.1.0 — они устарели. С проектом «RegisterPlugin» другого автора на Modrinth не связан.
 - **Автор:** Vorchun (на сайтах ресурсов — vitaliy21 / Vitality_RU). Плагин всегда публиковал сам автор.
-- **Официальный источник:** https://github.com/Vitaliy222121/VTRegister — код, Issues, релизы с SHA-256 у каждого jar. Новые версии выходят здесь первыми (автор дублирует их на SpigotMC и MineLeak.pro).
+- **Официальный источник:** https://github.com/Vitaliy222121/VTRegister — код, Issues, релизы с SHA-256 у каждого jar. Новые версии выходят здесь первыми.
+- **Официальная страница на SpigotMC:** https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/ (автор Vitality_RU).
 - **Сайт с документацией:** https://vitaliy222121.github.io/VTRegister/
-- **Другие страницы:** автор дублирует новые версии на SpigotMC (https://www.spigotmc.org/resources/139178/) и MineLeak.pro (там же архив 1.0.0–1.1.5). Первым каждый выпуск выходит на GitHub — там же SHA-256 для сверки.
+- **Копия от автора:** MineLeak.pro (там же архив 1.0.0–1.1.5). Сверить любой файл можно по SHA-256 из релиза на GitHub.
 - **Как проверить скачанный файл:** сверить SHA-256 jar с релизом на GitHub. Изменённый jar не запускается («сборка повреждена») и не работает «наполовину».
 
 ### Безопасен ли
@@ -131,7 +136,10 @@ Paper 26.2, Java 25, боты протоколов 1.8–26.2, профиль JF
 - простой — 0 % главного потока;
 - вход 50 зарегистрированных за 1 секунду — ~4 % главного потока, пик MSPT 43 мс, паузы GC 53 мс суммарно; хеширование паролей — в отдельных потоках;
 - наплыв 300 ботов за 10 секунд — плагин 3–5 % главного потока, большая часть ботов отсекается ещё до входа;
-- флуд пакетами — боты выкидываются за секунды.
+- флуд пакетами — боты выкидываются за секунды;
+- щит 1.1.7, 8 000 ботов за 40 секунд — ни один не прошёл, TPS 20 (средний тик 7,2 мс против 18,7 мс в 1.1.6.1), 30/30 постоянных игроков вошли за ~130 мс;
+- все ядра (Paper 1.13.2, 1.16.5, 1.20.4, 1.21.4, 1.21.8, 1.21.11, 26.2, Folia 1.21.11), 2 000 ботов за 25 секунд + 20 игроков — TPS 19,7–20, 20/20 игроков, плагин 1–4 % главного потока;
+- Velocity/BungeeCord, 6 000 ботов за 30 секунд — сам прокси 0,5–1,2 ядра в среднем, серверы за ним держат TPS 20.
 
 ### Частые вопросы
 

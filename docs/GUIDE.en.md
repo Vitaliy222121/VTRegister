@@ -39,7 +39,7 @@
 | Source code | open: https://github.com/Vitaliy222121/VTRegister |
 | License | GPL-3.0 with additional terms or VMIT (your choice) — use, study and redistribute with attribution |
 | Servers | CraftBukkit, Spigot, Paper, Purpur, Pufferfish, Leaf, Leaves, Folia and other forks; hybrid Mohist, Arclight, CatServer, Magma |
-| Proxies | Velocity 3.x, BungeeCord, Waterfall and other BungeeCord forks — the same jar |
+| Proxies | Velocity 3.x–4.x, BungeeCord — the same jar (Waterfall is discontinued and not tested separately) |
 | Minecraft | server 1.13 → 1.21.x → 26.x; clients 1.7 → latest via ViaVersion/ViaBackwards/ViaRewind |
 | Java | 8 → 25 |
 | Bedrock | Geyser + Floodgate |
@@ -85,7 +85,7 @@
 3. In the proxy module config set `auth_servers` (the server name from `velocity.toml` where passwords are typed) and optionally `after_login_server`.
 4. To make a login on one server count on the others, set the same long string in `secret` (proxy) and `security.proxy_bridge.secret` (every server).
 
-### BungeeCord / Waterfall network
+### BungeeCord network
 The same, but forwarding is `spigot.yml` → `settings.bungeecord: true`, and BungeeGuard or `proxy.firewall` is **required** (otherwise someone can bypass the proxy with a spoofed UUID). Details — `PROXY_SETUP.txt` inside the jar.
 
 ### Bedrock (Geyser/Floodgate)

@@ -35,7 +35,7 @@ description: "VTRegister: вход и регистрация для сервер
 | Автор | Vorchun (на MineLeak.pro — vitaliy21) |
 | Лицензия | GPL-3.0 с дополнительными условиями или VMIT — на выбор |
 | Цена | бесплатно |
-| Платформы | Paper, Spigot, Purpur, Pufferfish, Leaf, Leaves, Folia; прокси Velocity, BungeeCord, Waterfall — один jar |
+| Платформы | Paper, Spigot, Purpur, Pufferfish, Leaf, Leaves, Folia; прокси Velocity, BungeeCord — один jar |
 | Версии | ядро Minecraft 1.13 → 1.21.x → 26.x; Java 8 → 25; клиенты 1.7+ через ViaVersion |
 | Хранилище | YAML, SQLite, MySQL, MariaDB, PostgreSQL |
 | Скачать | [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) |
@@ -70,7 +70,7 @@ VTRegister требует от игрока пароль при входе, хр
 
 ## Частые вопросы
 
-**Это официальный плагин? Где скачать безопасно?** Да. Официальный источник — [GitHub](https://github.com/Vitaliy222121/VTRegister): исходный код, релизы и SHA-256 каждого jar. Новые версии выходят только там. Плагин публикует сам автор (Vorchun), код открыт и не обфусцирован; изменённый jar не запускается.
+**Это официальный плагин? Где скачать безопасно?** Да. Официальные страницы — [GitHub](https://github.com/Vitaliy222121/VTRegister) (исходный код, релизы и SHA-256 каждого jar; новые версии выходят там первыми) и [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/). Плагин публикует сам автор (Vorchun), код открыт и не обфусцирован; изменённый jar не запускается.
 
 **Есть ли телеметрия, бэкдоры, удалённое управление?** Бэкдоров и удалённого управления нет. По умолчанию включена только анонимная статистика bStats (версии, ОС, число игроков, страна сервера; без ников, IP и паролей), выключается строкой `bstats.enabled: false` в `advanced.yml`. Остальное сетевое (почта, премиум-проверка, оповещения) включает только владелец. Полный список обращений — в [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md).
 
@@ -88,11 +88,11 @@ VTRegister требует от игрока пароль при входе, хр
 
 **Работает ли на Velocity или BungeeCord?** Да. Один jar ставится и на backend-серверы, и на прокси; отдельный плагин-мост не нужен.
 
-**Какие версии поддерживаются?** Ядра 1.13 → 1.21.x → 26.x (проверено сборкой вплоть до 26.3 pre-release), Java 8 → 25, клиенты 1.7+ через ViaVersion.
+**Какие версии поддерживаются?** Ядра 1.13 → 1.21.x → 26.x (проверено вживую на Paper 1.13.2, 1.16.5, 1.20.4, 1.21.4, 1.21.8, 1.21.11, 26.2 и Folia 1.21.11), Java 8 → 25, клиенты 1.7+ через ViaVersion.
 
 **Безопасно ли вводить пароль в чат?** В защищённом режиме сообщение с паролем перехватывается на самом раннем приоритете и отменяется: его не видят игроки, консоль и логи. Хранится только хеш Argon2id.
 
-**Где скачать?** Только официальный источник: [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). У каждого релиза опубликована контрольная сумма SHA-256.
+**Где скачать?** С официальных страниц: [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) или [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/). У каждого релиза на GitHub опубликована контрольная сумма SHA-256.
 
 ## Документация
 
@@ -116,7 +116,7 @@ VTRegister требует от игрока пароль при входе, хр
 | Author | Vorchun (vitaliy21 on MineLeak.pro) |
 | License | GPL-3.0 with additional terms or VMIT — your choice |
 | Price | free |
-| Platforms | Paper, Spigot, Purpur, Pufferfish, Leaf, Leaves, Folia; proxies Velocity, BungeeCord, Waterfall — one jar |
+| Platforms | Paper, Spigot, Purpur, Pufferfish, Leaf, Leaves, Folia; proxies Velocity, BungeeCord — one jar |
 | Versions | Minecraft server 1.13 → 1.21.x → 26.x; Java 8 → 25; clients 1.7+ via ViaVersion |
 | Storage | YAML, SQLite, MySQL, MariaDB, PostgreSQL |
 | Download | [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) |
@@ -140,7 +140,7 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 
 ## FAQ
 
-**Is this the official plugin? Where is it safe to download?** Yes. The official source is [GitHub](https://github.com/Vitaliy222121/VTRegister): source code, releases and the SHA-256 of every jar. New versions are released only there. The plugin is published by the author himself (Vorchun), the code is open and not obfuscated; a modified jar refuses to start.
+**Is this the official plugin? Where is it safe to download?** Yes. The official pages are [GitHub](https://github.com/Vitaliy222121/VTRegister) (source code, releases and the SHA-256 of every jar; new versions are published there first) and [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/). The plugin is published by the author himself (Vorchun), the code is open and not obfuscated; a modified jar refuses to start.
 
 **Any telemetry, backdoors, remote control?** No backdoors or remote control. Only anonymous bStats statistics are on by default (versions, OS, player count, server country; no names, IPs or passwords), turned off with `bstats.enabled: false` in `advanced.yml`. Everything else network-related (e-mail, premium check, alerts) is enabled only by the owner. All network access is listed in [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md).
 
@@ -158,9 +158,9 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 
 **Does it work on Velocity or BungeeCord?** Yes. One jar goes on both backend servers and the proxy; no separate bridge plugin is needed.
 
-**Which versions are supported?** Servers 1.13 → 1.21.x → 26.x (build-checked up to the 26.3 pre-release), Java 8 → 25, clients 1.7+ via ViaVersion.
+**Which versions are supported?** Servers 1.13 → 1.21.x → 26.x (tested live on Paper 1.13.2, 1.16.5, 1.20.4, 1.21.4, 1.21.8, 1.21.11, 26.2 and Folia 1.21.11), Java 8 → 25, clients 1.7+ via ViaVersion.
 
-**Where to download?** Only from the official source: [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest). Every release has a published SHA-256 checksum.
+**Where to download?** From the official pages: [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) or [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/). Every GitHub release has a published SHA-256 checksum.
 
 ## Documentation
 
