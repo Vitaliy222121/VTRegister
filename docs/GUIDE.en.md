@@ -97,10 +97,10 @@ All 472 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most im
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `language` | `auto` | message language by client (ru/en) |
+| `language` | `auto` | language by client (ru/en): messages, anti-bot tasks, boss bars, lobby |
 | `security.secure_password_input` | `true` | password as the next chat message, not in a command |
 | `security.command_logging` | `fix` | sets `commands.log: false` in `spigot.yml` so the server does not log passwords |
-| `security.hash_algorithm` | `argon2id` | password hash (64 MB, 3 passes, 1 thread) |
+| `security.hash_algorithm` | `argon2id` | password hash (19 MB, 2 passes, 1 thread — the OWASP recommendation) |
 | `security.max_login_attempts` / `lock_seconds` | `5` / `300` | wrong passwords before a lock and its duration |
 | `security.single_session` | `true` | a second session under the same name does not kick the playing one |
 | `security.hide_during_auth` | `true` | unauthenticated players are invisible to each other |
@@ -108,12 +108,14 @@ All 472 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most im
 | `auth.timeout_seconds` | `60` | time to log in after the check |
 | `password.min_length` / `max_length` | `8` / `64` | password length |
 | `ip_limit.enabled` / `max_accounts` | `true` / `3` | at most 3 accounts per IP |
+| `ip_limit.exempt_ips` | `[]` | IPs without the account limit (internet cafes, dorms, shared NAT) |
 | `session.duration_seconds` | `7200` | session lifetime |
 | `session.auto_login_by_ip` | `false` | password-less IP login is off |
 | `antibot.enabled` | `true` | anti-bot on |
 | `antibot.fast_mode` / `fast_stages` | `true` / `[fall, puzzle]` | quick check right on join: physics + puzzle |
 | `antibot.only_new_players` | `true` | only newcomers are checked on every join |
 | `antibot.recheck_hours` | `24` | regular players — again once every 24 hours |
+| `antibot.bypass.names` / `ips` | `[]` | whitelist: no check and no connection limits |
 | `antibot.stages` | `fall`, `puzzle` | stages of the normal mode (`fast_mode: false`) |
 | `antibot.physics_repetitions` | `5` | physics repetitions |
 | `antibot.queue_mode` | `bossbar` | overflow waits in place with a bossbar |
@@ -124,6 +126,10 @@ All 472 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most im
 | `antibot.surge.enabled` | `true` | surge mode |
 | `antibot.packet_watch.enabled` | `true` | packet watch from the first second |
 | `antibot.ping_check.mode` | `attack` | ping check only during an attack |
+| `antibot.guard.attack_admit_per_second` | `2` | during an attack — how many unknown newcomers to admit per second |
+| `antibot.guard.max_mspt` | `45` | the server can't keep up with the tick — newcomers wait, your players get in |
+| `antibot.guard.verified_ip_hours` | `72` | for how many hours an IP that passed the check gets in during an attack without waiting |
+| `antibot.queue_hide_above` | `60` | more than 60 players in the lobby queue — they stop seeing each other |
 | `antibot.datacenter_block.enabled` | `false` | hosting/VPN block off |
 | `twofactor.enabled` | `true` | players can enable 2FA themselves |
 | `twofactor.force_admins` | `false` | mandatory admin 2FA off |
@@ -153,7 +159,7 @@ All 472 settings with descriptions — [CONFIG.en.md](CONFIG.en.md). The most im
 
 Fast mode (default): `antibot.fast_mode: true` — the check starts right on join, no queues, stages from `fast_stages` (default `[fall, puzzle]`). `fast_mode: false` — the regular mode with a queue and stages from `stages`.
 
-**Simple and advanced protection.** The default is simple and light: fast mode, physics + puzzle, other stages off. For advanced protection (a big server, frequent attacks): `antibot.fast_mode: false` — a queue, a waiting lobby and the "make a step" test; enable the stages you need in `antibot.stages` (e.g. `block`, `click`, `air_captcha`); against "sleeping" bot accounts — `antibot.recheck_on_restart: true`; for networks — the hosting/VPN block (`antibot.datacenter_block`) and the shared blacklist.
+**Simple and advanced protection.** The default is simple and light: fast mode, physics + puzzle, other stages off. For advanced protection (a big server, frequent attacks): `antibot.fast_mode: false` — a queue (boss bar or lobby, `queue_mode`) and the "make a step" test; enable the stages you need in `antibot.stages` (e.g. `block`, `click`, `air_captcha`); against "sleeping" bot accounts — `antibot.recheck_on_restart: true`; for networks — the hosting/VPN block (`antibot.datacenter_block`) and the shared blacklist.
 
 **On-screen hints** (`screen_hints`): big text in the middle of the screen — what to do right now. Toggled separately for login (`auth`), check stages (`antibot`), the "Get ready!" countdown (`prepare`) and "Done!" (`done`). Time on screen — `stay_seconds`, repeat — `refresh_seconds` (0 — once), how many times — `max_repeats`, smoothness — `fade_in_ticks`/`fade_out_ticks`. Texts — the `hint_*` keys in `lang/ru.yml` and `lang/en.yml`.
 
@@ -161,6 +167,9 @@ Fast mode (default): `antibot.fast_mode: true` — the check starts right on joi
 - **Connection limit** (`antibot.connection_limit`): total and per IP, per second and minute; registered players are not limited.
 - **Ping check** (`antibot.ping_check`): a real client first sees the server in the server list. By default — only during an attack.
 - **Name filter** (`antibot.guard.name_regex`), account and online limits per IP, attack mode.
+- **Bot-flood shield** (`antibot.guard`): attack mode turns on immediately; unknown newcomers are admitted at a fixed rate (`attack_admit_per_second: 2`), and if the server can't keep up with the tick (`max_mspt: 45`) they wait. Your players from a familiar IP and IPs that passed the check (`verified_ip_hours: 72`) get in without waiting. Measured: 8,000 bots in 40 seconds — none passed, the server kept 20 TPS, your players joined in ~130 ms.
+- **Whitelist and exceptions:** `antibot.bypass.names` / `ips` — no check and no connection limits (admins, your own services); `ip_limit.exempt_ips` — IPs without the account limit.
+- **Siege mode** (`afk.siege`): after many AFK kicks in a row, at most `max_pending` unauthenticated players stay online. A registered player from a familiar IP is not affected — a bot doesn't know their password.
 - **Hosting/VPN block** (`antibot.datacenter_block`, off).
 - **Surge mode** (`antibot.surge`): during a wave of joins checks start at a controlled rate.
 - **Packet watch** (`antibot.packet_watch`): flood and impossible coordinates from the first second.
@@ -172,7 +181,9 @@ Fast mode (default): `antibot.fast_mode: true` — the check starts right on joi
 - The first 2 proven fails kick. Then an IP ban: 1 min → 5 min → 15 min. After 24 h without fails the tier resets. Bans survive restarts (`data/ip-bans.txt`). Remove all: `/authadmin unban`.
 
 ### Queue
-If there are more checks than `max_concurrent_checks` (8), the rest wait: `bossbar` (default) — in place with a bossbar; `lobby` — a shared lobby with parkour and a PvP zone; `none` — just a message.
+If there are more checks than `max_concurrent_checks` (8), the rest wait: `bossbar` (default) — in place with a bossbar; `lobby` — a shared lobby with parkour and a PvP zone; `none` — just a message. Total places (checks + queue) — `antibot.influx.burst` (64); the rest get a polite "server overloaded" refusal.
+
+**Lobby queue** (`fast_mode: false`, `queue_mode: lobby`) — a 55×55 platform in the check world: parkour (6 lanes), a PvP arena with a kit chest (everyone gets their own window, once per 30 seconds), a "Speed II for 30 seconds" button, holograms and a boss bar with the position. A kill in the PvP zone moves the queue: the killer gains 1 place, the victim loses 1 (the same pair at most once a minute). Not allowed: commands, fighting outside the PvP zone, breaking blocks, flying without permission; falling into the void returns you to the spawn. Everyone first waits in the lobby for `lobby_first_seconds` (8, maximum 60). If more than `queue_hide_above` (60) players are waiting, they stop seeing each other (except in the PvP zone) — otherwise traffic grows as the square of the player count. Measured: 50 waiting — average tick 6 ms; 156 waiting — peak 140 ms, TPS at least 19.7.
 
 ## 7. Passwords, 2FA, e-mail, sessions
 
@@ -195,7 +206,10 @@ Proxy module (`plugins/vtregister/config.yml` on Velocity, `plugins/VTRegister/c
 | `allowed_proxy_commands` | proxy commands allowed before login |
 | `secret` | shared secret with the servers — one login across the network |
 | `connection_limit.*` | IP limits and attack mode on the proxy |
+| `connection_limit.attack_admit_per_second` | during an attack — how many unknown newcomers per second to admit (2); your players and verified IPs get in without waiting |
 | `ping_check` | ping check on the proxy |
+
+Set the same `secret` on the proxy and the servers — then the proxy knows your players and lets them in without waiting even during an attack. Single sign-on also works with a separate database on each server.
 
 `/server` and server switching are blocked before login. If a name in `auth_servers` is not among the proxy's servers, players are **not kicked**, and the console reminds you once a minute. To filter connection floods at the proxy itself, you can add Sonar alongside.
 
@@ -276,6 +290,8 @@ Inside the jar: `INSTRUCTION_RU.txt`, `INSTRUCTION_EN.txt`, `PROXY_SETUP.txt`.
 - Password hashing and database work run off the main thread; simultaneous password checks are limited.
 - Arenas are restored in portions, puzzle pictures are prepared in advance, colored text is cached.
 - During a wave of joins checks start at a controlled rate (surge mode).
+- 1.1.7 measurements: 8,000 bots in 40 seconds — 20 TPS, the plugin uses 1–4% of the main thread; Paper 1.13.2–1.21.11, 26.2 and Folia with 2,000 bots — 19.7–20 TPS; the Velocity/BungeeCord proxy itself with 6,000 bots — 0.5–1.2 cores on average. Details — [AI_AUDIT.md](AI_AUDIT.md), section 11 (in Russian).
+- A large lobby queue — see `queue_hide_above` in "Queue".
 - Measure: `/spark profiler`.
 
 ## 13. Compatibility with other plugins
@@ -288,6 +304,8 @@ Inside the jar: `INSTRUCTION_RU.txt`, `INSTRUCTION_EN.txt`, `PROXY_SETUP.txt`.
 - **PlaceholderAPI** — the placeholders above.
 - **Multiverse-Core, MultiWorld, MyWorlds** — load first so their worlds are available for spawns.
 - **Sonar** (on Velocity) — can run alongside to filter connection floods at the proxy.
+- **Paper 1.21+** — VTRegister does not listen to the deprecated `PlayerLoginEvent` (unless `proxy.firewall` is enabled), so it does not disable the reconfiguration API for other plugins.
+- **Folia** — login and registration work fully; the anti-bot stages are not available on Folia; connection limits, the ping check and the AFK check protect the server.
 
 ## 14. Common problems
 
