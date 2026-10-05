@@ -45,7 +45,7 @@
 | Bedrock | Geyser + Floodgate |
 | Storage | YAML, SQLite, MySQL, MariaDB, PostgreSQL |
 | Languages | Russian and English, chosen by client locale |
-| Download | [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) — all new versions are published only there |
+| Download | [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) — new versions are published there first; the second official page is [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/) |
 
 ## 2. Who it is for
 

@@ -45,7 +45,7 @@
 | Bedrock | Geyser + Floodgate |
 | Хранилище | YAML, SQLite, MySQL, MariaDB, PostgreSQL |
 | Языки | русский и английский, выбор по языку клиента |
-| Где скачать | [Releases на GitHub](https://github.com/Vitaliy222121/VTRegister/releases/latest) — все новые версии выходят только там |
+| Где скачать | [Releases на GitHub](https://github.com/Vitaliy222121/VTRegister/releases/latest) — новые версии выходят там первыми; вторая официальная страница — [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/) |
 
 ## 2. Кому подходит
 
