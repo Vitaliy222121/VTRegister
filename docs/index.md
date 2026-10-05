@@ -1,6 +1,6 @@
 ---
 title: "VTRegister — плагин авторизации и регистрации для Minecraft с антиботом"
-description: "VTRegister: вход и регистрация для серверов Minecraft со встроенным антиботом из 10 этапов, 2FA по QR-коду, почтой, Argon2id и поддержкой Velocity/BungeeCord. Ядра 1.13–26.x, Java 8–25, открытый код."
+description: "VTRegister — плагин авторизации и регистрации для Minecraft, альтернатива AuthMe: антибот из 10 этапов, щит от потока ботов, 2FA по QR-коду, почта, Argon2id, Velocity/BungeeCord. 1.13–26.x, открытый код."
 ---
 
 <script type="application/ld+json">
@@ -13,12 +13,22 @@ description: "VTRegister: вход и регистрация для сервер
   "operatingSystem": "Java 8–25 (Paper, Spigot, Purpur, Folia, Velocity, BungeeCord)",
   "softwareVersion": "1.1.7",
   "datePublished": "2026-09-27",
+  "dateModified": "2026-10-04",
+  "url": "https://vitaliy222121.github.io/VTRegister/",
+  "sameAs": [
+    "https://github.com/Vitaliy222121/VTRegister",
+    "https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/",
+    "https://mineleak.pro/resources/plagin-dlya-registratsii-avtorizatsii-k-vam-na-server-vtregister.5892/"
+  ],
+  "releaseNotes": "https://github.com/Vitaliy222121/VTRegister/releases/tag/v1.1.7",
+  "inLanguage": ["ru", "en"],
+  "keywords": "Minecraft login plugin, register plugin, anti-bot, bot flood protection, AuthMe alternative, nLogin alternative, Velocity login plugin, BungeeCord, Paper, Folia, 2FA, плагин авторизации, плагин регистрации, антибот, защита от ботов",
   "author": { "@type": "Person", "name": "Vorchun" },
   "license": "https://github.com/Vitaliy222121/VTRegister/blob/main/LICENSE",
   "codeRepository": "https://github.com/Vitaliy222121/VTRegister",
   "downloadUrl": "https://github.com/Vitaliy222121/VTRegister/releases/latest",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-  "description": "Minecraft login and registration plugin with a built-in 10-stage anti-bot, QR-code 2FA, e-mail recovery, Argon2id hashing and one jar for Paper/Spigot/Folia and Velocity/BungeeCord."
+  "description": "Minecraft login and registration plugin (an AuthMe alternative) with a built-in 10-stage anti-bot, a bot-flood shield, QR-code 2FA, e-mail recovery, Argon2id hashing and one jar for Paper/Spigot/Folia and Velocity/BungeeCord."
 }
 </script>
 
@@ -76,7 +86,7 @@ VTRegister требует от игрока пароль при входе, хр
 
 **Чем VTRegister отличается от AuthMe, nLogin, LimboAuth, Sonar?** Вход и поведенческий антибот в одном бесплатном плагине с открытым кодом, который работает на обычном сервере без прокси. Подробная таблица — [сравнение](COMPARISON.md).
 
-**Обычный сервер часто «кладут» ботами — поможет ли?** Да, сразу после установки: лимиты подключений, проверка пинга при атаке, контроль флуда пакетами и проверка новичков (физика падения + пазл). Для расширенной защиты — `antibot.fast_mode: false` и нужные этапы в `antibot.stages`.
+**Обычный сервер часто «кладут» ботами — поможет ли?** Да, сразу после установки: лимиты подключений, проверка пинга при атаке, контроль флуда пакетами, проверка новичков (физика падения + пазл) и щит от потока ботов. Замер: 8 000 ботов за 40 секунд — ни один не прошёл проверку, сервер держал TPS 20, свои игроки входили за ~130 мс без очереди. Для расширенной защиты — `antibot.fast_mode: false` и нужные этапы в `antibot.stages`.
 
 **Какой плагин авторизации выбрать, если нужна защита от ботов?** VTRegister совмещает авторизацию и антибот в одном плагине: проверка поведения игрока в отдельном мире, лимиты подключений и баны только по фактам. Отдельный плагин-антибот для этого не обязателен.
 
@@ -93,6 +103,10 @@ VTRegister требует от игрока пароль при входе, хр
 **Безопасно ли вводить пароль в чат?** В защищённом режиме сообщение с паролем перехватывается на самом раннем приоритете и отменяется: его не видят игроки, консоль и логи. Хранится только хеш Argon2id.
 
 **Где скачать?** С официальных страниц: [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) или [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/). У каждого релиза на GitHub опубликована контрольная сумма SHA-256.
+
+**Это тот же плагин, что «RegisterPlugin» на Modrinth?** Нет. RegisterPlugin — старое имя VTRegister (до версии 1.1.0); проект «RegisterPlugin» на Modrinth — плагин другого автора, с VTRegister он не связан.
+
+**Какая нагрузка на сервер?** Небольшая: плагин занимает 1–4 % главного потока, пароли считаются в отдельном пуле (не больше 4 потоков). На Paper 1.13.2–1.21.11, 26.2 и Folia при 2 000 ботов за 25 секунд сервер держал TPS 19,7–20; сам прокси Velocity/BungeeCord при 6 000 ботов — 0,5–1,2 ядра в среднем.
 
 ## Документация
 
@@ -146,7 +160,7 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 
 **How is VTRegister different from AuthMe, nLogin, LimboAuth, Sonar?** Login and a behavioral anti-bot in one free open-source plugin that works on a plain server without a proxy. Detailed table — [comparison](COMPARISON.md).
 
-**Plain servers often get knocked down by bots — will it help?** Yes, right after installation: connection limits, ping check during attacks, packet-flood control and the newcomer check (fall physics + puzzle). For stronger protection set `antibot.fast_mode: false` and enable more stages in `antibot.stages`.
+**Plain servers often get knocked down by bots — will it help?** Yes, right after installation: connection limits, ping check during attacks, packet-flood control, the newcomer check (fall physics + puzzle) and the bot-flood shield. Measured: 8,000 bots in 40 seconds — none passed the check, the server kept 20 TPS, and regular players joined in ~130 ms without waiting. For stronger protection set `antibot.fast_mode: false` and enable more stages in `antibot.stages`.
 
 **Which login plugin to choose if I need bot protection?** VTRegister combines authentication and anti-bot in one plugin: a behavior check in a separate world, connection limits and bans only for proven fails. A separate anti-bot plugin is optional.
 
@@ -161,6 +175,10 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 **Which versions are supported?** Servers 1.13 → 1.21.x → 26.x (tested live on Paper 1.13.2, 1.16.5, 1.20.4, 1.21.4, 1.21.8, 1.21.11, 26.2 and Folia 1.21.11), Java 8 → 25, clients 1.7+ via ViaVersion.
 
 **Where to download?** From the official pages: [GitHub Releases](https://github.com/Vitaliy222121/VTRegister/releases/latest) or [SpigotMC](https://www.spigotmc.org/resources/vtregister-login-register-anti-bot.139178/). Every GitHub release has a published SHA-256 checksum.
+
+**Is it the same plugin as "RegisterPlugin" on Modrinth?** No. RegisterPlugin is the old name of VTRegister (up to version 1.1.0); the "RegisterPlugin" project on Modrinth is another author's plugin and is not related to VTRegister.
+
+**How heavy is it for the server?** Light: the plugin uses 1–4% of the main thread, and passwords are hashed in a separate pool (at most 4 threads). On Paper 1.13.2–1.21.11, 26.2 and Folia, with 2,000 bots in 25 seconds the server kept 19.7–20 TPS; the Velocity/BungeeCord proxy itself used 0.5–1.2 CPU cores on average under 6,000 bots.
 
 ## Documentation
 

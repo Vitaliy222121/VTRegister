@@ -1,8 +1,8 @@
 title: VTRegister
 description: >-
-  VTRegister — плагин регистрации и авторизации для Minecraft со встроенным антиботом из 10 этапов,
+  VTRegister — плагин регистрации и авторизации для Minecraft (альтернатива AuthMe) со встроенным антиботом из 10 этапов, щитом от потока ботов,
   2FA по QR-коду, восстановлением по почте и Argon2id. Один jar для Paper/Spigot/Folia и Velocity/BungeeCord.
-  Minecraft login & register plugin with a built-in 10-stage anti-bot, QR 2FA and e-mail recovery.
+  Minecraft login & register plugin and AuthMe alternative with a built-in 10-stage anti-bot, a bot-flood shield, QR 2FA and e-mail recovery.
 url: "https://vitaliy222121.github.io"
 baseurl: "/VTRegister"
 lang: ru
