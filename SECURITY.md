@@ -38,7 +38,8 @@ VTRegister — плагин с открытым исходным кодом. З�
 | Что | По умолчанию | Настройка |
 |---|---|---|
 | Автоперезапуск сервера (раз в 48 ч в 00:00 МСК, с предупреждениями игрокам) | вкл | `advanced.yml` → `auto_restart.enabled` |
-| Команды после входа от имени консоли (например, `spawn {player}`) | выкл | `after_auth` — задаёт только админ |
+| Команды после входа от имени консоли (например, `spawn {player}`; ник подставляется только безопасными символами) | выкл | `after_auth` — задаёт только админ |
+| Отказ прямым подключениям в обход прокси (проверяется настоящий адрес соединения, а не адрес, переданный прокси) | выкл | `proxy.firewall` |
 | Самозащита: остановка/перезапуск при попытке другого плагина отключить защиту | выкл | `selfdefense.enabled` |
 
 ## Проверка целостности сборки
@@ -104,7 +105,8 @@ The downloaded PostgreSQL driver is verified by **SHA-256** (`188976721ead8e8627
 | What | Default | Setting |
 |---|---|---|
 | Scheduled server restart (every 48 h at 00:00 Moscow time, with player warnings) | on | `advanced.yml` → `auto_restart.enabled` |
-| Console commands after login (e.g. `spawn {player}`) | off | `after_auth` — set by the admin only |
+| Console commands after login (e.g. `spawn {player}`; the name is inserted with safe characters only) | off | `after_auth` — set by the admin only |
+| Refuse direct connections that bypass the proxy (the real connection address is checked, not the one forwarded by the proxy) | off | `proxy.firewall` |
 | Self-defense: stop/restart when another plugin tries to disable the protection | off | `selfdefense.enabled` |
 
 ## Build integrity check

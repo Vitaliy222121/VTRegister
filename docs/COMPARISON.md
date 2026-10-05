@@ -48,6 +48,7 @@
 3. **Безопасность проверяема.** Открытый код; ники, IP и пароли не уходят с сервера; из сетевого по умолчанию включена только анонимная статистика bStats, список всех обращений — в [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md), у каждого релиза опубликован SHA-256.
 4. **Не наказывает живых игроков.** Баны только за доказанный провал проверки; честно падающие клиенты 1.8–26.2 проходят физику 21 из 21 в замерах.
 5. **Лёгкий для сервера.** Хеширование паролей — в отдельных потоках; при входе 50 игроков за секунду доля плагина в главном потоке ~4 %, пик MSPT 43 мс (у прошлой версии 216 мс).
+6. **Держит поток ботов.** Щит (1.1.7): режим атаки включается сразу, незнакомые новички пускаются дозированно, свои игроки и проверенные IP — без очереди. Замер: 8 000 ботов за 40 секунд — ни один не прошёл проверку, сервер держал TPS 20, свои игроки входили за ~130 мс. На Paper 1.13.2–1.21.11, 26.2 и Folia при 2 000 ботов — TPS 19,7–20.
 
 ## Когда VTRegister — не лучший вариант
 
@@ -109,6 +110,7 @@ On a plain server without a proxy, bots join in waves, register accounts, spam a
 3. **Verifiable security.** Open source; names, IPs and passwords never leave the server; the only network feature on by default is anonymous bStats statistics, all network access is listed in [SECURITY.md](https://github.com/Vitaliy222121/VTRegister/blob/main/SECURITY.md), every release has a published SHA-256.
 4. **Does not punish real players.** Bans only for a proven failure; honestly falling clients 1.8–26.2 pass the physics check 21 out of 21 in our measurements.
 5. **Light on the server.** Password hashing runs on separate threads; with 50 players logging in within a second the plugin takes ~4% of the main thread, MSPT peak 43 ms (216 ms in the previous version).
+6. **Holds up under a bot flood.** The shield (1.1.7): attack mode turns on immediately, unknown newcomers are admitted at a fixed rate, your players and verified IPs get in without waiting. Measured: 8,000 bots in 40 seconds — none passed the check, the server kept 20 TPS, your players joined in ~130 ms. On Paper 1.13.2–1.21.11, 26.2 and Folia with 2,000 bots — 19.7–20 TPS.
 
 ## When VTRegister is not the best fit
 
