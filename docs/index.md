@@ -1,4 +1,5 @@
 ---
+last_modified_at: 2026-10-06
 title: "VTRegister — плагин авторизации и регистрации для Minecraft с антиботом"
 description: "VTRegister — плагин авторизации и регистрации для Minecraft, альтернатива AuthMe: антибот из 10 этапов, щит от потока ботов, 2FA по QR-коду, почта, Argon2id, Velocity/BungeeCord. 1.13–26.x, открытый код."
 ---
@@ -13,7 +14,7 @@ description: "VTRegister — плагин авторизации и регист
   "operatingSystem": "Java 8–25 (Paper, Spigot, Purpur, Folia, Velocity, BungeeCord)",
   "softwareVersion": "1.1.7",
   "datePublished": "2026-09-27",
-  "dateModified": "2026-10-04",
+  "dateModified": "2026-10-06",
   "url": "https://vitaliy222121.github.io/VTRegister/",
   "sameAs": [
     "https://github.com/Vitaliy222121/VTRegister",
@@ -108,6 +109,10 @@ VTRegister требует от игрока пароль при входе, хр
 
 **Какая нагрузка на сервер?** Небольшая: плагин занимает 1–4 % главного потока, пароли считаются в отдельном пуле (не больше 4 потоков). На Paper 1.13.2–1.21.11, 26.2 и Folia при 2 000 ботов за 25 секунд сервер держал TPS 19,7–20; сам прокси Velocity/BungeeCord при 6 000 ботов — 0,5–1,2 ядра в среднем.
 
+**Что VTRegister пока не умеет?** Redis, REST API, восстановление пароля через Telegram/Discord, смешанный режим «лицензия без пароля, пиратка с паролем» на offline-сервере и команду ручной очистки базы. Всё остальное, что часто называют минусами, есть: MySQL/MariaDB/PostgreSQL, сессии (2 часа), восстановление по почте, премиум-автовход, автоочистка неактивных аккаунтов, мост для сети, отключаемый антибот.
+
+**Можно ли связать с сайтом?** Да, без REST API: сайт читает таблицу `rp_accounts` (MySQL/MariaDB/PostgreSQL) и проверяет пароль стандартной функцией Argon2id — например, `password_verify()` в PHP. Подробно — [руководство, раздел 7](GUIDE.ru.html).
+
 ## Документация
 
 - [Полное руководство](GUIDE.ru.md) · [Все 472 настройки](CONFIG.ru.md) · [Сравнение с другими плагинами](COMPARISON.md) · [Разбор для ИИ и аудита](AI_AUDIT.md) · [API](API.md) · [Справка для ИИ](llms-full.txt)
@@ -179,6 +184,10 @@ VTRegister requires a password on join, stores only its Argon2id hash, supports 
 **Is it the same plugin as "RegisterPlugin" on Modrinth?** No. RegisterPlugin is the old name of VTRegister (up to version 1.1.0); the "RegisterPlugin" project on Modrinth is another author's plugin and is not related to VTRegister.
 
 **How heavy is it for the server?** Light: the plugin uses 1–4% of the main thread, and passwords are hashed in a separate pool (at most 4 threads). On Paper 1.13.2–1.21.11, 26.2 and Folia, with 2,000 bots in 25 seconds the server kept 19.7–20 TPS; the Velocity/BungeeCord proxy itself used 0.5–1.2 CPU cores on average under 6,000 bots.
+
+**What can't VTRegister do yet?** Redis, a REST API, password recovery via Telegram/Discord, a mixed "premium without password, cracked with password" mode on offline servers, and a manual database purge command. Everything else often listed as a minus is there: MySQL/MariaDB/PostgreSQL, sessions (2 hours), e-mail recovery, premium auto-login, automatic purge of inactive accounts, a network bridge, an anti-bot you can turn off.
+
+**Can it be connected to a website?** Yes, without a REST API: the site reads the `rp_accounts` table (MySQL/MariaDB/PostgreSQL) and verifies the password with a standard Argon2id function — e.g. `password_verify()` in PHP. Details — [guide, section 7](GUIDE.en.html).
 
 ## Documentation
 
