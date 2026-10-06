@@ -376,8 +376,7 @@ Updating means replacing the jar. New settings are added automatically with thei
 - Argon2id; old PBKDF2 hashes are upgraded on the next login.
 - 2FA (Google Authenticator, Aegis…): `/2fa on` puts a QR-code map in your hand; code reuse is blocked. Mandatory 2FA for admins — optional.
 - E-mail: binding and password recovery; Gmail, Yandex and Mail.ru need a single `email.provider` line.
-- Premium auto-login (online-mode), IP sessions, one session per name; a mixed "premium without password, cracked with password" mode on offline servers is not available yet.
-- Not available yet: Redis (networks use the bridge and a shared MySQL/PostgreSQL), a REST API (a website can read the database and verify Argon2id itself), password recovery via Telegram/Discord (e-mail recovery exists), a manual database purge command (automatic purge of inactive accounts exists — `purge`).
+- Premium auto-login (online-mode), IP sessions, one session per name.
 - Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL; account migration from AuthMe (and old forks: SQLite, MySQL, the auths.db file), nLogin, OpeNLogin, LoginSecurity, LimboAuth — players log in with their old passwords.
 - On-screen hints in the middle of the screen: what to do right now (register, log in, pass a stage) — `screen_hints.enabled`.
 - [Developer API](docs/API.md): login and anti-bot events, custom login windows, password checks. Anonymous bStats statistics are on by default (`advanced.yml` → `bstats.enabled`).
@@ -516,6 +515,7 @@ Dual, your choice: **GPL-3.0 with additional terms** or **Vorchun MIT-style Lice
 - No plugin can fully hide a password from another plugin in the same process; secure mode intercepts input earlier than the others.
 - The `issued server command` line is written by the server itself; the plugin disables it (`security.command_logging: fix`) and adds a log filter.
 - On Folia the anti-bot check world (stages) and the login platform are disabled — Folia does not allow running arenas from one thread across regions. Registration, login, 2FA, connection limits, ping check, bans and AFK protection work.
-- Premium auto-login requires online-mode or a proxy with secure forwarding.
+- Premium auto-login requires online-mode or a proxy with secure forwarding; a mixed "premium without password, cracked with password" mode on offline servers is not available yet.
+- Not available yet: Redis (networks use the bridge and a shared MySQL/PostgreSQL), a REST API (a website can read the database and verify Argon2id itself), password recovery via Telegram/Discord (e-mail recovery exists), a manual database purge command (automatic purge of inactive accounts exists — `purge`).
 
 Support and ideas — MineLeak.pro discussions (author Vorchun).
