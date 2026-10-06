@@ -253,7 +253,8 @@ mvn clean package
 - Ни один плагин не может полностью скрыть пароль от другого плагина в том же процессе; защищённый режим перехватывает ввод раньше остальных.
 - Строку `issued server command` пишет само ядро; плагин отключает её (`security.command_logging: fix`) и ставит фильтр логов.
 - На Folia проверка на бота в отдельном мире (этапы) и платформа входа отключены — Folia не даёт вести арены из одного потока в разных регионах. Регистрация, вход, 2FA, лимиты подключений, проверка пинга, баны и AFK-защита работают.
-- Премиум-автовход — только для online-mode или за прокси с защищённой переадресацией.
+- Премиум-автовход — только для online-mode или за прокси с защищённой переадресацией; смешанного режима «лицензия без пароля, пиратка с паролем» на offline-сервере пока нет.
+- Пока нет: Redis (сеть работает через мост и общую MySQL/PostgreSQL), REST API (сайт может читать базу и проверять Argon2id сам), восстановления пароля через Telegram/Discord (есть по почте), команды ручной очистки базы (есть автоочистка неактивных — `purge`).
 
 Поддержка и идеи — обсуждения на MineLeak.pro (автор Vorchun).
 
@@ -375,7 +376,8 @@ Updating means replacing the jar. New settings are added automatically with thei
 - Argon2id; old PBKDF2 hashes are upgraded on the next login.
 - 2FA (Google Authenticator, Aegis…): `/2fa on` puts a QR-code map in your hand; code reuse is blocked. Mandatory 2FA for admins — optional.
 - E-mail: binding and password recovery; Gmail, Yandex and Mail.ru need a single `email.provider` line.
-- Premium auto-login (online-mode), IP sessions, one session per name.
+- Premium auto-login (online-mode), IP sessions, one session per name; a mixed "premium without password, cracked with password" mode on offline servers is not available yet.
+- Not available yet: Redis (networks use the bridge and a shared MySQL/PostgreSQL), a REST API (a website can read the database and verify Argon2id itself), password recovery via Telegram/Discord (e-mail recovery exists), a manual database purge command (automatic purge of inactive accounts exists — `purge`).
 - Storage: YAML, SQLite, MySQL, MariaDB, PostgreSQL; account migration from AuthMe (and old forks: SQLite, MySQL, the auths.db file), nLogin, OpeNLogin, LoginSecurity, LimboAuth — players log in with their old passwords.
 - On-screen hints in the middle of the screen: what to do right now (register, log in, pass a stage) — `screen_hints.enabled`.
 - [Developer API](docs/API.md): login and anti-bot events, custom login windows, password checks. Anonymous bStats statistics are on by default (`advanced.yml` → `bstats.enabled`).
