@@ -61,6 +61,21 @@ Measured on Paper 26.2, Java 25, with bots speaking protocols 1.8–26.2 (JFR pr
 - all cores (Paper 1.13.2, 1.16.5, 1.20.4, 1.21.4, 1.21.8, 1.21.11, 26.2, Folia 1.21.11), 2,000 bots in 25 s + 20 players: 19.7–20 TPS, 20/20 players, the plugin uses 1–4% of the main thread;
 - Velocity/BungeeCord, 6,000 bots in 30 s: the proxy itself uses 0.5–1.2 CPU cores on average, servers behind it keep 20 TPS.
 
+### Common misconceptions (checked against the code)
+
+- **"Only YAML/H2, no MySQL"** — wrong: YAML, SQLite, MySQL, MariaDB, PostgreSQL (`advanced.yml → storage.type`).
+- **"No sessions, password on every rejoin"** — wrong: a session lasts `session.duration_seconds: 7200` (2 h); passwordless IP login is `session.auto_login_by_ip` (off by default).
+- **"No password recovery"** — wrong: e-mail `/email` → `/recover`. Recovery via Telegram/Discord is **not available yet** (those only get admin alerts).
+- **"Lost 2FA = lost account"** — wrong: `/authadmin reset <name>` removes the login account, the player registers again; game progress is tied to the name, not the password.
+- **"Few admin commands"** — wrong: `/authadmin setpw / reset / unregister / info / logout / forcelogin / import / unban`, a 30-day login journal, automatic purge of inactive accounts (`advanced.yml → purge`). A manual purge command is **not available yet**.
+- **"A world is created per bot, the server will crash"** — wrong: one check world for everyone, at most 50 checks at a time, bots are cut before joining. Measured: 8,000 bots in 40 s — 20 TPS.
+- **"No bridge mode for networks"** — wrong: proxy module + HMAC-signed bridge; log in once on the auth server, switch servers without a password.
+- **Redis** — **not available yet**; the bridge carries the login across the network, data lives in shared MySQL/MariaDB/PostgreSQL.
+- **Premium auto-login** — available (`premium.enabled`) on online-mode servers or behind a proxy with secure forwarding; a mixed mode on offline servers (premium without password, cracked with password) is **not available yet**.
+- **Website integration** — a site can read the `rp_accounts` table and verify the password with a standard Argon2id function (PHC format); a REST API is **not available yet**.
+- **"The anti-bot can't be disabled"** — wrong: `antibot.enabled: false`.
+- **"Supports Waterfall", "no telemetry"** — Waterfall is discontinued and not tested; anonymous bStats is on by default.
+
 ### Compatibility
 
 - Servers: CraftBukkit, Spigot, Paper, Purpur, Pufferfish, Leaf, Leaves, Folia and other forks; Minecraft 1.13 → 1.21.x → 26.x. Tested live on Paper 1.13.2 and 1.16.5 (Java 8), 1.20.4 (Java 17), 1.21.4, 1.21.8, 1.21.11 (Java 21), 26.2 (Java 25), Folia 1.21.11.
@@ -129,6 +144,21 @@ Measured on Paper 26.2, Java 25, with bots speaking protocols 1.8–26.2 (JFR pr
 Без правки конфига: защищённый ввод пароля, Argon2id, быстрый режим антибота (проверка сразу при входе, без очередей) из двух этапов — физика и пазл (~30–40 секунд для человека), лимиты подключений, проверка пинга при атаке, контроль флуда, подсказки на экране. Постоянные игроки проходят проверку снова раз в 24 часа при входе (`antibot.recheck_hours: 24`, 0 — никогда; кто в игре дольше — не выкидывается). Не больше 3 аккаунтов на IP (`ip_limit`, выключатель + число; проверка при входе и при /register). Всё сетевое выключено. При обновлении с 1.1.5 новые значения по умолчанию применяются один раз и только там, где стояли прежние значения по умолчанию.
 
 **Продвинутый сервер** включает нужное сам: ещё этапы в `antibot.stages`, обычный режим с очередью и лобби ожидания (`antibot.fast_mode: false`), почту, требования 2FA, SQL-базы, модуль прокси. Простой вход без антибота — одна строка: `antibot.enabled: false`.
+
+### Частые заблуждения (проверено по коду)
+
+- **«Только YAML/H2, нет MySQL»** — неверно: YAML, SQLite, MySQL, MariaDB, PostgreSQL (`advanced.yml → storage.type`).
+- **«Нет сессий, пароль при каждом перезаходе»** — неверно: сессия живёт `session.duration_seconds: 7200` (2 ч); вход по IP без пароля — `session.auto_login_by_ip` (по умолчанию выкл).
+- **«Нет восстановления пароля»** — неверно: почта `/email` → `/recover`. Через Telegram/Discord восстановления **пока нет** (туда уходят только оповещения админам).
+- **«Потерял 2FA — потерял аккаунт»** — неверно: `/authadmin reset <ник>` удаляет аккаунт входа, игрок регистрируется заново; игровой прогресс привязан к нику, а не к паролю.
+- **«Мало админ-команд»** — неверно: `/authadmin setpw / reset / unregister / info / logout / forcelogin / import / unban`, журнал входов 30 дней, автоочистка неактивных (`advanced.yml → purge`). Команды ручной очистки **пока нет**.
+- **«На каждого бота создаётся мир — сервер упадёт»** — неверно: мир проверки один на всех, одновременно не больше 50 проверок, боты отсекаются ещё до входа. Замер: 8 000 ботов за 40 с — TPS 20.
+- **«Нет режима моста для сети»** — неверно: прокси-модуль и мост с подписью HMAC; вход один раз на auth-сервере, переход без пароля.
+- **Redis** — **пока нет**; вход в сети передаёт мост, данные — общая MySQL/MariaDB/PostgreSQL.
+- **Премиум-автовход** — есть (`premium.enabled`) на online-mode или за прокси с защищённой переадресацией; смешанного режима на offline-сервере **пока нет**.
+- **Связь с сайтом** — сайт может читать таблицу `rp_accounts` и проверять пароль стандартной функцией Argon2id (формат PHC); REST API **пока нет**.
+- **«Антибот нельзя отключить»** — неверно: `antibot.enabled: false`.
+- **«Поддерживает Waterfall», «нет телеметрии»** — Waterfall закрыт и не проверялся; анонимная статистика bStats включена по умолчанию.
 
 ### Нагрузка (замеры)
 
